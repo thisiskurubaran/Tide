@@ -57,13 +57,17 @@ function createSupervisor({ send, builtins = {} }) {
       return fail(req.id, `can't enter ${req.cwd}: ${/** @type {Error} */ (e).message}`);
     }
 
+    // Stack traces show paths from the project root, like the shell, not the sandbox path.
+    // Tools like pip also use it to find the project from a subfolder.
+    const project = String(req.cwd || '').split('/').slice(0, 2).join('/');
+    const projectDir = project.startsWith('projects/') ? resolve(project) : null;
     const limits = req.limits || {};
     let worker;
     try {
       worker = new Worker(BOOTSTRAP, {
         argv: Array.isArray(req.args) ? req.args : [],
         workerData: { entry },
-        env: { ...process.env, ...(req.env || {}), PWD: cwd },
+        env: { ...process.env, ...(req.env || {}), PWD: cwd, ...(projectDir ? { TIDE_PROJECT_DIR: projectDir } : {}) },
         stdout: true,
         stderr: true,
         resourceLimits: { maxOldGenerationSizeMb: limits.maxMemoryMb || DEFAULT_MAX_MEMORY_MB },
@@ -87,9 +91,6 @@ function createSupervisor({ send, builtins = {} }) {
     worker.stderr.setEncoding('utf8');
     worker.stdout.on('data', (data) => send({ type: 'stdout', id: req.id, data }));
     worker.stderr.on('data', (data) => send({ type: 'stderr', id: req.id, data }));
-    // Stack traces show paths from the project root, like the shell, not the sandbox path.
-    const project = String(req.cwd || '').split('/').slice(0, 2).join('/');
-    const projectDir = project.startsWith('projects/') ? resolve(project) : null;
     worker.on('error', (err) => {
       // Uncaught exceptions arrive here instead of on stderr.
       let text = err && err.stack ? err.stack : String(err);

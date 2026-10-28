@@ -133,8 +133,8 @@ describe('shell', () => {
 
   it('points unknown commands at remote mode', async () => {
     const { run } = await setup();
-    const out = await run('pip install requests');
-    expect(out).toContain('pip: command not found');
+    const out = await run('git status');
+    expect(out).toContain('git: command not found');
     expect(out).toContain('switch the terminal to Remote');
   });
 
@@ -216,6 +216,17 @@ describe('shell', () => {
     await run('node index.js');
     shell.dispose();
     expect(runner.sent).toContainEqual({ type: 'kill', id: 'r1' });
+  });
+
+  it('runs pip and python -m pip through the built-in installer', async () => {
+    const { run, runner } = await setup();
+    await run('pip install requests');
+    runner.listener?.({ type: 'exit', id: 'r1', code: 0 });
+    await run('python -m pip list');
+    expect(runner.requests.map((r) => [r.entry, r.args])).toEqual([
+      ['tide:pip', ['install', 'requests']],
+      ['tide:pip', ['list']],
+    ]);
   });
 
   it('run uses tide.json', async () => {

@@ -43,6 +43,7 @@ const COMMAND_HELP: [string, string][] = [
   ['python <file> [args]', 'run a Python file'],
   ['run', 'run the project (uses tide.json)'],
   ['npm install [pkg...]', 'install pure-JS packages into node_modules'],
+  ['pip install <pkg...>', 'install pure-Python packages into .pylibs'],
   ['clear', 'clear the screen'],
   ['help', 'show this list'],
 ];
@@ -156,11 +157,11 @@ export class Shell {
     if (!command) {
       this.write(
         `${ansi.red}${name}: command not found${ansi.reset}\n` +
-          `Local mode only has the built-in commands (type help). For pip, git and other tools, switch the terminal to Remote.\n`,
+          `Local mode only has the built-in commands (type help). For git and other tools, switch the terminal to Remote.\n`,
       );
       return;
     }
-    if (parsed.redirect && (name === 'node' || name === 'python' || name === 'run' || name === 'npm')) {
+    if (parsed.redirect && ['node', 'python', 'python3', 'run', 'npm', 'pip', 'pip3'].includes(name)) {
       io.err(`${name}: output redirection isn't supported for programs\n`);
       return;
     }
@@ -245,7 +246,7 @@ export class Shell {
       help: async (_args, io) => {
         const width = Math.max(...COMMAND_HELP.map(([c]) => c.length)) + 2;
         io.out(COMMAND_HELP.map(([c, d]) => `  ${c.padEnd(width)}${ansi.dim}${d}${ansi.reset}`).join('\n') + '\n');
-        io.out(`${ansi.dim}Anything else (pip, git, native npm packages, ...) needs Remote mode.${ansi.reset}\n`);
+        io.out(`${ansi.dim}Anything else (git, packages with native code, ...) needs Remote mode.${ansi.reset}\n`);
       },
       pwd: async (_args, io) => io.out(`${displayPath(this.cwd)}\n`),
       cd: async (args) => {
@@ -345,6 +346,9 @@ export class Shell {
       python3: (args) => this.runProgram('python', args),
       // Built into the Node supervisor; resolves packages from the registry without running scripts.
       npm: (args) => this.startRun('node', 'tide:npm', args, this.cwd),
+      // pip downloads with Node's TLS stack; the embedded Python has no CA store on iOS.
+      pip: (args) => this.startRun('node', 'tide:pip', args, this.cwd),
+      pip3: (args) => this.startRun('node', 'tide:pip', args, this.cwd),
       run: async (args) => {
         if (args.length) throw new CommandError('run takes no arguments; it uses tide.json');
         const config = await fs.readRunConfig();
@@ -355,6 +359,9 @@ export class Shell {
   }
 
   private async runProgram(runtime: Runtime, args: string[]) {
+    if (runtime === 'python' && args[0] === '-m' && args[1] === 'pip') {
+      return this.startRun('node', 'tide:pip', args.slice(2), this.cwd);
+    }
     const [file, ...rest] = args;
     if (!file) throw new CommandError(`usage: ${runtime} <file> [args]`);
     const entry = await this.requireKind(file, 'file');

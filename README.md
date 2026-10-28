@@ -64,6 +64,8 @@ nodejs-mobile's Node is built without Intl: there is no `Intl` object and regula
 
 Python scripts run in the embedded CPython 3.15 (Chaquopy on Android), each on its own thread with `input()` wired to the terminal. Ctrl-C raises `KeyboardInterrupt` in the script. Project modules are reloaded on every run, and tracebacks show paths from the project root.
 
+`pip install <package>...` (also `pip install -r requirements.txt`, `pip uninstall`, `pip list` and `python -m pip`) installs pure-Python wheels from PyPI into the project's `.pylibs` folder, which is on `sys.path` for every run. It resolves dependencies, extras and environment markers for the device and checks each wheel's sha256. Packages that only ship compiled wheels need Remote mode. pip runs in the Node supervisor so downloads use Node's TLS stack.
+
 `npm install [package...]` works locally for pure-JS packages: it resolves versions from the registry, checks each tarball's integrity and extracts it into `node_modules`. Install scripts never run, and packages that need a native build print a warning; install those in Remote mode.
 
 ## WebView bundles

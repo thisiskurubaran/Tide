@@ -8,7 +8,7 @@ const { createSupervisor } = require('./supervisor');
 
 const supervisor = createSupervisor({
   send: (msg) => rnBridge.channel.send(JSON.stringify(msg)),
-  builtins: { npm: path.join(__dirname, 'npm', 'cli.js') },
+  builtins: { npm: path.join(__dirname, 'npm', 'cli.js'), pip: path.join(__dirname, 'pip', 'cli.js') },
 });
 
 rnBridge.channel.on('message', (raw) => {
