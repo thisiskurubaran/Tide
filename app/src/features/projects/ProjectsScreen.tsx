@@ -1,7 +1,7 @@
 import Feather from '@expo/vector-icons/Feather';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, FlatList, Image, Pressable, StyleSheet, View } from 'react-native';
+import { Alert, FlatList, Image, Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ActionSheet } from '../../components/ActionSheet';
@@ -9,10 +9,14 @@ import { Button, IconButton } from '../../components/Button';
 import { PromptSheet } from '../../components/PromptSheet';
 import { Text } from '../../components/Text';
 import { projectsStore, tabsStore, useProjects } from '../../state';
-import { borderWidth, colors, fontSizes, radius, spacing } from '../../theme/tokens';
+import { borderWidth, fontSizes, radius, spacing } from '../../theme/tokens';
 import { NewProjectSheet } from './NewProjectSheet';
+import { makeStyles, useColorScheme, useColors } from '../../theme/theme';
 
-const mark = require('../../../assets/icons/splash-dark.png');
+const marks = {
+  dark: require('../../../assets/icons/splash-dark.png'),
+  light: require('../../../assets/icons/splash-light.png'),
+};
 
 export const projectHref = (name: string) => `/project/${encodeURIComponent(name)}` as const;
 
@@ -20,6 +24,9 @@ export const projectHref = (name: string) => `/project/${encodeURIComponent(name
 let restoredLastProject = false;
 
 export function ProjectsScreen() {
+  const styles = useStyles();
+  const scheme = useColorScheme();
+  const colors = useColors();
   const insets = useSafeAreaInsets();
   const projects = useProjects((s) => s.projects);
   const [creating, setCreating] = useState(false);
@@ -43,12 +50,12 @@ export function ProjectsScreen() {
   return (
     <View style={[styles.screen, { paddingTop: insets.top + spacing.md }]}>
       <View style={styles.header}>
-        <Image source={mark} style={styles.mark} accessibilityLabel="Tide" />
+        <Image source={marks[scheme]} style={styles.mark} accessibilityLabel="Tide" />
         <Text variant="heading" style={styles.headerTitle}>
           Projects
         </Text>
         {__DEV__ && <IconButton icon="cpu" label="Runtime spike" onPress={() => router.push('/debug')} />}
-        <IconButton icon="server" label="Remote server" onPress={() => router.push('/settings')} testID="open-settings" />
+        <IconButton icon="settings" label="Settings" onPress={() => router.push('/settings')} testID="open-settings" />
       </View>
 
       <FlatList
@@ -118,7 +125,7 @@ export function ProjectsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   screen: { flex: 1, backgroundColor: colors.background },
   header: {
     flexDirection: 'row',
@@ -153,4 +160,4 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sm,
     backgroundColor: colors.background,
   },
-});
+}));

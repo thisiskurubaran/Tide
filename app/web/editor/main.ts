@@ -178,9 +178,11 @@ function handle(msg: ToEditor) {
     case 'open':
       return open(msg.path, msg.content, msg.language);
     case 'setTheme':
-      themeExtension = buildTheme(msg.theme, true);
+      themeExtension = buildTheme(msg.theme, msg.dark);
       document.body.style.backgroundColor = msg.theme.background;
-      return view.dispatch({ effects: themeConf.reconfigure(themeExtension) });
+      view.dom.style.fontSize = `${msg.fontSize}px`;
+      view.dispatch({ effects: themeConf.reconfigure(themeExtension) });
+      return view.requestMeasure();
     case 'undo':
       return undo(view);
     case 'redo':

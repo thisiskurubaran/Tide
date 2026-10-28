@@ -4,12 +4,13 @@ import WebView, { WebViewMessageEvent } from 'react-native-webview';
 
 import { Button } from '../../components/Button';
 import { Text } from '../../components/Text';
-import { buffersStore, useBuffers } from '../../state';
+import { buffersStore, useBuffers, useSettings } from '../../state';
 import { bufferKey } from '../../state/buffers';
 import { editorThemes } from '../../theme/editor';
-import { colors, spacing } from '../../theme/tokens';
+import { spacing } from '../../theme/tokens';
 import { languageFor, parseFromEditor, ToEditor } from './bridge';
 import editorHtml from './editorHtml.generated';
+import { makeStyles, useColorScheme } from '../../theme/theme';
 
 export interface EditorHandle {
   send(msg: ToEditor): void;
@@ -23,12 +24,15 @@ interface EditorPaneProps {
 }
 
 export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function EditorPane({ project, path, onBrowse, onFocusChange }, ref) {
+  const styles = useStyles();
   const webview = useRef<WebView<object>>(null);
   const ready = useRef(false);
   const pathRef = useRef(path);
   pathRef.current = path;
   // Last text the WebView is known to hold, so outside changes (e.g. the shell) can be pushed in.
   const editorContent = useRef<string | null>(null);
+  const scheme = useColorScheme();
+  const fontSize = useSettings((s) => s.editorFontSize);
   const bufferContent = useBuffers((s) => (path ? s.buffers[bufferKey(project, path)]?.content : undefined));
 
   const send = useCallback((msg: ToEditor) => {
@@ -38,6 +42,12 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
   }, []);
 
   useImperativeHandle(ref, () => ({ send }), [send]);
+
+  const sendTheme = useCallback(
+    () => send({ type: 'setTheme', theme: editorThemes[scheme], dark: scheme === 'dark', fontSize }),
+    [send, scheme, fontSize],
+  );
+  useEffect(sendTheme, [sendTheme]);
 
   const openCurrent = useCallback(async () => {
     const target = pathRef.current;
@@ -75,7 +85,7 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
     switch (msg.type) {
       case 'ready':
         ready.current = true;
-        send({ type: 'setTheme', theme: editorThemes.dark });
+        sendTheme();
         openCurrent();
         return;
       case 'change':
@@ -134,7 +144,7 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
   );
 });
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { flex: 1, backgroundColor: colors.background },
   webview: { flex: 1, backgroundColor: colors.background },
   empty: {
@@ -144,4 +154,4 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     backgroundColor: colors.background,
   },
-});
+}));

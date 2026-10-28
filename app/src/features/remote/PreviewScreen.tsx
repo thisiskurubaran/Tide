@@ -1,15 +1,17 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useRef, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import WebView from 'react-native-webview';
 
 import { IconButton } from '../../components/Button';
 import { Text } from '../../components/Text';
-import { borderWidth, colors, spacing } from '../../theme/tokens';
+import { borderWidth, spacing } from '../../theme/tokens';
+import { makeStyles } from '../../theme/theme';
 
 // Shows a port from the container through the server's preview proxy.
 export function PreviewScreen() {
+  const styles = useStyles();
   const insets = useSafeAreaInsets();
   const { url, port } = useLocalSearchParams<{ url: string; port: string }>();
   const webview = useRef<WebView<object>>(null);
@@ -50,7 +52,7 @@ export function PreviewScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   screen: { flex: 1, backgroundColor: colors.background },
   header: {
     flexDirection: 'row',
@@ -64,4 +66,4 @@ const styles = StyleSheet.create({
   title: { flex: 1, marginLeft: spacing.xs },
   webview: { flex: 1, backgroundColor: colors.background },
   error: { padding: spacing.md },
-});
+}));

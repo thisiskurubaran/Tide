@@ -1,9 +1,10 @@
 import Feather from '@expo/vector-icons/Feather';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, View } from 'react-native';
 
 import { Text } from '../../components/Text';
-import { borderWidth, colors, radius, spacing } from '../../theme/tokens';
+import { borderWidth, radius, spacing } from '../../theme/tokens';
 import { basename } from '../files/fs';
+import { makeStyles, useColors } from '../../theme/theme';
 
 interface TabBarProps {
   open: string[];
@@ -14,6 +15,8 @@ interface TabBarProps {
 }
 
 export function TabBar({ open, active, dirty, onSelect, onClose }: TabBarProps) {
+  const styles = useStyles();
+  const colors = useColors();
   if (open.length === 0) return null;
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.bar} contentContainerStyle={styles.content}>
@@ -46,7 +49,7 @@ export function TabBar({ open, active, dirty, onSelect, onClose }: TabBarProps) 
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   bar: { flexGrow: 0, borderBottomWidth: borderWidth, borderColor: colors.border },
   content: { paddingHorizontal: spacing.sm },
   tab: {
@@ -62,4 +65,4 @@ const styles = StyleSheet.create({
   selected: { borderColor: colors.brand },
   // Same footprint as the close icon so tabs don't shift when the dot appears.
   dirty: { width: 14, height: 14, alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill, borderWidth: 4, borderColor: colors.background, backgroundColor: colors.foreground },
-});
+}));

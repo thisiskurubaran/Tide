@@ -12,7 +12,8 @@ app/                             Expo app (dev client, prebuild, New Architectur
   src/features/project           Project screen: tabs, file view, terminal panel
   src/state                      Zustand stores (projects, tabs, runner mode, open-file buffers)
   src/runtime                    Clients for the embedded Node and Python runtimes
-  src/theme                      Tokens from the FuseOps theme, editor and terminal themes
+  src/theme                      Tokens from the FuseOps theme, theme hooks, editor and terminal themes
+  src/features/settings          Settings screen
   assets/fonts                   Inter, Instrument Sans, JetBrains Mono (SIL OFL 1.1)
   assets/brand                   Logo SVGs (mark, wordmark, logo; light, dark, mono)
   assets/icons                   App icons and splash images, built from the mark
@@ -70,9 +71,13 @@ Python scripts run in the embedded CPython 3.15 (Chaquopy on Android), each on i
 
 `npm install [package...]` works locally for pure-JS packages: it resolves versions from the registry, checks each tarball's integrity and extracts it into `node_modules`. Install scripts never run, and packages that need a native build print a warning; install those in Remote mode.
 
+## Settings
+
+Settings (the gear on the projects list) has the theme (System, Light or Dark, all from the FuseOps tokens), the editor and terminal font sizes, and the Remote server.
+
 ## Remote mode
 
-Remote mode runs the project in a container on a Tide server you host (see below). Set the server URL and token from the server icon on the projects list; both are kept in the Keychain (Keystore on Android).
+Remote mode runs the project in a container on a Tide server you host (see below). Set the server URL and token under Settings, Remote server; both are kept in the Keychain (Keystore on Android).
 
 When a project's terminal switches to Remote, the app starts or reuses the project's container, uploads the project's files, and then opens a real bash shell in `/workspace`. After that, files sync both ways: saves, new files and deletes on the phone go to the container, and changes made in the container come back to the phone. Changes to a file with unsaved edits on the phone don't overwrite those edits. `node_modules`, `.git`, `.pylibs` and `__pycache__` are not synced, and neither is any file over 2 MB.
 

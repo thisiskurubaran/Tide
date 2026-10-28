@@ -8,7 +8,7 @@ import { Text } from '../../components/Text';
 import { buffersStore, projectsStore, tabsStore, useBuffers, useProjects, useTabs } from '../../state';
 import { bufferKey, isDirty } from '../../state/buffers';
 import { projectTabs } from '../../state/tabs';
-import { borderWidth, colors, spacing } from '../../theme/tokens';
+import { borderWidth, spacing } from '../../theme/tokens';
 import { FileTree } from '../files/FileTree';
 import { EditorHandle, EditorPane } from '../editor/EditorPane';
 import { EditorKeyBar } from '../editor/EditorKeyBar';
@@ -17,10 +17,12 @@ import { TerminalKeyBar } from '../terminal/TerminalKeyBar';
 import { TerminalHandle } from '../terminal/TerminalPane';
 import { TabBar } from './TabBar';
 import { TerminalPanel } from './TerminalPanel';
+import { makeStyles } from '../../theme/theme';
 
 const DRAWER_MAX = 340;
 
 export function ProjectScreen({ project }: { project: string }) {
+  const styles = useStyles();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const drawerWidth = Math.min(DRAWER_MAX, width * 0.85);
@@ -129,7 +131,7 @@ export function ProjectScreen({ project }: { project: string }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   screen: { flex: 1, backgroundColor: colors.background },
   header: {
     flexDirection: 'row',
@@ -156,4 +158,4 @@ const styles = StyleSheet.create({
     borderRightWidth: borderWidth,
     borderColor: colors.border,
   },
-});
+}));

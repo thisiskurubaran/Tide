@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { StyleSheet, TextInput, View } from 'react-native';
+import { TextInput, View } from 'react-native';
 
-import { borderWidth, colors, fonts, fontSizes, radius, spacing } from '../theme/tokens';
+import { borderWidth, fonts, fontSizes, radius, spacing } from '../theme/tokens';
 import { Button } from './Button';
 import { Sheet } from './Sheet';
 import { Text } from './Text';
+import { makeStyles, useColors } from '../theme/theme';
 
 interface PromptSheetProps {
   visible: boolean;
@@ -18,6 +19,8 @@ interface PromptSheetProps {
 }
 
 export function PromptSheet({ visible, title, initialValue = '', placeholder, confirmLabel, onSubmit, onClose }: PromptSheetProps) {
+  const styles = useStyles();
+  const colors = useColors();
   const [value, setValue] = useState(initialValue);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -76,7 +79,7 @@ export function PromptSheet({ visible, title, initialValue = '', placeholder, co
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   field: { gap: spacing.xs },
   input: {
     height: 44,
@@ -90,4 +93,4 @@ const styles = StyleSheet.create({
     fontSize: fontSizes.md,
   },
   actions: { flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.sm },
-});
+}));

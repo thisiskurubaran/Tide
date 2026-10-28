@@ -1,15 +1,17 @@
 import { router } from 'expo-router';
 import { forwardRef } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, View } from 'react-native';
 
 import { Button } from '../../components/Button';
+import { Segmented } from '../../components/Segmented';
 import { Text } from '../../components/Text';
 import { useRunner } from '../../state';
-import { borderWidth, colors, radius, spacing } from '../../theme/tokens';
+import { borderWidth, radius, spacing } from '../../theme/tokens';
 import { connectSocket, nativeSocket, previewUrl } from '../remote/api';
 import { RemotePty } from '../remote/pty';
 import { useRemoteSession } from '../remote/useRemoteSession';
 import { TerminalHandle, TerminalPane } from '../terminal/TerminalPane';
+import { makeStyles } from '../../theme/theme';
 
 interface TerminalPanelProps {
   project: string;
@@ -17,6 +19,7 @@ interface TerminalPanelProps {
 }
 
 export const TerminalPanel = forwardRef<TerminalHandle, TerminalPanelProps>(function TerminalPanel({ project, onFocusChange }, ref) {
+  const styles = useStyles();
   const mode = useRunner((s) => s.mode);
   const setMode = useRunner((s) => s.setMode);
   const { status, ports, retry } = useRemoteSession(project, mode === 'remote');
@@ -41,7 +44,7 @@ export const TerminalPanel = forwardRef<TerminalHandle, TerminalPanelProps>(func
         {status.state === 'unconfigured' && (
           <>
             <Text variant="muted">Remote mode runs a real shell in a container on your Tide server.</Text>
-            <Button title="Set up Remote" icon="server" onPress={() => router.push('/settings')} testID="remote-setup" />
+            <Button title="Set up Remote" icon="server" onPress={() => router.push('/settings/remote')} testID="remote-setup" />
           </>
         )}
         {(status.state === 'connecting' || status.state === 'off') && <Text variant="muted">Starting the container and syncing files...</Text>}
@@ -50,7 +53,7 @@ export const TerminalPanel = forwardRef<TerminalHandle, TerminalPanelProps>(func
             <Text variant="error">{status.message}</Text>
             <View style={styles.actions}>
               <Button title="Retry" icon="refresh-cw" onPress={retry} testID="remote-retry" />
-              <Button title="Settings" variant="outline" onPress={() => router.push('/settings')} />
+              <Button title="Settings" variant="outline" onPress={() => router.push('/settings/remote')} />
             </View>
           </>
         )}
@@ -81,29 +84,22 @@ export const TerminalPanel = forwardRef<TerminalHandle, TerminalPanelProps>(func
               </Pressable>
             ))}
         </ScrollView>
-        <View style={styles.toggle} accessibilityRole="radiogroup">
-          {(['local', 'remote'] as const).map((m) => (
-            <Pressable
-              key={m}
-              testID={`runner-${m}`}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: mode === m }}
-              onPress={() => setMode(m)}
-              style={[styles.option, mode === m && styles.optionOn]}
-            >
-              <Text variant="label" style={{ color: mode === m ? colors.foreground : colors.mutedForeground }}>
-                {m === 'local' ? 'Local' : 'Remote'}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
+        <Segmented
+          testID="runner"
+          value={mode}
+          onChange={setMode}
+          options={[
+            { value: 'local', label: 'Local' },
+            { value: 'remote', label: 'Remote' },
+          ]}
+        />
       </View>
       <View style={styles.body}>{body}</View>
     </View>
   );
 });
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   panel: { flex: 1, borderTopWidth: borderWidth, borderColor: colors.border, backgroundColor: colors.background },
   header: {
     flexDirection: 'row',
@@ -120,10 +116,7 @@ const styles = StyleSheet.create({
   port: { paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: radius.pill, borderWidth, borderColor: colors.brand },
   portPressed: { backgroundColor: colors.secondary },
   portText: { color: colors.brand },
-  toggle: { flexDirection: 'row', backgroundColor: colors.secondary, borderRadius: radius.sm, padding: 2 },
-  option: { paddingHorizontal: spacing.sm + 2, paddingVertical: spacing.xs, borderRadius: radius.sm - 2 },
-  optionOn: { backgroundColor: colors.background },
   body: { flex: 1 },
   message: { flex: 1, padding: spacing.md, gap: spacing.md, alignItems: 'flex-start' },
   actions: { flexDirection: 'row', gap: spacing.sm },
-});
+}));

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { Pressable, TextInput, View } from 'react-native';
 
 import { Button } from '../../components/Button';
 import { Sheet } from '../../components/Sheet';
 import { Text } from '../../components/Text';
-import { borderWidth, colors, fonts, fontSizes, radius, spacing } from '../../theme/tokens';
+import { borderWidth, fonts, fontSizes, radius, spacing } from '../../theme/tokens';
 import { templates } from '../files/templates';
+import { makeStyles, useColors } from '../../theme/theme';
 
 interface NewProjectSheetProps {
   visible: boolean;
@@ -14,6 +15,8 @@ interface NewProjectSheetProps {
 }
 
 export function NewProjectSheet({ visible, onCreate, onClose }: NewProjectSheetProps) {
+  const styles = useStyles();
+  const colors = useColors();
   const [name, setName] = useState('');
   const [templateId, setTemplateId] = useState(templates[0].id);
   const [error, setError] = useState<string | null>(null);
@@ -88,7 +91,7 @@ export function NewProjectSheet({ visible, onCreate, onClose }: NewProjectSheetP
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   field: { gap: spacing.xs },
   input: {
     height: 44,
@@ -111,4 +114,4 @@ const styles = StyleSheet.create({
   },
   selected: { borderColor: colors.brand, backgroundColor: colors.brandSoft },
   actions: { flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.sm },
-});
+}));

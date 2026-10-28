@@ -1,14 +1,17 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { ScrollView, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, IconButton } from '../../components/Button';
 import { Text } from '../../components/Text';
-import { borderWidth, colors, fonts, fontSizes, radius, spacing } from '../../theme/tokens';
+import { borderWidth, fonts, fontSizes, radius, spacing } from '../../theme/tokens';
 import { normalizeUrl, remoteSettingsStore, useRemoteSettings, validateSettings } from './settings';
+import { makeStyles, useColors } from '../../theme/theme';
 
 export function RemoteSettingsScreen() {
+  const styles = useStyles();
+  const colors = useColors();
   const insets = useSafeAreaInsets();
   const saved = useRemoteSettings((s) => s.settings);
   const [url, setUrl] = useState(saved?.url ?? '');
@@ -100,7 +103,7 @@ export function RemoteSettingsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   screen: { flex: 1, backgroundColor: colors.background },
   header: {
     flexDirection: 'row',
@@ -125,4 +128,4 @@ const styles = StyleSheet.create({
     fontSize: fontSizes.md,
   },
   actions: { flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.sm },
-});
+}));

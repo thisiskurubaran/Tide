@@ -4,8 +4,8 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 
 import { remoteSettingsStore } from '../features/remote/settings';
-import { projectsStore, runnerStore, tabsStore } from '../state';
-import { colors } from '../theme/tokens';
+import { projectsStore, runnerStore, settingsStore, tabsStore } from '../state';
+import { useColorScheme, useColors } from '../theme/theme';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -19,6 +19,8 @@ const hydrated = (store: Persisted) =>
 
 export default function RootLayout() {
   const [ready, setReady] = useState(false);
+  const scheme = useColorScheme();
+  const colors = useColors();
 
   useEffect(() => {
     // Keep the splash up until saved tabs and the project list are loaded,
@@ -26,6 +28,7 @@ export default function RootLayout() {
     Promise.all([
       hydrated(tabsStore),
       hydrated(runnerStore),
+      hydrated(settingsStore),
       projectsStore.getState().refresh(),
       remoteSettingsStore.getState().load().catch(() => undefined),
     ]).finally(() => {
@@ -38,7 +41,7 @@ export default function RootLayout() {
 
   return (
     <>
-      <StatusBar style="light" />
+      <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }} />
     </>
   );

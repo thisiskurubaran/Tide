@@ -68,6 +68,10 @@ function handle(msg: ToTerminal) {
     case 'setTheme':
       term.options.theme = msg.theme;
       document.body.style.backgroundColor = msg.theme.background;
+      if (term.options.fontSize !== msg.fontSize) {
+        term.options.fontSize = msg.fontSize;
+        fit.fit();
+      }
       return;
     case 'focus':
       return term.focus();

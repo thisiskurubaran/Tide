@@ -1,9 +1,10 @@
 import Feather from '@expo/vector-icons/Feather';
 import { ComponentProps } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 
-import { borderWidth, colors, fonts, fontSizes, radius, spacing } from '../theme/tokens';
+import { borderWidth, fonts, fontSizes, radius, spacing } from '../theme/tokens';
 import { Text } from './Text';
+import { makeStyles, useColors } from '../theme/theme';
 
 export type IconName = ComponentProps<typeof Feather>['name'];
 
@@ -18,6 +19,8 @@ interface ButtonProps {
 
 // FuseOps buttons: primary is foreground on background, outline sits on a card.
 export function Button({ title, onPress, variant = 'primary', icon, disabled, testID }: ButtonProps) {
+  const styles = useStyles();
+  const colors = useColors();
   const primary = variant === 'primary';
   const color = primary ? colors.background : colors.foreground;
   return (
@@ -46,7 +49,9 @@ interface IconButtonProps {
   testID?: string;
 }
 
-export function IconButton({ icon, label, onPress, color = colors.mutedForeground, testID }: IconButtonProps) {
+export function IconButton({ icon, label, onPress, color, testID }: IconButtonProps) {
+  const styles = useStyles();
+  const colors = useColors();
   return (
     <Pressable
       testID={testID}
@@ -57,13 +62,13 @@ export function IconButton({ icon, label, onPress, color = colors.mutedForegroun
       style={({ pressed }) => [styles.icon, pressed && { backgroundColor: colors.secondary }]}
     >
       <View>
-        <Feather name={icon} size={18} color={color} />
+        <Feather name={icon} size={18} color={color ?? colors.mutedForeground} />
       </View>
     </Pressable>
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   button: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -80,4 +85,4 @@ const styles = StyleSheet.create({
   dimmed: { opacity: 0.6 },
   title: { fontFamily: fonts.sans.medium, fontSize: fontSizes.sm },
   icon: { padding: spacing.xs + 2, borderRadius: radius.sm },
-});
+}));

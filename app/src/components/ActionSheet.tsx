@@ -1,10 +1,11 @@
 import Feather from '@expo/vector-icons/Feather';
-import { Pressable, StyleSheet } from 'react-native';
+import { Pressable } from 'react-native';
 
-import { colors, radius, spacing } from '../theme/tokens';
+import { radius, spacing } from '../theme/tokens';
 import { IconName } from './Button';
 import { Sheet } from './Sheet';
 import { Text } from './Text';
+import { makeStyles, useColors } from '../theme/theme';
 
 export interface Action {
   label: string;
@@ -21,6 +22,8 @@ interface ActionSheetProps {
 
 // Cross-platform action menu; Android's Alert caps out at three buttons.
 export function ActionSheet({ title, actions, onClose }: ActionSheetProps) {
+  const styles = useStyles();
+  const colors = useColors();
   return (
     <Sheet visible={title !== null} onClose={onClose}>
       <Text variant="muted" numberOfLines={1}>
@@ -47,7 +50,7 @@ export function ActionSheet({ title, actions, onClose }: ActionSheetProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -56,4 +59,4 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     borderRadius: radius.md,
   },
-});
+}));

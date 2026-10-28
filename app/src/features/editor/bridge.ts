@@ -8,7 +8,7 @@ export type EditorKey = 'left' | 'right' | 'up' | 'down' | 'tab';
 
 export type ToEditor =
   | { type: 'open'; path: string; content: string; language: Language }
-  | { type: 'setTheme'; theme: EditorTheme }
+  | { type: 'setTheme'; theme: EditorTheme; dark: boolean; fontSize: number }
   | { type: 'undo' }
   | { type: 'redo' }
   | { type: 'find' }

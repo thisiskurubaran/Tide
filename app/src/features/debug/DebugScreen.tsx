@@ -1,14 +1,16 @@
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 
 import { nodeRunner } from '../../runtime/node';
 import { pythonRuntime } from '../../runtime/python';
-import { borderWidth, colors, fonts, fontSizes, letterSpacing, radius, spacing } from '../../theme/tokens';
+import { borderWidth, fonts, fontSizes, letterSpacing, radius, spacing } from '../../theme/tokens';
+import { makeStyles } from '../../theme/theme';
 
 type Line = { source: 'node' | 'python'; text: string; error?: boolean };
 
 export function DebugScreen() {
+  const styles = useStyles();
   const [lines, setLines] = useState<Line[]>([]);
 
   async function capture(source: Line['source'], task: () => Promise<string>) {
@@ -56,7 +58,7 @@ export function DebugScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: {
     flex: 1,
     backgroundColor: colors.background,
@@ -90,4 +92,4 @@ const styles = StyleSheet.create({
   },
   line: { color: colors.foreground, fontFamily: fonts.mono.regular, fontSize: fontSizes.sm, marginBottom: spacing.xs },
   error: { color: colors.destructive },
-});
+}));

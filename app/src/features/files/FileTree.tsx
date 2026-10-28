@@ -1,15 +1,16 @@
 import Feather from '@expo/vector-icons/Feather';
 import { useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, ScrollView, View } from 'react-native';
 
 import { Action, ActionSheet } from '../../components/ActionSheet';
 import { IconButton } from '../../components/Button';
 import { PromptSheet } from '../../components/PromptSheet';
 import { Text } from '../../components/Text';
 import { projectsStore } from '../../state';
-import { colors, radius, spacing } from '../../theme/tokens';
+import { radius, spacing } from '../../theme/tokens';
 import { basename } from './fs';
 import type { TreeNode } from './workspace';
+import { makeStyles, useColors } from '../../theme/theme';
 
 type Prompt =
   | { kind: 'new-file' | 'new-folder'; parent: string }
@@ -25,6 +26,8 @@ interface FileTreeProps {
 const INDENT = spacing.md;
 
 export function FileTree({ project, nodes, activePath, onOpenFile }: FileTreeProps) {
+  const styles = useStyles();
+  const colors = useColors();
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [menuFor, setMenuFor] = useState<TreeNode | null>(null);
   const [prompt, setPrompt] = useState<Prompt | null>(null);
@@ -145,7 +148,7 @@ export function FileTree({ project, nodes, activePath, onOpenFile }: FileTreePro
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { flex: 1 },
   toolbar: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   title: { flex: 1 },
@@ -161,4 +164,4 @@ const styles = StyleSheet.create({
   name: { flex: 1 },
   empty: { padding: spacing.md },
   unlisted: { paddingVertical: spacing.xs },
-});
+}));

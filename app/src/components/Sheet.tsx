@@ -2,7 +2,8 @@ import { ReactNode } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { borderWidth, colors, radius, spacing } from '../theme/tokens';
+import { borderWidth, radius, spacing } from '../theme/tokens';
+import { makeStyles } from '../theme/theme';
 
 interface SheetProps {
   visible: boolean;
@@ -12,6 +13,7 @@ interface SheetProps {
 
 // Bottom sheet used for prompts and action menus. Tapping the backdrop closes it.
 export function Sheet({ visible, onClose, children }: SheetProps) {
+  const styles = useStyles();
   const insets = useSafeAreaInsets();
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -23,7 +25,7 @@ export function Sheet({ visible, onClose, children }: SheetProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   fill: { flex: 1, justifyContent: 'flex-end' },
   backdrop: { ...StyleSheet.absoluteFill, backgroundColor: colors.background, opacity: 0.7 },
   sheet: {
@@ -35,4 +37,4 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     gap: spacing.md,
   },
-});
+}));

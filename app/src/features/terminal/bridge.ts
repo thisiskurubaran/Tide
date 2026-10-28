@@ -5,7 +5,7 @@ import type { TerminalTheme } from '../../theme/terminal';
 
 export type ToTerminal =
   | { type: 'write'; data: string }
-  | { type: 'setTheme'; theme: TerminalTheme }
+  | { type: 'setTheme'; theme: TerminalTheme; fontSize: number }
   | { type: 'focus' }
   | { type: 'blur' };
 

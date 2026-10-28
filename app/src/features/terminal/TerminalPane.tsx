@@ -1,17 +1,18 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react';
-import { Linking, StyleSheet } from 'react-native';
+import { Linking } from 'react-native';
 import WebView, { WebViewMessageEvent } from 'react-native-webview';
 
 import { localRunner } from '../../runtime';
-import { buffersStore, projectsStore, workspace } from '../../state';
+import { buffersStore, projectsStore, useSettings, workspace } from '../../state';
 import { PROJECTS_DIR } from '../files/workspace';
 import { terminalThemes } from '../../theme/terminal';
-import { colors } from '../../theme/tokens';
+
 import type { TerminalBackend } from './backend';
 import { parseFromTerminal, ToTerminal } from './bridge';
 import { Shell } from './shell/shell';
 import { createShellFs } from './shell/shellFs';
 import terminalHtml from './terminalHtml.generated';
+import { makeStyles, useColorScheme } from '../../theme/theme';
 
 export interface TerminalHandle {
   input(data: string): void;
@@ -30,16 +31,22 @@ interface TerminalPaneProps {
 const FLUSH_MS = 16;
 
 export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(function TerminalPane({ project, onFocusChange, createBackend }, ref) {
+  const styles = useStyles();
   const webview = useRef<WebView<object>>(null);
   const ready = useRef(false);
   const pending = useRef('');
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shell = useRef<TerminalBackend | null>(null);
+  const scheme = useColorScheme();
+  const fontSize = useSettings((s) => s.terminalFontSize);
 
   const send = useCallback((msg: ToTerminal) => {
     if (!ready.current) return;
     webview.current?.injectJavaScript(`window.tide && window.tide.receive(${JSON.stringify(JSON.stringify(msg))});true;`);
   }, []);
+
+  const sendTheme = useCallback(() => send({ type: 'setTheme', theme: terminalThemes[scheme], fontSize }), [send, scheme, fontSize]);
+  useEffect(sendTheme, [sendTheme]);
 
   const flush = useCallback(() => {
     timer.current = null;
@@ -93,7 +100,7 @@ export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(functi
     switch (msg.type) {
       case 'ready':
         ready.current = true;
-        send({ type: 'setTheme', theme: terminalThemes.dark });
+        sendTheme();
         shell.current?.resize(msg.cols, msg.rows);
         if (!started.current) {
           started.current = true;
@@ -146,6 +153,6 @@ export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(functi
   );
 });
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   webview: { flex: 1, backgroundColor: colors.background },
-});
+}));

@@ -1,10 +1,11 @@
 import Feather from '@expo/vector-icons/Feather';
 import { Fragment } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, View } from 'react-native';
 
-import { borderWidth, colors, fonts, fontSizes, radius, spacing } from '../theme/tokens';
+import { borderWidth, fonts, fontSizes, radius, spacing } from '../theme/tokens';
 import { IconName } from './Button';
 import { Text } from './Text';
+import { makeStyles, useColors } from '../theme/theme';
 
 export const KEY_BAR_HEIGHT = 44;
 
@@ -20,6 +21,8 @@ interface KeyBarProps {
 // Accessory row that sits on top of the software keyboard. Native buttons never
 // take focus from the WebView, so the keyboard stays up while they are tapped.
 export function KeyBar({ groups, onHide, testID }: KeyBarProps) {
+  const styles = useStyles();
+  const colors = useColors();
   return (
     <View style={styles.bar} testID={testID}>
       <ScrollView horizontal keyboardShouldPersistTaps="always" showsHorizontalScrollIndicator={false} contentContainerStyle={styles.keys}>
@@ -45,7 +48,7 @@ export function KeyBar({ groups, onHide, testID }: KeyBarProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   bar: {
     height: KEY_BAR_HEIGHT,
     flexDirection: 'row',
@@ -75,4 +78,4 @@ const styles = StyleSheet.create({
     borderLeftWidth: borderWidth,
     borderColor: colors.border,
   },
-});
+}));
