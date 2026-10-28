@@ -14,6 +14,7 @@ app/                             Expo app (dev client, prebuild, New Architectur
   src/runtime                    Clients for the embedded Node and Python runtimes
   src/theme                      Tokens from the FuseOps theme, theme hooks, editor and terminal themes
   src/features/settings          Settings screen
+  src/features/search            Project search, quick open and command palette
   assets/fonts                   Inter, Instrument Sans, JetBrains Mono (SIL OFL 1.1)
   assets/brand                   Logo SVGs (mark, wordmark, logo; light, dark, mono)
   assets/icons                   App icons and splash images, built from the mark
@@ -70,6 +71,10 @@ Python scripts run in the embedded CPython 3.15 (Chaquopy on Android), each on i
 `pip install <package>...` (also `pip install -r requirements.txt`, `pip uninstall`, `pip list` and `python -m pip`) installs pure-Python wheels from PyPI into the project's `.pylibs` folder, which is on `sys.path` for every run. It resolves dependencies, extras and environment markers for the device and checks each wheel's sha256. Packages that only ship compiled wheels need Remote mode. pip itself runs in the Node supervisor, next to npm. Python scripts can make HTTPS requests with the standard library or `requests`.
 
 `npm install [package...]` works locally for pure-JS packages: it resolves versions from the registry, checks each tarball's integrity and extracts it into `node_modules`. Install scripts never run, and packages that need a native build print a warning; install those in Remote mode.
+
+## Editor
+
+The search icon in a project searches every file (skipping `node_modules`, `.git`, `.pylibs` and binary files), and tapping a result opens the file at that line. The command icon opens the command palette: delete the `>` to switch to quick open, which matches file paths as you type. Go to line is in the palette.
 
 ## Settings
 

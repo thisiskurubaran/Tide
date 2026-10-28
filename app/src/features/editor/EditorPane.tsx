@@ -14,6 +14,8 @@ import { makeStyles, useColorScheme } from '../../theme/theme';
 
 export interface EditorHandle {
   send(msg: ToEditor): void;
+  // Moves to a line once `path` is the open file; call it right after opening the tab.
+  reveal(path: string, line: number): void;
 }
 
 interface EditorPaneProps {
@@ -41,7 +43,20 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
     webview.current?.injectJavaScript(`window.tide && window.tide.receive(${JSON.stringify(JSON.stringify(msg))});true;`);
   }, []);
 
-  useImperativeHandle(ref, () => ({ send }), [send]);
+  const pendingReveal = useRef<{ path: string; line: number } | null>(null);
+  const opened = useRef<string | null>(null);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      send,
+      reveal(target, line) {
+        if (opened.current === target && pathRef.current === target) send({ type: 'goto', path: target, line });
+        else pendingReveal.current = { path: target, line };
+      },
+    }),
+    [send],
+  );
 
   const sendTheme = useCallback(
     () => send({ type: 'setTheme', theme: editorThemes[scheme], dark: scheme === 'dark', fontSize }),
@@ -57,6 +72,12 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
     if (pathRef.current !== target) return;
     editorContent.current = buffer.content;
     send({ type: 'open', path: target, content: buffer.content, language: languageFor(target) });
+    opened.current = target;
+    const reveal = pendingReveal.current;
+    if (reveal?.path === target) {
+      pendingReveal.current = null;
+      send({ type: 'goto', path: target, line: reveal.line });
+    }
   }, [project, send]);
 
   useEffect(() => {
@@ -115,10 +136,12 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
         // The web content reloads after a crash, so it has to ask for the file again.
         onContentProcessDidTerminate={() => {
           ready.current = false;
+          opened.current = null;
           webview.current?.reload();
         }}
         onLoadStart={() => {
           ready.current = false;
+          opened.current = null;
         }}
         style={styles.webview}
         containerStyle={styles.webview}

@@ -12,6 +12,8 @@ export type ToEditor =
   | { type: 'undo' }
   | { type: 'redo' }
   | { type: 'find' }
+  // 1-based; ignored unless `path` is the open file.
+  | { type: 'goto'; path: string; line: number }
   | { type: 'insert'; text: string }
   | { type: 'key'; key: EditorKey }
   | { type: 'focus' }
@@ -52,7 +54,7 @@ export function languageFor(path: string): Language {
   return EXTENSIONS[name.slice(dot + 1).toLowerCase()] ?? 'plain';
 }
 
-const TO_EDITOR = new Set<ToEditor['type']>(['open', 'setTheme', 'undo', 'redo', 'find', 'insert', 'key', 'focus', 'blur']);
+const TO_EDITOR = new Set<ToEditor['type']>(['open', 'setTheme', 'undo', 'redo', 'find', 'goto', 'insert', 'key', 'focus', 'blur']);
 const FROM_EDITOR = new Set<FromEditor['type']>(['ready', 'change', 'save', 'focus', 'error']);
 
 function parse<T extends { type: string }>(raw: string, types: Set<string>): T | null {

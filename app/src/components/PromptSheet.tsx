@@ -13,12 +13,13 @@ interface PromptSheetProps {
   initialValue?: string;
   placeholder?: string;
   confirmLabel: string;
+  keyboardType?: 'default' | 'number-pad';
   // Throwing shows the error message under the input and keeps the sheet open.
   onSubmit(value: string): Promise<void>;
   onClose(): void;
 }
 
-export function PromptSheet({ visible, title, initialValue = '', placeholder, confirmLabel, onSubmit, onClose }: PromptSheetProps) {
+export function PromptSheet({ visible, title, initialValue = '', placeholder, confirmLabel, keyboardType = 'default', onSubmit, onClose }: PromptSheetProps) {
   const styles = useStyles();
   const colors = useColors();
   const [value, setValue] = useState(initialValue);
@@ -64,6 +65,7 @@ export function PromptSheet({ visible, title, initialValue = '', placeholder, co
           autoComplete="off"
           textContentType="none"
           spellCheck={false}
+          keyboardType={keyboardType}
           returnKeyType="done"
           onSubmitEditing={(e) => submit(e.nativeEvent.text)}
           selectionColor={colors.brand}

@@ -143,6 +143,13 @@ function open(path: string, content: string, lang: Language) {
   view.scrollDOM.scrollTop = 0;
 }
 
+function goto(path: string, line: number) {
+  if (path !== currentPath) return;
+  const n = Math.min(Math.max(1, Math.floor(line)), view.state.doc.lines);
+  const pos = view.state.doc.line(n).from;
+  view.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: 'center' }) });
+}
+
 // Text typed from the accessory bar goes through the same input handlers as the
 // keyboard, so auto-closing brackets and quotes behave the same.
 function typeText(text: string) {
@@ -189,6 +196,8 @@ function handle(msg: ToEditor) {
       return redo(view);
     case 'find':
       return openSearchPanel(view);
+    case 'goto':
+      return goto(msg.path, msg.line);
     case 'insert':
       return typeText(msg.text);
     case 'key':

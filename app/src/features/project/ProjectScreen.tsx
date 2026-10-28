@@ -4,8 +4,9 @@ import { Animated, Pressable, StyleSheet, useWindowDimensions, View } from 'reac
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { IconButton } from '../../components/Button';
+import { PromptSheet } from '../../components/PromptSheet';
 import { Text } from '../../components/Text';
-import { buffersStore, projectsStore, tabsStore, useBuffers, useProjects, useTabs } from '../../state';
+import { buffersStore, projectsStore, runnerStore, tabsStore, useBuffers, useProjects, useTabs } from '../../state';
 import { bufferKey, isDirty } from '../../state/buffers';
 import { projectTabs } from '../../state/tabs';
 import { borderWidth, spacing } from '../../theme/tokens';
@@ -15,6 +16,8 @@ import { EditorKeyBar } from '../editor/EditorKeyBar';
 import { useKeyboardHeight } from '../editor/useKeyboardHeight';
 import { TerminalKeyBar } from '../terminal/TerminalKeyBar';
 import { TerminalHandle } from '../terminal/TerminalPane';
+import { Command, CommandPalette } from '../search/CommandPalette';
+import { SearchPanel } from '../search/SearchPanel';
 import { TabBar } from './TabBar';
 import { TerminalPanel } from './TerminalPanel';
 import { makeStyles } from '../../theme/theme';
@@ -39,6 +42,9 @@ export function ProjectScreen({ project }: { project: string }) {
   const [typingIn, setTypingIn] = useState<'editor' | 'terminal'>('editor');
   const keyboardOpen = keyboardHeight > 0;
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [palette, setPalette] = useState<'files' | 'commands' | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [goingToLine, setGoingToLine] = useState(false);
   const progress = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -57,6 +63,35 @@ export function ProjectScreen({ project }: { project: string }) {
     setDrawerOpen(false);
   };
 
+  const openAt = (path: string, line: number) => {
+    openFile(path);
+    editor.current?.reveal(path, line);
+  };
+
+  const commands: Command[] = [
+    { id: 'quick-open', title: 'Open file', icon: 'file', hint: '⌘P', run: () => setPalette('files') },
+    { id: 'search', title: 'Search in project', icon: 'search', hint: '⇧⌘F', run: () => setSearching(true) },
+    { id: 'find', title: 'Find in file', icon: 'search', hint: '⌘F', run: () => editor.current?.send({ type: 'find' }) },
+    { id: 'goto-line', title: 'Go to line', icon: 'corner-down-right', hint: '⌘L', run: () => tabs.active && setGoingToLine(true) },
+    { id: 'save', title: 'Save file', icon: 'save', hint: '⌘S', run: () => tabs.active && buffersStore.getState().save(project, tabs.active) },
+    {
+      id: 'close-tab',
+      title: 'Close file',
+      icon: 'x',
+      run: async () => {
+        if (!tabs.active) return;
+        await buffersStore.getState().save(project, tabs.active);
+        tabsStore.getState().closeTab(project, tabs.active);
+      },
+    },
+    { id: 'undo', title: 'Undo', icon: 'rotate-ccw', run: () => editor.current?.send({ type: 'undo' }) },
+    { id: 'redo', title: 'Redo', icon: 'rotate-cw', run: () => editor.current?.send({ type: 'redo' }) },
+    { id: 'files', title: 'Show files', icon: 'sidebar', run: () => setDrawerOpen(true) },
+    { id: 'local', title: 'Terminal: use Local', icon: 'smartphone', run: () => runnerStore.getState().setMode('local') },
+    { id: 'remote', title: 'Terminal: use Remote', icon: 'server', run: () => runnerStore.getState().setMode('remote') },
+    { id: 'settings', title: 'Settings', icon: 'settings', run: () => router.push('/settings') },
+  ];
+
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
       <View style={styles.header}>
@@ -65,6 +100,8 @@ export function ProjectScreen({ project }: { project: string }) {
         <Text variant="title" numberOfLines={1} style={styles.title}>
           {project}
         </Text>
+        <IconButton icon="search" label="Search in project" onPress={() => setSearching(true)} testID="open-search" />
+        <IconButton icon="command" label="Commands" onPress={() => setPalette('commands')} testID="open-palette" />
       </View>
 
       <TabBar
@@ -127,6 +164,22 @@ export function ProjectScreen({ project }: { project: string }) {
       >
         <FileTree project={project} nodes={tree ?? []} activePath={tabs.active} onOpenFile={openFile} />
       </Animated.View>
+
+      <CommandPalette mode={palette} project={project} commands={commands} onOpenFile={openFile} onClose={() => setPalette(null)} />
+      <SearchPanel visible={searching} project={project} onOpen={openAt} onClose={() => setSearching(false)} />
+      <PromptSheet
+        visible={goingToLine}
+        title="Go to line"
+        placeholder="Line number"
+        confirmLabel="Go"
+        keyboardType="number-pad"
+        onSubmit={async (value) => {
+          const line = Number.parseInt(value, 10);
+          if (!Number.isFinite(line) || line < 1) throw new Error('Enter a line number');
+          if (tabs.active) editor.current?.reveal(tabs.active, line);
+        }}
+        onClose={() => setGoingToLine(false)}
+      />
     </View>
   );
 }
