@@ -15,6 +15,9 @@ export interface BuffersState {
   load(project: string, path: string): Promise<Buffer>;
   edit(project: string, path: string, content: string): void;
   save(project: string, path: string): Promise<void>;
+  // Writes `content` to disk and makes it the buffer's text, dropping unsaved edits.
+  // Used when something other than the editor (the shell) changes a file.
+  replace(project: string, path: string, content: string): Promise<void>;
   // Saves everything pending, e.g. before the app goes to the background.
   flushAll(): Promise<void>;
   flushProject(project: string): Promise<void>;
@@ -106,6 +109,12 @@ export function createBuffersStore(workspace: Workspace, autosaveMs = AUTOSAVE_M
         }
       },
       save: (project, path) => write(bufferKey(project, path)),
+      async replace(project, path, content) {
+        const key = bufferKey(project, path);
+        cancel(key);
+        await workspace.writeFile(project, path, content);
+        set((s) => (s.buffers[key] ? { buffers: { ...s.buffers, [key]: { content, saved: content } } } : s));
+      },
       flushAll: () => flushWhere(() => true),
       flushProject: (project) => flushWhere((p) => p === project),
       renamePath: (project, from, to) =>

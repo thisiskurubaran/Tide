@@ -4,7 +4,8 @@ import WebView, { WebViewMessageEvent } from 'react-native-webview';
 
 import { Button } from '../../components/Button';
 import { Text } from '../../components/Text';
-import { buffersStore } from '../../state';
+import { buffersStore, useBuffers } from '../../state';
+import { bufferKey } from '../../state/buffers';
 import { editorThemes } from '../../theme/editor';
 import { colors, spacing } from '../../theme/tokens';
 import { languageFor, parseFromEditor, ToEditor } from './bridge';
@@ -25,6 +26,9 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
   const ready = useRef(false);
   const pathRef = useRef(path);
   pathRef.current = path;
+  // Last text the WebView is known to hold, so outside changes (e.g. the shell) can be pushed in.
+  const editorContent = useRef<string | null>(null);
+  const bufferContent = useBuffers((s) => (path ? s.buffers[bufferKey(project, path)]?.content : undefined));
 
   const send = useCallback((msg: ToEditor) => {
     if (!ready.current) return;
@@ -40,12 +44,19 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
     const buffer = await buffersStore.getState().load(project, target);
     // The user may have switched tabs while the file was loading.
     if (pathRef.current !== target) return;
+    editorContent.current = buffer.content;
     send({ type: 'open', path: target, content: buffer.content, language: languageFor(target) });
   }, [project, send]);
 
   useEffect(() => {
     openCurrent().catch((e) => console.warn('Could not open file', e));
   }, [path, openCurrent]);
+
+  useEffect(() => {
+    if (bufferContent !== undefined && editorContent.current !== null && bufferContent !== editorContent.current) {
+      openCurrent().catch((e) => console.warn('Could not reload file', e));
+    }
+  }, [bufferContent, openCurrent]);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
@@ -67,6 +78,7 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
         openCurrent();
         return;
       case 'change':
+        if (msg.path === pathRef.current) editorContent.current = msg.content;
         buffersStore.getState().edit(project, msg.path, msg.content);
         return;
       case 'save':

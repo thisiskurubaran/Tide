@@ -148,3 +148,16 @@ describe('buffers with moves and copies', () => {
     expect(fs.files.get('projects/p/copy.js')).toBe('latest');
   });
 });
+
+describe('replace', () => {
+  it('writes through, resets the buffer and cancels a pending autosave', async () => {
+    const { buffers, workspace } = await setup();
+    await buffers.getState().load('p', 'index.js');
+    buffers.getState().edit('p', 'index.js', 'typed');
+    await buffers.getState().replace('p', 'index.js', 'from shell');
+    jest.advanceTimersByTime(AUTOSAVE_MS * 2);
+    await settle();
+    expect(await workspace.readFile('p', 'index.js')).toBe('from shell');
+    expect(buf(buffers, 'index.js')).toEqual({ content: 'from shell', saved: 'from shell' });
+  });
+});
