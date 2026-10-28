@@ -1,18 +1,44 @@
 import ExpoModulesCore
 
 public class PythonRuntimeModule: Module {
-  // One serial queue so a slow script can't be overlapped by another call.
+  // Serial, so calls into Python never block the JS thread or overlap each other.
   private let queue = DispatchQueue(label: "dev.tide.python")
 
   public func definition() -> ModuleDefinition {
     Name("PythonRuntime")
 
+    Events("onOutput", "onExit")
+
+    OnCreate {
+      TidePython.setOutputHandler { [weak self] runId, kind, text in
+        self?.sendEvent("onOutput", ["id": runId, "kind": kind, "data": text])
+      }
+    }
+
     AsyncFunction("version") { () throws -> String in
       try TidePython.pythonVersion()
     }.runOnQueue(queue)
 
-    AsyncFunction("run") { (code: String) throws -> String in
-      try TidePython.runCode(code)
+    AsyncFunction("snippet") { (code: String) throws -> String in
+      try TidePython.runSnippet(code)
+    }.runOnQueue(queue)
+
+    AsyncFunction("run") { (id: String, entry: String, cwd: String, args: [String], extraPaths: [String], purgeRoot: String) in
+      TidePython.run(withId: id, entry: entry, cwd: cwd, args: args, extraPaths: extraPaths, purgeRoot: purgeRoot) { [weak self] code, killed in
+        self?.sendEvent("onExit", ["id": id, "code": code, "killed": killed])
+      }
+    }.runOnQueue(queue)
+
+    AsyncFunction("write") { (id: String, data: String) in
+      TidePython.feed(id, data: data)
+    }.runOnQueue(queue)
+
+    AsyncFunction("eof") { (id: String) in
+      TidePython.endInput(id)
+    }.runOnQueue(queue)
+
+    AsyncFunction("kill") { (id: String) in
+      TidePython.kill(id)
     }.runOnQueue(queue)
   }
 }

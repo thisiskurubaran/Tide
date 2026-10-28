@@ -1,6 +1,7 @@
 import { nodeRunner } from './node';
+import { pythonRunner } from './python';
 import { createRouter } from './router';
-import { createUnavailableRunner, Runner } from './runner';
+import { Runner } from './runner';
 
-// Local runner used by the terminal. Python joins with the Python runner.
-export const localRunner: Runner = createRouter({ node: nodeRunner, python: createUnavailableRunner() });
+// The local runner the terminal uses.
+export const localRunner: Runner = createRouter({ node: nodeRunner, python: pythonRunner });

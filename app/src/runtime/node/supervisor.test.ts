@@ -73,6 +73,16 @@ describe('supervisor', () => {
     expect((await t.exited('r2')).code).toBe(3);
   });
 
+  it('shows stack paths from the project root', async () => {
+    const t = setup();
+    t.file('projects/demo/src/app.js', 'function f() { throw new Error("nope") }\nf()');
+    t.supervisor.handle({ type: 'run', id: 'r1', runtime: 'node', entry: 'projects/demo/src/app.js', cwd: 'projects/demo', args: [] });
+    await t.exited('r1');
+    const err = t.output('r1', 'stderr');
+    expect(err).toContain('/src/app.js:1');
+    expect(err).not.toContain(t.root);
+  });
+
   it('feeds stdin to readline', async () => {
     const t = setup();
     t.file(

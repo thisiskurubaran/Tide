@@ -21,7 +21,7 @@ app/                             Expo app (dev client, prebuild, New Architectur
   web/editor                     CodeMirror 6 editor bundle (Vite, single HTML file)
   web/terminal                   xterm.js terminal bundle (Vite, single HTML file)
   nodejs-assets/nodejs-project   Supervisor inside nodejs-mobile: runs each script in a worker thread
-  modules/python-runtime         Expo module: Chaquopy on Android, CPython on iOS
+  modules/python-runtime         Expo module: Chaquopy on Android, CPython on iOS; python/tide_runner.py runs scripts
 shared/protocol.ts               Runner message types, imported as @shared/protocol
 ```
 
@@ -61,6 +61,8 @@ Local mode is a small built-in shell, not a real one (iOS can't start processes)
 Node scripts run in nodejs-mobile (Node 18), each in its own worker thread, so Ctrl-C stops a script without restarting Node. Each run is capped at 256 MB of heap. Leaving a project stops whatever its terminal was running.
 
 nodejs-mobile's Node is built without Intl: there is no `Intl` object and regular expressions with Unicode property escapes (`\p{...}`) fail. Packages that rely on either, such as Express 5, don't run locally; the Express template uses Express 4 for this reason.
+
+Python scripts run in the embedded CPython 3.15 (Chaquopy on Android), each on its own thread with `input()` wired to the terminal. Ctrl-C raises `KeyboardInterrupt` in the script. Project modules are reloaded on every run, and tracebacks show paths from the project root.
 
 `npm install [package...]` works locally for pure-JS packages: it resolves versions from the registry, checks each tarball's integrity and extracts it into `node_modules`. Install scripts never run, and packages that need a native build print a warning; install those in Remote mode.
 

@@ -87,9 +87,13 @@ function createSupervisor({ send, builtins = {} }) {
     worker.stderr.setEncoding('utf8');
     worker.stdout.on('data', (data) => send({ type: 'stdout', id: req.id, data }));
     worker.stderr.on('data', (data) => send({ type: 'stderr', id: req.id, data }));
+    // Stack traces show paths from the project root, like the shell, not the sandbox path.
+    const project = String(req.cwd || '').split('/').slice(0, 2).join('/');
+    const projectDir = project.startsWith('projects/') ? resolve(project) : null;
     worker.on('error', (err) => {
       // Uncaught exceptions arrive here instead of on stderr.
-      const text = err && err.stack ? err.stack : String(err);
+      let text = err && err.stack ? err.stack : String(err);
+      if (projectDir) text = text.split(`${projectDir}/`).join('/');
       const hint = /ERR_WORKER_OUT_OF_MEMORY/.test(String(err && /** @type {any} */ (err).code))
         ? `\nOut of memory (limit ${limits.maxMemoryMb || DEFAULT_MAX_MEMORY_MB} MB).`
         : '';

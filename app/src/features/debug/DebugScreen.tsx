@@ -29,7 +29,7 @@ export function DebugScreen() {
   const runPython = () =>
     capture('python', async () => {
       const version = await pythonRuntime.version();
-      const out = await pythonRuntime.run('print(1+1)');
+      const out = await pythonRuntime.snippet('print(1+1)');
       return `python ${version.split(' ')[0]}: ${out}`;
     });
 
