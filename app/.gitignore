@@ -42,3 +42,6 @@ yarn-error.*
 
 # nodejs-mobile writes these on install with the local PATH baked in
 nodejs-assets/build-native-modules-MacOS-helper-script-*.sh
+
+# Fetched on install by modules/python-runtime/scripts/fetch-ios-python.js
+modules/python-runtime/ios/Python.xcframework/

@@ -2,6 +2,7 @@ const {
   withAppBuildGradle,
   withGradleProperties,
   withProjectBuildGradle,
+  withXcodeProject,
 } = require('expo/config-plugins');
 
 const CHAQUOPY_VERSION = '17.2.0';
@@ -42,8 +43,38 @@ const withAbiFilters = (config) => {
   });
 };
 
+const IOS_PHASE_NAME = '[Tide] Install Python';
+// Paths are relative to app/ios, which is $PROJECT_DIR for the app target.
+const IOS_PHASE_SCRIPT = [
+  'set -e',
+  'XCFW=../modules/python-runtime/ios/Python.xcframework',
+  'source "$PROJECT_DIR/$XCFW/build/utils.sh"',
+  'install_python "$XCFW"',
+  'mkdir -p "$CODESIGNING_FOLDER_PATH/python/tide"',
+  'cp "$PROJECT_DIR/../modules/python-runtime/python/"*.py "$CODESIGNING_FOLDER_PATH/python/tide/"',
+].join('\\n');
+
+// The XCframework only holds libpython. The stdlib and the extension modules
+// (converted to frameworks, as iOS requires) are copied into the app here.
+const withPythonInstallPhase = (config) =>
+  withXcodeProject(config, (cfg) => {
+    const project = cfg.modResults;
+    const phases = project.hash.project.objects.PBXShellScriptBuildPhase || {};
+    const exists = Object.values(phases).some(
+      (phase) => typeof phase === 'object' && phase.name === `"${IOS_PHASE_NAME}"`,
+    );
+    if (!exists) {
+      project.addBuildPhase([], 'PBXShellScriptBuildPhase', IOS_PHASE_NAME, project.getFirstTarget().uuid, {
+        shellPath: '/bin/sh',
+        shellScript: IOS_PHASE_SCRIPT,
+      });
+    }
+    return cfg;
+  });
+
 module.exports = (config) => {
   config = withChaquopyClasspath(config);
   config = withAbiFilters(config);
+  config = withPythonInstallPhase(config);
   return config;
 };

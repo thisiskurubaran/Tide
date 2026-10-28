@@ -13,10 +13,15 @@ Pod::Spec.new do |s|
 
   s.dependency 'ExpoModulesCore'
 
+  # Fetched by scripts/fetch-ios-python.js on npm install.
+  s.vendored_frameworks = 'Python.xcframework'
+
   # Swift/Objective-C compatibility
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',
   }
 
-  s.source_files = "**/*.{h,m,mm,swift,hpp,cpp}"
+  # Not recursive, so the XCframework's headers stay out of the pod sources.
+  s.source_files = '*.{h,m,swift}'
+  s.public_header_files = 'TidePython.h'
 end
