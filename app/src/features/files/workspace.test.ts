@@ -155,3 +155,59 @@ describe('files and folders', () => {
     expect(fs.dirs.has('projects/other')).toBe(true);
   });
 });
+
+describe('stat, list, move and copy', () => {
+  async function project() {
+    const ctx = setup();
+    await ctx.ws.createProject('demo', 'node-hello');
+    await ctx.ws.createFolder('demo', '', 'src');
+    await ctx.ws.createFile('demo', 'src', 'a.js', 'a');
+    return ctx;
+  }
+
+  it('stats and lists entries', async () => {
+    const { ws } = await project();
+    await expect(ws.stat('demo', 'src')).resolves.toBe('dir');
+    await expect(ws.stat('demo', 'src/a.js')).resolves.toBe('file');
+    await expect(ws.stat('demo', 'nope')).resolves.toBeNull();
+    await expect(ws.list('demo', '')).resolves.toEqual([
+      { name: 'src', kind: 'dir' },
+      { name: 'index.js', kind: 'file' },
+      { name: 'tide.json', kind: 'file' },
+    ]);
+    await expectCode(ws.list('demo', 'index.js'), 'not-found');
+  });
+
+  it('moves a file into another folder and renames within one', async () => {
+    const { ws, fs } = await project();
+    await ws.createFolder('demo', '', 'lib');
+    await expect(ws.moveEntry('demo', 'src/a.js', 'lib/b.js')).resolves.toBe('lib/b.js');
+    expect(fs.files.get('projects/demo/lib/b.js')).toBe('a');
+    expect(fs.files.has('projects/demo/src/a.js')).toBe(false);
+    await ws.moveEntry('demo', 'lib/b.js', 'lib/c.js');
+    await expect(ws.readFile('demo', 'lib/c.js')).resolves.toBe('a');
+  });
+
+  it('moves and copies whole folders', async () => {
+    const { ws, fs } = await project();
+    await ws.createFolder('demo', 'src', 'deep');
+    await ws.createFile('demo', 'src/deep', 'd.js', 'd');
+    await ws.createFolder('demo', '', 'out');
+    await ws.copyEntry('demo', 'src', 'out/src');
+    expect(fs.files.get('projects/demo/out/src/deep/d.js')).toBe('d');
+    expect(fs.files.get('projects/demo/src/a.js')).toBe('a');
+    await ws.moveEntry('demo', 'src', 'out/moved');
+    expect(fs.files.get('projects/demo/out/moved/a.js')).toBe('a');
+    expect(fs.dirs.has('projects/demo/src')).toBe(false);
+  });
+
+  it('refuses bad moves and copies', async () => {
+    const { ws } = await project();
+    await expectCode(ws.moveEntry('demo', 'src', 'src/inner'), 'invalid-path');
+    await expectCode(ws.copyEntry('demo', 'src', 'src'), 'invalid-path');
+    await expectCode(ws.moveEntry('demo', 'src/a.js', 'index.js'), 'exists');
+    await expectCode(ws.copyEntry('demo', 'src/a.js', 'missing/a.js'), 'not-found');
+    await expectCode(ws.moveEntry('demo', 'ghost.js', 'x.js'), 'not-found');
+    await expectCode(ws.moveEntry('demo', '', 'x'), 'invalid-path');
+  });
+});

@@ -20,6 +20,8 @@ export interface ProjectsState {
   createFolder(project: string, parent: string, name: string): Promise<string>;
   renameEntry(project: string, path: string, newName: string): Promise<string>;
   deleteEntry(project: string, path: string): Promise<void>;
+  moveEntry(project: string, from: string, to: string): Promise<string>;
+  copyEntry(project: string, from: string, to: string): Promise<string>;
 }
 
 // The disk is the source of truth: every change goes through the workspace
@@ -86,6 +88,21 @@ export function createProjectsStore(workspace: Workspace, tabs: TabsStore, buffe
         buffers.getState().renamePath(project, path, to);
         await reloadTree(project);
         return to;
+      },
+      async moveEntry(project, from, to) {
+        await buffers.getState().flushProject(project);
+        const target = await workspace.moveEntry(project, from, to);
+        tabs.getState().renamePath(project, from, target);
+        buffers.getState().renamePath(project, from, target);
+        await reloadTree(project);
+        return target;
+      },
+      async copyEntry(project, from, to) {
+        // Copy what the user sees in the editor, not a stale file.
+        await buffers.getState().flushProject(project);
+        const target = await workspace.copyEntry(project, from, to);
+        await reloadTree(project);
+        return target;
       },
       async deleteEntry(project, path) {
         buffers.getState().removePath(project, path);

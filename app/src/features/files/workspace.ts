@@ -1,4 +1,4 @@
-import { EntryKind, FsAdapter, basename, dirname, joinPath } from './fs';
+import { DirEntry, EntryKind, FsAdapter, basename, dirname, joinPath } from './fs';
 import { RUN_CONFIG_FILE, RunConfig, findTemplate } from './templates';
 
 export const PROJECTS_DIR = 'projects';
@@ -79,7 +79,61 @@ export function createWorkspace(fs: FsAdapter) {
     );
   }
 
+  // Recursive copy used by cp and by moves across folders (rename only works within one).
+  async function copyTree(from: string, to: string) {
+    if ((await fs.stat(from)) === 'file') {
+      await fs.copyFile(from, to);
+      return;
+    }
+    await fs.mkdir(to);
+    for (const e of await fs.readDir(from)) {
+      await copyTree(joinPath(from, e.name), joinPath(to, e.name));
+    }
+  }
+
+  async function checkRelocation(project: string, from: string, to: string) {
+    if (!from) throw new WorkspaceError('invalid-path', "The project root can't be moved or copied");
+    if (!to) throw new WorkspaceError('invalid-path', 'Missing destination');
+    await requireKind(abs(project, from));
+    if (to === from || to.startsWith(`${from}/`)) {
+      throw new WorkspaceError('invalid-path', `Can't put "${from}" inside itself`);
+    }
+    await requireKind(abs(project, dirname(to)), 'dir');
+    await requireFree(abs(project, to));
+  }
+
   return {
+    async stat(project: string, path: string): Promise<EntryKind | null> {
+      return fs.stat(abs(project, path));
+    },
+
+    async list(project: string, path: string): Promise<DirEntry[]> {
+      await requireKind(abs(project, path), 'dir');
+      return sortEntries(await fs.readDir(abs(project, path)));
+    },
+
+    // `to` is the full destination path, not a folder to move into.
+    async moveEntry(project: string, path: string, to: string): Promise<string> {
+      const from = normalizePath(path);
+      const target = normalizePath(to);
+      await checkRelocation(project, from, target);
+      if (dirname(from) === dirname(target)) {
+        await fs.rename(abs(project, from), basename(target));
+      } else {
+        await copyTree(abs(project, from), abs(project, target));
+        await fs.remove(abs(project, from));
+      }
+      return target;
+    },
+
+    async copyEntry(project: string, path: string, to: string): Promise<string> {
+      const from = normalizePath(path);
+      const target = normalizePath(to);
+      await checkRelocation(project, from, target);
+      await copyTree(abs(project, from), abs(project, target));
+      return target;
+    },
+
     async listProjects(): Promise<string[]> {
       if ((await fs.stat(PROJECTS_DIR)) !== 'dir') return [];
       const entries = await fs.readDir(PROJECTS_DIR);

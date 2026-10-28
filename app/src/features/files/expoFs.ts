@@ -36,6 +36,14 @@ export function createExpoFs(root: Directory = Paths.document): FsAdapter {
       if (info.isDirectory) dir(path).rename(newName);
       else file(path).rename(newName);
     },
+    async copyFile(from, to) {
+      const parent = dirname(to);
+      if (parent) dir(parent).create({ intermediates: true, idempotent: true });
+      const target = file(to);
+      if (!target.exists) target.create();
+      // Bytes, not text, so binary files survive the copy.
+      await target.write(await file(from).bytes());
+    },
     async remove(path) {
       const info = Paths.info(dir(path).uri);
       if (!info.exists) throw new Error(`ENOENT: ${path}`);

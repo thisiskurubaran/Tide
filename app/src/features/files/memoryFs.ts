@@ -64,6 +64,13 @@ export function createMemoryFs(): FsAdapter & { files: Map<string, string>; dirs
         }
       }
     },
+    async copyFile(from, to) {
+      const content = files.get(from);
+      if (content === undefined) throw new Error(`ENOENT: ${from}`);
+      if (dirs.has(to)) throw new Error(`EISDIR: ${to}`);
+      mkdirp(dirname(to));
+      files.set(to, content);
+    },
     async remove(path) {
       if (kind(path) === null) throw new Error(`ENOENT: ${path}`);
       for (const f of [...files.keys()]) if (under(f, path)) files.delete(f);

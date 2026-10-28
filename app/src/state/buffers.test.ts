@@ -125,3 +125,26 @@ describe('buffers with tree changes', () => {
     expect(buf(buffers, 'index.js', 'p')).toBeUndefined();
   });
 });
+
+describe('buffers with moves and copies', () => {
+  it('moves tabs and buffers with a file moved to another folder', async () => {
+    const { buffers, projects, fs } = await setup();
+    await projects.getState().createFolder('p', '', 'lib');
+    await buffers.getState().load('p', 'index.js');
+    buffers.getState().edit('p', 'index.js', 'moved edit');
+    await projects.getState().moveEntry('p', 'index.js', 'lib/index.js');
+    jest.advanceTimersByTime(AUTOSAVE_MS * 2);
+    await settle();
+    expect(fs.files.get('projects/p/lib/index.js')).toBe('moved edit');
+    expect(fs.files.has('projects/p/index.js')).toBe(false);
+    expect(buf(buffers, 'lib/index.js')?.content).toBe('moved edit');
+  });
+
+  it('copies the unsaved editor contents', async () => {
+    const { buffers, projects, fs } = await setup();
+    await buffers.getState().load('p', 'index.js');
+    buffers.getState().edit('p', 'index.js', 'latest');
+    await projects.getState().copyEntry('p', 'index.js', 'copy.js');
+    expect(fs.files.get('projects/p/copy.js')).toBe('latest');
+  });
+});

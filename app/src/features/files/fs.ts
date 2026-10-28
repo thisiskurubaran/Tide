@@ -19,6 +19,8 @@ export interface FsAdapter {
   rename(path: string, newName: string): Promise<void>;
   // Recursive for directories.
   remove(path: string): Promise<void>;
+  // Byte-for-byte file copy; creates missing parents and overwrites `to`.
+  copyFile(from: string, to: string): Promise<void>;
 }
 
 export function joinPath(...parts: string[]): string {
