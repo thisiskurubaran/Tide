@@ -1,5 +1,6 @@
 import { createMemoryFs } from '../features/files/memoryFs';
 import { createWorkspace } from '../features/files/workspace';
+import { createBuffersStore } from './buffers';
 import { createProjectsStore } from './projects';
 import { createRunnerStore } from './runner';
 import { createFsStorage } from './storage';
@@ -11,8 +12,10 @@ function setup() {
   const fs = createMemoryFs();
   const storage = createFsStorage(fs);
   const tabs = createTabsStore(storage);
-  const projects = createProjectsStore(createWorkspace(fs), tabs);
-  return { fs, storage, tabs, projects };
+  const workspace = createWorkspace(fs);
+  const buffers = createBuffersStore(workspace);
+  const projects = createProjectsStore(workspace, tabs, buffers);
+  return { fs, storage, tabs, buffers, projects };
 }
 
 describe('tabs store', () => {

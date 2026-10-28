@@ -10,7 +10,7 @@ app/                             Expo app (dev client, prebuild, New Architectur
   src/features/files             Workspace service, project templates, file tree
   src/features/projects          Projects list screen
   src/features/project           Project screen: tabs, file view, terminal panel
-  src/state                      Zustand stores (projects, tabs, runner mode)
+  src/state                      Zustand stores (projects, tabs, runner mode, open-file buffers)
   src/runtime                    Clients for the embedded Node and Python runtimes
   src/theme                      Tokens from the FuseOps theme, editor and terminal themes
   assets/fonts                   Inter, Instrument Sans, JetBrains Mono (SIL OFL 1.1)

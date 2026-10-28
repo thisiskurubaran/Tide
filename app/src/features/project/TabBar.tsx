@@ -1,18 +1,19 @@
 import Feather from '@expo/vector-icons/Feather';
-import { Pressable, ScrollView, StyleSheet } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { Text } from '../../components/Text';
-import { borderWidth, colors, spacing } from '../../theme/tokens';
+import { borderWidth, colors, radius, spacing } from '../../theme/tokens';
 import { basename } from '../files/fs';
 
 interface TabBarProps {
   open: string[];
   active: string | null;
+  dirty: Set<string>;
   onSelect(path: string): void;
   onClose(path: string): void;
 }
 
-export function TabBar({ open, active, onSelect, onClose }: TabBarProps) {
+export function TabBar({ open, active, dirty, onSelect, onClose }: TabBarProps) {
   if (open.length === 0) return null;
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.bar} contentContainerStyle={styles.content}>
@@ -32,7 +33,11 @@ export function TabBar({ open, active, onSelect, onClose }: TabBarProps) {
               {basename(path)}
             </Text>
             <Pressable hitSlop={spacing.sm} onPress={() => onClose(path)} accessibilityLabel={`Close ${basename(path)}`}>
-              <Feather name="x" size={14} color={colors.mutedForeground} />
+              {dirty.has(path) ? (
+                <View style={styles.dirty} accessibilityLabel="Unsaved changes" testID={`dirty-${path}`} />
+              ) : (
+                <Feather name="x" size={14} color={colors.mutedForeground} />
+              )}
             </Pressable>
           </Pressable>
         );
@@ -55,4 +60,6 @@ const styles = StyleSheet.create({
     maxWidth: 200,
   },
   selected: { borderColor: colors.brand },
+  // Same footprint as the close icon so tabs don't shift when the dot appears.
+  dirty: { width: 14, height: 14, alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill, borderWidth: 4, borderColor: colors.background, backgroundColor: colors.foreground },
 });

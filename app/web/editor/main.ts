@@ -189,6 +189,8 @@ function handle(msg: ToEditor) {
       return pressKey(msg.key);
     case 'focus':
       return view.focus();
+    case 'blur':
+      return view.contentDOM.blur();
   }
 }
 

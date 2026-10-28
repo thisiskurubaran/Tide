@@ -5,11 +5,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { IconButton } from '../../components/Button';
 import { Text } from '../../components/Text';
-import { projectsStore, tabsStore, useProjects, useTabs } from '../../state';
+import { buffersStore, projectsStore, tabsStore, useBuffers, useProjects, useTabs } from '../../state';
+import { bufferKey, isDirty } from '../../state/buffers';
 import { projectTabs } from '../../state/tabs';
 import { borderWidth, colors, spacing } from '../../theme/tokens';
 import { FileTree } from '../files/FileTree';
-import { FileView } from './FileView';
+import { EditorHandle, EditorPane } from '../editor/EditorPane';
+import { KeyboardBar } from '../editor/KeyboardBar';
+import { useKeyboardHeight } from '../editor/useKeyboardHeight';
 import { TabBar } from './TabBar';
 import { TerminalPanel } from './TerminalPanel';
 
@@ -21,6 +24,12 @@ export function ProjectScreen({ project }: { project: string }) {
   const drawerWidth = Math.min(DRAWER_MAX, width * 0.85);
   const tree = useProjects((s) => s.trees[project]);
   const tabs = useTabs((s) => projectTabs(s, project));
+  const dirtyKey = useBuffers((s) =>
+    tabs.open.filter((p) => isDirty(s.buffers[bufferKey(project, p)])).join('\n'),
+  );
+  const dirty = new Set(dirtyKey ? dirtyKey.split('\n') : []);
+  const editor = useRef<EditorHandle>(null);
+  const keyboardHeight = useKeyboardHeight();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const progress = useRef(new Animated.Value(0)).current;
 
@@ -54,15 +63,27 @@ export function ProjectScreen({ project }: { project: string }) {
         open={tabs.open}
         active={tabs.active}
         onSelect={(path) => tabsStore.getState().openTab(project, path)}
-        onClose={(path) => tabsStore.getState().closeTab(project, path)}
+        dirty={dirty}
+        onClose={async (path) => {
+          await buffersStore.getState().save(project, path);
+          tabsStore.getState().closeTab(project, path);
+        }}
       />
 
       <View style={styles.editor}>
-        <FileView project={project} path={tabs.active} onBrowse={() => setDrawerOpen(true)} />
+        <EditorPane ref={editor} project={project} path={tabs.active} onBrowse={() => setDrawerOpen(true)} />
       </View>
-      <View style={[styles.terminal, { paddingBottom: insets.bottom }]}>
-        <TerminalPanel />
-      </View>
+      {keyboardHeight > 0 ? (
+        // While typing, the terminal makes room for the editor and the accessory bar sits on the keyboard.
+        // Distinct keys: reusing one native view between the two branches kept the keyboard padding around.
+        <View key="keyboard-bar" style={{ paddingBottom: keyboardHeight }}>
+          <KeyboardBar send={(msg) => editor.current?.send(msg)} />
+        </View>
+      ) : (
+        <View key="terminal" style={[styles.terminal, { paddingBottom: insets.bottom }]}>
+          <TerminalPanel />
+        </View>
+      )}
 
       <Animated.View
         pointerEvents={drawerOpen ? 'auto' : 'none'}

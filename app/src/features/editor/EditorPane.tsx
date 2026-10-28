@@ -1,0 +1,131 @@
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react';
+import { AppState, StyleSheet, View } from 'react-native';
+import WebView, { WebViewMessageEvent } from 'react-native-webview';
+
+import { Button } from '../../components/Button';
+import { Text } from '../../components/Text';
+import { buffersStore } from '../../state';
+import { editorThemes } from '../../theme/editor';
+import { colors, spacing } from '../../theme/tokens';
+import { languageFor, parseFromEditor, ToEditor } from './bridge';
+import editorHtml from './editorHtml.generated';
+
+export interface EditorHandle {
+  send(msg: ToEditor): void;
+}
+
+interface EditorPaneProps {
+  project: string;
+  path: string | null;
+  onBrowse(): void;
+}
+
+export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function EditorPane({ project, path, onBrowse }, ref) {
+  const webview = useRef<WebView<object>>(null);
+  const ready = useRef(false);
+  const pathRef = useRef(path);
+  pathRef.current = path;
+
+  const send = useCallback((msg: ToEditor) => {
+    if (!ready.current) return;
+    // Double-encoded so the payload is a JS string literal, not code.
+    webview.current?.injectJavaScript(`window.tide && window.tide.receive(${JSON.stringify(JSON.stringify(msg))});true;`);
+  }, []);
+
+  useImperativeHandle(ref, () => ({ send }), [send]);
+
+  const openCurrent = useCallback(async () => {
+    const target = pathRef.current;
+    if (!ready.current || !target) return;
+    const buffer = await buffersStore.getState().load(project, target);
+    // The user may have switched tabs while the file was loading.
+    if (pathRef.current !== target) return;
+    send({ type: 'open', path: target, content: buffer.content, language: languageFor(target) });
+  }, [project, send]);
+
+  useEffect(() => {
+    openCurrent().catch((e) => console.warn('Could not open file', e));
+  }, [path, openCurrent]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') buffersStore.getState().flushAll();
+    });
+    return () => {
+      sub.remove();
+      buffersStore.getState().flushProject(project);
+    };
+  }, [project]);
+
+  function onMessage(event: WebViewMessageEvent) {
+    const msg = parseFromEditor(event.nativeEvent.data);
+    if (!msg) return;
+    switch (msg.type) {
+      case 'ready':
+        ready.current = true;
+        send({ type: 'setTheme', theme: editorThemes.dark });
+        openCurrent();
+        return;
+      case 'change':
+        buffersStore.getState().edit(project, msg.path, msg.content);
+        return;
+      case 'save':
+        buffersStore.getState().save(project, msg.path);
+        return;
+      case 'error':
+        console.warn('Editor error:', msg.message);
+        return;
+    }
+  }
+
+  return (
+    <View style={styles.container}>
+      {/* The default type argument makes WebView's props `WebViewProps & undefined`, i.e. never. */}
+      <WebView<object>
+        ref={webview}
+        source={{ html: editorHtml }}
+        originWhitelist={['about:blank']}
+        onMessage={onMessage}
+        // The web content reloads after a crash, so it has to ask for the file again.
+        onContentProcessDidTerminate={() => {
+          ready.current = false;
+          webview.current?.reload();
+        }}
+        onLoadStart={() => {
+          ready.current = false;
+        }}
+        style={styles.webview}
+        containerStyle={styles.webview}
+        scrollEnabled={false}
+        bounces={false}
+        overScrollMode="never"
+        hideKeyboardAccessoryView
+        keyboardDisplayRequiresUserAction={false}
+        automaticallyAdjustContentInsets={false}
+        contentInsetAdjustmentBehavior="never"
+        javaScriptEnabled
+        allowFileAccess={false}
+        setSupportMultipleWindows={false}
+        textZoom={100}
+      />
+      {!path && (
+        <View style={styles.empty}>
+          <Text variant="muted">No file open.</Text>
+          <Button title="Browse files" variant="outline" icon="sidebar" onPress={onBrowse} />
+        </View>
+      )}
+    </View>
+  );
+});
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
+  webview: { flex: 1, backgroundColor: colors.background },
+  empty: {
+    ...StyleSheet.absoluteFill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.md,
+    backgroundColor: colors.background,
+  },
+});

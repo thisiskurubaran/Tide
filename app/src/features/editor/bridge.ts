@@ -14,7 +14,9 @@ export type ToEditor =
   | { type: 'find' }
   | { type: 'insert'; text: string }
   | { type: 'key'; key: EditorKey }
-  | { type: 'focus' };
+  | { type: 'focus' }
+  // Keyboard.dismiss() only blurs RN text inputs, so the WebView is asked directly.
+  | { type: 'blur' };
 
 export type FromEditor =
   | { type: 'ready' }
@@ -49,7 +51,7 @@ export function languageFor(path: string): Language {
   return EXTENSIONS[name.slice(dot + 1).toLowerCase()] ?? 'plain';
 }
 
-const TO_EDITOR = new Set<ToEditor['type']>(['open', 'setTheme', 'undo', 'redo', 'find', 'insert', 'key', 'focus']);
+const TO_EDITOR = new Set<ToEditor['type']>(['open', 'setTheme', 'undo', 'redo', 'find', 'insert', 'key', 'focus', 'blur']);
 const FROM_EDITOR = new Set<FromEditor['type']>(['ready', 'change', 'save', 'error']);
 
 function parse<T extends { type: string }>(raw: string, types: Set<string>): T | null {

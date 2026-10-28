@@ -1,9 +1,11 @@
 import { createStore } from 'zustand';
 
 import type { TreeNode, Workspace } from '../features/files/workspace';
+import type { BuffersState } from './buffers';
 import type { TabsState } from './tabs';
 
 type TabsStore = { getState(): TabsState };
+type BuffersStore = { getState(): BuffersState };
 
 export interface ProjectsState {
   projects: string[];
@@ -22,7 +24,9 @@ export interface ProjectsState {
 
 // The disk is the source of truth: every change goes through the workspace
 // and then reloads what it touched, so nothing here needs persisting.
-export function createProjectsStore(workspace: Workspace, tabs: TabsStore) {
+// Pending autosaves are flushed before a rename and dropped before a delete,
+// otherwise a late write would recreate the old file.
+export function createProjectsStore(workspace: Workspace, tabs: TabsStore, buffers: BuffersStore) {
   return createStore<ProjectsState>()((set, get) => {
     const reloadTree = async (project: string) => {
       const tree = await workspace.readTree(project);
@@ -42,8 +46,10 @@ export function createProjectsStore(workspace: Workspace, tabs: TabsStore) {
         return project;
       },
       async renameProject(name, newName) {
+        await buffers.getState().flushProject(name);
         const project = await workspace.renameProject(name, newName);
         tabs.getState().renameProject(name, project);
+        buffers.getState().renameProject(name, project);
         set((s) => {
           const { [name]: tree, ...rest } = s.trees;
           return { trees: tree ? { ...rest, [project]: tree } : rest };
@@ -52,6 +58,7 @@ export function createProjectsStore(workspace: Workspace, tabs: TabsStore) {
         return project;
       },
       async deleteProject(name) {
+        buffers.getState().removeProject(name);
         await workspace.deleteProject(name);
         tabs.getState().removeProject(name);
         set((s) => {
@@ -73,12 +80,15 @@ export function createProjectsStore(workspace: Workspace, tabs: TabsStore) {
         return path;
       },
       async renameEntry(project, path, newName) {
+        await buffers.getState().flushProject(project);
         const to = await workspace.renameEntry(project, path, newName);
         tabs.getState().renamePath(project, path, to);
+        buffers.getState().renamePath(project, path, to);
         await reloadTree(project);
         return to;
       },
       async deleteEntry(project, path) {
+        buffers.getState().removePath(project, path);
         await workspace.deleteEntry(project, path);
         tabs.getState().removePath(project, path);
         await reloadTree(project);
