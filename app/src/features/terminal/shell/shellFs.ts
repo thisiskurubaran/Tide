@@ -17,6 +17,8 @@ export interface ShellFs {
   move(from: string, to: string): Promise<void>;
   copy(from: string, to: string): Promise<void>;
   readRunConfig(): Promise<RunConfig | null>;
+  // Reloads the file tree after something outside the shell changed files.
+  refresh(): Promise<void>;
 }
 
 export function createShellFs(
@@ -53,5 +55,6 @@ export function createShellFs(
       await store().copyEntry(project, from, to);
     },
     readRunConfig: () => workspace.readRunConfig(project),
+    refresh: () => store().loadTree(project),
   };
 }

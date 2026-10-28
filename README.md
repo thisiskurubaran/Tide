@@ -56,7 +56,11 @@ npm run ios       # or: npm run android
 
 ## Terminal
 
-Local mode is a small built-in shell, not a real one (iOS can't start processes). It has `ls cd pwd cat echo touch mkdir rm mv cp clear help`, plus `node <file>`, `python <file>` and `run`, which starts the entry in the project's `tide.json`. Anything else, such as npm, pip or git, needs Remote mode.
+Local mode is a small built-in shell, not a real one (iOS can't start processes). It has `ls cd pwd cat echo touch mkdir rm mv cp clear help`, plus `node <file>`, `python <file>` and `run`, which starts the entry in the project's `tide.json`. Anything else, such as pip or git, needs Remote mode.
+
+Node scripts run in nodejs-mobile (Node 18), each in its own worker thread, so Ctrl-C stops a script without restarting Node. Each run is capped at 256 MB of heap.
+
+`npm install [package...]` works locally for pure-JS packages: it resolves versions from the registry, checks each tarball's integrity and extracts it into `node_modules`. Install scripts never run, and packages that need a native build print a warning; install those in Remote mode.
 
 ## WebView bundles
 

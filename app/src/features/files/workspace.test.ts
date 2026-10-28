@@ -95,6 +95,19 @@ describe('files and folders', () => {
     expect(tree[0].children?.[0].children?.[0]).toMatchObject({ path: 'src/lib/util.js', kind: 'file' });
   });
 
+  it('shows node_modules without listing its contents', async () => {
+    const { ws, fs } = await project();
+    await fs.writeFile('projects/demo/node_modules/express/index.js', '');
+    const tree = await ws.readTree('demo');
+    expect(tree.find((n) => n.name === 'node_modules')).toEqual({
+      name: 'node_modules',
+      path: 'node_modules',
+      kind: 'dir',
+      children: [],
+      unlisted: true,
+    });
+  });
+
   it('keeps empty folders in the tree', async () => {
     const { ws } = await project();
     await ws.createFolder('demo', '', 'empty');

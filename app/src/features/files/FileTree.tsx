@@ -87,6 +87,11 @@ export function FileTree({ project, nodes, activePath, onOpenFile }: FileTreePro
             {node.name}
           </Text>
         </Pressable>
+        {isDir && open && node.unlisted && (
+          <Text variant="muted" style={[styles.unlisted, { paddingLeft: spacing.sm + (depth + 1) * INDENT }]}>
+            Contents not listed
+          </Text>
+        )}
         {isDir && open && node.children?.map((child) => renderNode(child, depth + 1))}
       </View>
     );
@@ -155,4 +160,5 @@ const styles = StyleSheet.create({
   },
   name: { flex: 1 },
   empty: { padding: spacing.md },
+  unlisted: { paddingVertical: spacing.xs },
 });

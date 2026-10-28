@@ -21,7 +21,12 @@ export interface TreeNode {
   path: string;
   kind: EntryKind;
   children?: TreeNode[];
+  // True for folders like node_modules whose contents are not listed.
+  unlisted?: boolean;
 }
+
+// Installed dependencies can be thousands of files; the tree shows the folder but not its contents.
+const UNLISTED_DIRS = new Set(['node_modules', '.git', '__pycache__', '.pylibs']);
 
 const MAX_NAME = 128;
 
@@ -72,9 +77,9 @@ export function createWorkspace(fs: FsAdapter) {
     return Promise.all(
       entries.map(async (e) => {
         const path = joinPath(rel, e.name);
-        return e.kind === 'dir'
-          ? { name: e.name, path, kind: e.kind, children: await readTree(project, path) }
-          : { name: e.name, path, kind: e.kind };
+        if (e.kind !== 'dir') return { name: e.name, path, kind: e.kind };
+        if (UNLISTED_DIRS.has(e.name)) return { name: e.name, path, kind: e.kind, children: [], unlisted: true };
+        return { name: e.name, path, kind: e.kind, children: await readTree(project, path) };
       }),
     );
   }

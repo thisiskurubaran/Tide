@@ -133,8 +133,8 @@ describe('shell', () => {
 
   it('points unknown commands at remote mode', async () => {
     const { run } = await setup();
-    const out = await run('npm install');
-    expect(out).toContain('npm: command not found');
+    const out = await run('pip install requests');
+    expect(out).toContain('pip: command not found');
     expect(out).toContain('switch the terminal to Remote');
   });
 
@@ -203,6 +203,12 @@ describe('shell', () => {
     expect(out()).toContain('Name? Ada');
     expect(out()).toContain('[exited with signal SIGINT]');
     expect(out().trimEnd().endsWith('demo / $')).toBe(true);
+  });
+
+  it('runs npm through the built-in installer', async () => {
+    const { run, runner } = await setup();
+    await run('npm install express');
+    expect(runner.requests[0]).toMatchObject({ runtime: 'node', entry: 'tide:npm', cwd: 'projects/demo', args: ['install', 'express'] });
   });
 
   it('run uses tide.json', async () => {
