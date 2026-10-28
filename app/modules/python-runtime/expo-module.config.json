@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["PythonRuntimeModule"]
+  },
+  "android": {
+    "modules": ["dev.tide.pythonruntime.PythonRuntimeModule"]
+  }
+}

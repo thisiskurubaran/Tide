@@ -23,6 +23,9 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "scheme": "tide"
+    "scheme": "tide",
+    "plugins": [
+      "./modules/python-runtime/app.plugin.js"
+    ]
   }
 }
