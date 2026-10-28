@@ -157,3 +157,28 @@ test('shell, sync both ways and preview', async () => {
   sh.ws.close();
   sync.ws.close();
 });
+
+test('closing a shell stops what it started', async () => {
+  const session = await open('cleanup');
+  const sh = shell(session.id);
+  await sh.opened;
+  sh.type('sleep 900 & node -e "setInterval(() => {}, 1000)"');
+  const ps = async () => {
+    const exec = await docker.getContainer(`tide-${session.id}`).exec({ Cmd: ['ps', '-eo', 'args'], AttachStdout: true });
+    const stream = await exec.start({ hijack: true, stdin: false });
+    let out = '';
+    stream.on('data', (d: Buffer) => (out += d.toString('latin1')));
+    await new Promise((r) => stream.on('end', r));
+    return out;
+  };
+  for (let i = 0; i < 50 && !(await ps()).includes('setInterval'); i++) await new Promise((r) => setTimeout(r, 100));
+  assert.match(await ps(), /sleep 900/);
+  sh.ws.close();
+  let left = '';
+  for (let i = 0; i < 40; i++) {
+    await new Promise((r) => setTimeout(r, 250));
+    left = await ps();
+    if (!/sleep 900|setInterval|bash -l/.test(left)) break;
+  }
+  assert.doesNotMatch(left, /sleep 900|setInterval|bash -l/);
+});

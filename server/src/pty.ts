@@ -1,13 +1,11 @@
-import type { Duplex } from 'node:stream';
-
 import type { WebSocket } from 'ws';
 
 import type { PtyData, ResizeMsg } from '../../shared/protocol.ts';
-import type { Session } from './sessions.ts';
+import type { Session, SessionManager } from './sessions.ts';
 
 // Real bash in the container. Docker's own TTY exec replaces node-pty: it
 // gives a raw byte stream and supports resizing.
-export async function attachPty(session: Session, ws: WebSocket, touch: () => void) {
+export async function attachPty(manager: SessionManager, session: Session, ws: WebSocket, touch: () => void) {
   // The client can type as soon as the socket opens, before the exec exists.
   const early: string[] = [];
   const queue = (raw: unknown) => early.push(String(raw));
@@ -15,28 +13,18 @@ export async function attachPty(session: Session, ws: WebSocket, touch: () => vo
   let closed = false;
   ws.once('close', () => (closed = true));
 
-  const exec = await session.container.exec({
-    Cmd: ['bash', '-l'],
-    User: 'tide',
-    WorkingDir: '/workspace',
-    Env: ['TERM=xterm-256color', 'LANG=C.UTF-8'],
-    AttachStdin: true,
-    AttachStdout: true,
-    AttachStderr: true,
-    Tty: true,
-  });
-  const stream = (await exec.start({ hijack: true, stdin: true, Tty: true })) as Duplex;
+  const { exec, input: stream, output, stop } = await manager.spawnTty(session, ['bash', '-l'], ['TERM=xterm-256color', 'LANG=C.UTF-8']);
   ws.off('message', queue);
   if (closed) {
-    stream.destroy();
+    stop();
     return;
   }
 
-  stream.setEncoding('utf8');
-  stream.on('data', (data: string) => {
+  output.setEncoding('utf8');
+  output.on('data', (data: string) => {
     if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'pty', data } satisfies PtyData));
   });
-  stream.on('end', () => ws.close(1000, 'shell exited'));
+  output.on('end', () => ws.close(1000, 'shell exited'));
   stream.on('error', () => ws.close(1011, 'shell error'));
 
   // Resize is an HTTP call to Docker; keystrokes after it must wait for it to land.
@@ -59,5 +47,5 @@ export async function attachPty(session: Session, ws: WebSocket, touch: () => vo
   };
   for (const raw of early) handle(raw);
   ws.on('message', handle);
-  ws.on('close', () => stream.destroy());
+  ws.on('close', stop);
 }

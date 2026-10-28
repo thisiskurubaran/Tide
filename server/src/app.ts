@@ -90,7 +90,7 @@ export function createApp(config: Config, manager: SessionManager) {
         manager.touch(session);
       });
       const touch = () => manager.touch(session);
-      const attach = m[2] === 'pty' ? attachPty(session, ws, touch) : Promise.resolve(attachSync(manager, session, ws, touch));
+      const attach = m[2] === 'pty' ? attachPty(manager, session, ws, touch) : Promise.resolve(attachSync(manager, session, ws, touch));
       attach.catch((e: Error) => ws.close(1011, e.message.slice(0, 100)));
     });
   });

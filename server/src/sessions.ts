@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import { Duplex, PassThrough } from 'node:stream';
+import { Duplex, PassThrough, Transform } from 'node:stream';
 
 import type Docker from 'dockerode';
 
@@ -11,6 +11,31 @@ import { packTar } from './tar.ts';
 const LABEL = 'dev.tide.session';
 const RELAY = fs.readFileSync(new URL('./relay.py', import.meta.url), 'utf8');
 export const WATCHER = fs.readFileSync(new URL('./watcher.py', import.meta.url), 'utf8');
+
+// Long-lived execs start through sh, which prints its PID before exec'ing the
+// real command. Destroying an exec's stream leaves its processes running in the
+// container (a server started in an old shell kept its port, and Ctrl-C in the
+// new shell couldn't reach it), so on close the exec's whole session is killed.
+// Each docker exec is its own session: pkill -s also catches jobs it started.
+export const withPid = (cmd: string[]) => ['sh', '-c', 'echo "TIDE_PID=$$"; exec "$@"', 'sh', ...cmd];
+
+// Removes the PID line from the start of an exec's output and reports the PID.
+export function stripPid(onPid: (pid: number) => void): Transform {
+  let head: Buffer | null = Buffer.alloc(0);
+  return new Transform({
+    transform(chunk: Buffer, _enc, cb) {
+      if (head === null) return cb(null, chunk);
+      head = Buffer.concat([head, chunk]);
+      const nl = head.indexOf(10);
+      if (nl === -1 && head.length < 64) return cb();
+      const m = /^TIDE_PID=(\d+)\r?$/.exec(head.subarray(0, nl === -1 ? 0 : nl).toString());
+      const rest = m ? head.subarray(nl + 1) : head;
+      if (m) onPid(Number(m[1]));
+      head = null;
+      cb(null, rest.length ? rest : undefined);
+    },
+  });
+}
 
 export interface Session {
   id: string;
@@ -130,6 +155,29 @@ export class SessionManager {
     await session.container.putArchive(packTar(files), { path: WORKSPACE });
   }
 
+  // Stops an exec started with withPid, and everything it started.
+  killExec(session: Session, pid: number) {
+    const script = `pkill -HUP -s ${pid}; sleep 1; pkill -KILL -s ${pid}; true`;
+    this.run(session, ['sh', '-c', script]).catch(() => undefined);
+  }
+
+  // Calls back with a stop function once the PID is known; stopping before that kills it as soon as it is.
+  private stopper(session: Session) {
+    let pid: number | null = null;
+    let stopped = false;
+    return {
+      onPid: (p: number) => {
+        pid = p;
+        if (stopped) this.killExec(session, p);
+      },
+      stop: () => {
+        if (stopped) return;
+        stopped = true;
+        if (pid !== null) this.killExec(session, pid);
+      },
+    };
+  }
+
   async run(session: Session, cmd: string[]) {
     const exec = await session.container.exec({ Cmd: cmd, User: 'tide', AttachStdout: true, AttachStderr: true });
     const stream = await exec.start({ hijack: true, stdin: false });
@@ -139,28 +187,64 @@ export class SessionManager {
   }
 
   // Long-running exec whose stdout is demuxed; used for the watcher.
-  async spawn(session: Session, cmd: string[]): Promise<{ stdout: PassThrough; stop(): void }> {
-    const exec = await session.container.exec({ Cmd: cmd, User: 'tide', AttachStdout: true, AttachStderr: true });
+  async spawn(session: Session, cmd: string[]): Promise<{ stdout: Transform; stop(): void }> {
+    const exec = await session.container.exec({ Cmd: withPid(cmd), User: 'tide', AttachStdout: true, AttachStderr: true });
     const stream = await exec.start({ hijack: true, stdin: false });
-    const stdout = new PassThrough();
-    this.docker.modem.demuxStream(stream, stdout, new PassThrough());
-    stream.on('end', () => stdout.end());
-    return { stdout, stop: () => stream.destroy() };
+    const { onPid, stop } = this.stopper(session);
+    const raw = new PassThrough();
+    this.docker.modem.demuxStream(stream, raw, new PassThrough());
+    stream.on('end', () => raw.end());
+    const stdout = raw.pipe(stripPid(onPid));
+    return {
+      stdout,
+      stop: () => {
+        stop();
+        stream.destroy();
+      },
+    };
+  }
+
+  // A TTY exec (the terminal's shell): raw output with the PID line removed.
+  async spawnTty(session: Session, cmd: string[], env: string[]) {
+    const exec = await session.container.exec({
+      Cmd: withPid(cmd),
+      User: 'tide',
+      WorkingDir: WORKSPACE,
+      Env: env,
+      AttachStdin: true,
+      AttachStdout: true,
+      AttachStderr: true,
+      Tty: true,
+    });
+    const stream = (await exec.start({ hijack: true, stdin: true, Tty: true })) as Duplex;
+    const { onPid, stop } = this.stopper(session);
+    const output = stream.pipe(stripPid(onPid));
+    return {
+      exec,
+      input: stream,
+      output,
+      stop: () => {
+        stop();
+        stream.destroy();
+      },
+    };
   }
 
   // A TCP connection to `port` inside the container, carried over an exec.
   async connect(session: Session, port: number): Promise<Duplex> {
     const exec = await session.container.exec({
-      Cmd: ['python3', '-u', '-c', RELAY, String(port)],
+      Cmd: withPid(['python3', '-u', '-c', RELAY, String(port)]),
       User: 'tide',
       AttachStdin: true,
       AttachStdout: true,
       AttachStderr: true,
     });
     const stream = (await exec.start({ hijack: true, stdin: true })) as Duplex;
-    const stdout = new PassThrough();
-    this.docker.modem.demuxStream(stream, stdout, new PassThrough());
-    stream.on('end', () => stdout.end());
+    const { onPid, stop } = this.stopper(session);
+    const raw = new PassThrough();
+    this.docker.modem.demuxStream(stream, raw, new PassThrough());
+    stream.on('end', () => raw.end());
+    const stdout = raw.pipe(stripPid(onPid));
     // Writes go to the exec's stdin, reads come from the demuxed stdout.
     const socket = new Duplex({
       write(chunk, _enc, cb) {
@@ -170,6 +254,7 @@ export class SessionManager {
         stdout.resume();
       },
       destroy(err, cb) {
+        stop();
         stream.destroy();
         cb(err);
       },

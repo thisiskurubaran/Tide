@@ -18,10 +18,12 @@ export function attachSync(manager: SessionManager, session: Session, ws: WebSoc
   const known = new Map<string, string>();
   let watcher: { stop(): void } | null = null;
   let chain = Promise.resolve();
+  let closed = false;
 
   const startWatcher = async () => {
     const proc = await manager.spawn(session, ['python3', '-u', '-c', WATCHER]);
     watcher = proc;
+    if (closed) proc.stop();
     readline.createInterface({ input: proc.stdout }).on('line', (line) => {
       let msg: SyncToApp;
       try {
@@ -81,5 +83,8 @@ export function attachSync(manager: SessionManager, session: Session, ws: WebSoc
     // Apply in order: a delete must not overtake the write before it.
     chain = chain.then(() => handle(msg)).catch((e: Error) => ws.close(1011, e.message.slice(0, 100)));
   });
-  ws.on('close', () => watcher?.stop());
+  ws.on('close', () => {
+    closed = true;
+    watcher?.stop();
+  });
 }
