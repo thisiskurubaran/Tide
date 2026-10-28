@@ -8,7 +8,7 @@ import { markdown } from '@codemirror/lang-markdown';
 import { python } from '@codemirror/lang-python';
 import { bracketMatching, indentOnInput, indentUnit } from '@codemirror/language';
 import { openSearchPanel, searchKeymap } from '@codemirror/search';
-import { Compartment, EditorState, Extension } from '@codemirror/state';
+import { Compartment, EditorState, Extension, Prec } from '@codemirror/state';
 import {
   drawSelection,
   EditorView,
@@ -20,6 +20,7 @@ import {
 
 import fontRegular from '../../assets/fonts/JetBrainsMono-Regular.ttf';
 import { EditorKey, FromEditor, Language, parseToEditor, ToEditor } from '../../src/features/editor/bridge';
+import { shortcutFor } from '../../src/features/project/shortcuts';
 import { buildTheme, FONT_FAMILY } from './theme';
 
 const CHANGE_DEBOUNCE_MS = 150;
@@ -90,8 +91,23 @@ const saveKeymap = keymap.of([
   },
 ]);
 
+// App-level shortcuts win over CodeMirror's own (Mod-l would select a line).
+// Cmd-S stays with saveKeymap, which flushes the pending change first.
+const appShortcuts = Prec.highest(
+  EditorView.domEventHandlers({
+    keydown(e) {
+      const id = shortcutFor(e);
+      if (!id || id === 'save') return false;
+      e.preventDefault();
+      post({ type: 'shortcut', id });
+      return true;
+    },
+  }),
+);
+
 function baseExtensions(lang: Language): Extension[] {
   return [
+    appShortcuts,
     lineNumbers(),
     highlightActiveLine(),
     highlightActiveLineGutter(),

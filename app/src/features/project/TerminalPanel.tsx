@@ -10,15 +10,17 @@ import { borderWidth, radius, spacing } from '../../theme/tokens';
 import { connectSocket, nativeSocket, previewUrl } from '../remote/api';
 import { RemotePty } from '../remote/pty';
 import { useRemoteSession } from '../remote/useRemoteSession';
+import type { Shortcut } from './shortcuts';
 import { TerminalHandle, TerminalPane } from '../terminal/TerminalPane';
 import { makeStyles } from '../../theme/theme';
 
 interface TerminalPanelProps {
   project: string;
   onFocusChange(focused: boolean): void;
+  onShortcut(id: Shortcut): void;
 }
 
-export const TerminalPanel = forwardRef<TerminalHandle, TerminalPanelProps>(function TerminalPanel({ project, onFocusChange }, ref) {
+export const TerminalPanel = forwardRef<TerminalHandle, TerminalPanelProps>(function TerminalPanel({ project, onFocusChange, onShortcut }, ref) {
   const styles = useStyles();
   const mode = useRunner((s) => s.mode);
   const setMode = useRunner((s) => s.setMode);
@@ -26,7 +28,7 @@ export const TerminalPanel = forwardRef<TerminalHandle, TerminalPanelProps>(func
 
   let body: React.ReactNode;
   if (mode === 'local') {
-    body = <TerminalPane key="local" ref={ref} project={project} onFocusChange={onFocusChange} />;
+    body = <TerminalPane key="local" ref={ref} project={project} onFocusChange={onFocusChange} onShortcut={onShortcut} />;
   } else if (status.state === 'ready') {
     const { settings, session } = status;
     body = (
@@ -35,6 +37,7 @@ export const TerminalPanel = forwardRef<TerminalHandle, TerminalPanelProps>(func
         ref={ref}
         project={project}
         onFocusChange={onFocusChange}
+        onShortcut={onShortcut}
         createBackend={(write) => new RemotePty(() => connectSocket(nativeSocket, settings, session, 'pty'), write)}
       />
     );

@@ -9,6 +9,7 @@ import { bufferKey } from '../../state/buffers';
 import { editorThemes } from '../../theme/editor';
 import { spacing } from '../../theme/tokens';
 import { languageFor, parseFromEditor, ToEditor } from './bridge';
+import type { Shortcut } from '../project/shortcuts';
 import editorHtml from './editorHtml.generated';
 import { makeStyles, useColorScheme } from '../../theme/theme';
 
@@ -22,10 +23,11 @@ interface EditorPaneProps {
   project: string;
   path: string | null;
   onBrowse(): void;
+  onShortcut(id: Shortcut): void;
   onFocusChange(focused: boolean): void;
 }
 
-export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function EditorPane({ project, path, onBrowse, onFocusChange }, ref) {
+export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function EditorPane({ project, path, onBrowse, onFocusChange, onShortcut }, ref) {
   const styles = useStyles();
   const webview = useRef<WebView<object>>(null);
   const ready = useRef(false);
@@ -118,6 +120,9 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
         return;
       case 'focus':
         onFocusChange(msg.focused);
+        return;
+      case 'shortcut':
+        onShortcut(msg.id);
         return;
       case 'error':
         console.warn('Editor error:', msg.message);

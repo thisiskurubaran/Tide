@@ -2,6 +2,7 @@
 // with the web bundle. The terminal only renders and collects keystrokes; the
 // shell runs on the React Native side.
 import type { TerminalTheme } from '../../theme/terminal';
+import type { Shortcut } from '../project/shortcuts';
 
 export type ToTerminal =
   | { type: 'write'; data: string }
@@ -14,10 +15,11 @@ export type FromTerminal =
   | { type: 'input'; data: string }
   | { type: 'resize'; cols: number; rows: number }
   | { type: 'focus'; focused: boolean }
-  | { type: 'link'; url: string };
+  | { type: 'link'; url: string }
+  | { type: 'shortcut'; id: Shortcut };
 
 const TO = new Set<ToTerminal['type']>(['write', 'setTheme', 'focus', 'blur']);
-const FROM = new Set<FromTerminal['type']>(['ready', 'input', 'resize', 'focus', 'link']);
+const FROM = new Set<FromTerminal['type']>(['ready', 'input', 'resize', 'focus', 'link', 'shortcut']);
 
 function parse<T extends { type: string }>(raw: string, types: Set<string>): T | null {
   try {

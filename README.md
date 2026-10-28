@@ -76,6 +76,8 @@ Python scripts run in the embedded CPython 3.15 (Chaquopy on Android), each on i
 
 The search icon in a project searches every file (skipping `node_modules`, `.git`, `.pylibs` and binary files), and tapping a result opens the file at that line. The command icon opens the command palette: delete the `>` to switch to quick open, which matches file paths as you type. Go to line is in the palette.
 
+On an iPad, or any screen at least 768 points wide, the file tree stays open on the left, and the app rotates to landscape. With a hardware keyboard, the editor and terminal pass these shortcuts to the app: ⌘P quick open, ⇧⌘P command palette, ⇧⌘F search in project, ⌘L go to line, ⌘J show or hide the terminal, ⌘S save. They only work while the editor or the terminal has focus.
+
 ## Settings
 
 Settings (the gear on the projects list) has the theme (System, Light or Dark, all from the FuseOps tokens), the editor and terminal font sizes, and the Remote server.

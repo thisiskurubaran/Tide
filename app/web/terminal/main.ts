@@ -5,6 +5,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Terminal } from '@xterm/xterm';
 
 import fontRegular from '../../assets/fonts/JetBrainsMono-Regular.ttf';
+import { shortcutFor } from '../../src/features/project/shortcuts';
 import { FromTerminal, parseToTerminal, ToTerminal } from '../../src/features/terminal/bridge';
 
 const FONT_FAMILY = 'JetBrains Mono';
@@ -56,6 +57,13 @@ async function start() {
 
   fit.fit();
   term.onData((data) => post({ type: 'input', data }));
+  term.attachCustomKeyEventHandler((e) => {
+    const id = e.type === 'keydown' ? shortcutFor(e) : null;
+    if (!id) return true;
+    e.preventDefault();
+    post({ type: 'shortcut', id });
+    return false;
+  });
   term.onResize(({ cols, rows }) => post({ type: 'resize', cols, rows }));
   new ResizeObserver(() => fit.fit()).observe(container);
   post({ type: 'ready', cols: term.cols, rows: term.rows });

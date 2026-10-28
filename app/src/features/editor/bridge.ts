@@ -1,6 +1,7 @@
 // Messages between the app and the CodeMirror WebView. Plain TypeScript with
 // no React Native imports, because the web bundle compiles this file too.
 import type { EditorTheme } from '../../theme/editor';
+import type { Shortcut } from '../project/shortcuts';
 
 export type Language = 'javascript' | 'typescript' | 'jsx' | 'tsx' | 'python' | 'json' | 'html' | 'css' | 'markdown' | 'plain';
 
@@ -27,6 +28,7 @@ export type FromEditor =
   // Cmd/Ctrl-S from a hardware keyboard.
   | { type: 'save'; path: string }
   | { type: 'focus'; focused: boolean }
+  | { type: 'shortcut'; id: Shortcut }
   | { type: 'error'; message: string };
 
 const EXTENSIONS: Record<string, Language> = {
@@ -55,7 +57,7 @@ export function languageFor(path: string): Language {
 }
 
 const TO_EDITOR = new Set<ToEditor['type']>(['open', 'setTheme', 'undo', 'redo', 'find', 'goto', 'insert', 'key', 'focus', 'blur']);
-const FROM_EDITOR = new Set<FromEditor['type']>(['ready', 'change', 'save', 'focus', 'error']);
+const FROM_EDITOR = new Set<FromEditor['type']>(['ready', 'change', 'save', 'focus', 'shortcut', 'error']);
 
 function parse<T extends { type: string }>(raw: string, types: Set<string>): T | null {
   try {

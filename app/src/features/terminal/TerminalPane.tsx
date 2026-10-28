@@ -9,6 +9,7 @@ import { terminalThemes } from '../../theme/terminal';
 
 import type { TerminalBackend } from './backend';
 import { parseFromTerminal, ToTerminal } from './bridge';
+import type { Shortcut } from '../project/shortcuts';
 import { Shell } from './shell/shell';
 import { createShellFs } from './shell/shellFs';
 import terminalHtml from './terminalHtml.generated';
@@ -22,6 +23,7 @@ export interface TerminalHandle {
 interface TerminalPaneProps {
   project: string;
   onFocusChange(focused: boolean): void;
+  onShortcut(id: Shortcut): void;
   // Remote mode passes its PTY; read once, when the pane mounts.
   createBackend?: (write: (data: string) => void) => TerminalBackend;
 }
@@ -30,7 +32,7 @@ interface TerminalPaneProps {
 // the number of injectJavaScript calls to roughly one per frame.
 const FLUSH_MS = 16;
 
-export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(function TerminalPane({ project, onFocusChange, createBackend }, ref) {
+export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(function TerminalPane({ project, onFocusChange, onShortcut, createBackend }, ref) {
   const styles = useStyles();
   const webview = useRef<WebView<object>>(null);
   const ready = useRef(false);
@@ -119,6 +121,9 @@ export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(functi
         return;
       case 'link':
         Linking.openURL(msg.url).catch(() => undefined);
+        return;
+      case 'shortcut':
+        onShortcut(msg.id);
         return;
     }
   }
