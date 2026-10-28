@@ -10,6 +10,8 @@ import { PromptSheet } from '../../components/PromptSheet';
 import { Text } from '../../components/Text';
 import { projectsStore, tabsStore, useProjects } from '../../state';
 import { borderWidth, fontSizes, radius, spacing } from '../../theme/tokens';
+import { localRunner } from '../../runtime';
+import { lastLines, runGit } from '../git/runGit';
 import { NewProjectSheet } from './NewProjectSheet';
 import { makeStyles, useColorScheme, useColors } from '../../theme/theme';
 
@@ -93,6 +95,14 @@ export function ProjectsScreen() {
         onClose={() => setCreating(false)}
         onCreate={async (name, templateId) => {
           const project = await projectsStore.getState().createProject(name, templateId);
+          setCreating(false);
+          router.push(projectHref(project));
+        }}
+        onClone={async (name, url) => {
+          const project = await projectsStore.getState().cloneProject(name, async (p) => {
+            const r = await runGit(localRunner, p, ['clone', url, '.']);
+            if (r.code !== 0) throw new Error(lastLines(r.stderr || r.stdout).replace(/^fatal: /, '') || 'Clone failed');
+          });
           setCreating(false);
           router.push(projectHref(project));
         }}

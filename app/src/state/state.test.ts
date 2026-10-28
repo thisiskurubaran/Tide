@@ -125,3 +125,20 @@ describe('projects store', () => {
     expect(tabs.getState().lastProject).toBeNull();
   });
 });
+
+describe('cloneProject', () => {
+  it('keeps the project when the clone works and removes it when it fails', async () => {
+    const { projects, fs } = setup();
+    const ok = await projects.getState().cloneProject('repo', async (p) => {
+      fs.files.set(`projects/${p}/README.md`, 'hi');
+    });
+    expect(ok).toBe('repo');
+    expect(projects.getState().projects).toContain('repo');
+    await expect(
+      projects.getState().cloneProject('broken', async () => {
+        throw new Error('repository not found');
+      }),
+    ).rejects.toThrow('repository not found');
+    expect(fs.dirs.has('projects/broken')).toBe(false);
+  });
+});

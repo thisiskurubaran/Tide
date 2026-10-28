@@ -17,6 +17,8 @@ export interface ShellOptions {
   // Where the project lives relative to the Documents directory, for RunRequest paths.
   projectRoot: string;
   newId?: () => string;
+  // Extra environment for built-in tools, read per run (git's token and identity).
+  toolEnv?: () => Record<string, string>;
 }
 
 class CommandError extends Error {}
@@ -44,6 +46,7 @@ const COMMAND_HELP: [string, string][] = [
   ['run', 'run the project (uses tide.json)'],
   ['npm install [pkg...]', 'install pure-JS packages into node_modules'],
   ['pip install <pkg...>', 'install pure-Python packages into .pylibs'],
+  ['git <command>', 'clone, status, add, commit, log, push, pull (git help)'],
   ['clear', 'clear the screen'],
   ['help', 'show this list'],
 ];
@@ -157,11 +160,11 @@ export class Shell {
     if (!command) {
       this.write(
         `${ansi.red}${name}: command not found${ansi.reset}\n` +
-          `Local mode only has the built-in commands (type help). For git and other tools, switch the terminal to Remote.\n`,
+          `Local mode only has the built-in commands (type help). For other tools, switch the terminal to Remote.\n`,
       );
       return;
     }
-    if (parsed.redirect && ['node', 'python', 'python3', 'run', 'npm', 'pip', 'pip3'].includes(name)) {
+    if (parsed.redirect && ['node', 'python', 'python3', 'run', 'npm', 'pip', 'pip3', 'git'].includes(name)) {
       io.err(`${name}: output redirection isn't supported for programs\n`);
       return;
     }
@@ -246,7 +249,7 @@ export class Shell {
       help: async (_args, io) => {
         const width = Math.max(...COMMAND_HELP.map(([c]) => c.length)) + 2;
         io.out(COMMAND_HELP.map(([c, d]) => `  ${c.padEnd(width)}${ansi.dim}${d}${ansi.reset}`).join('\n') + '\n');
-        io.out(`${ansi.dim}Anything else (git, packages with native code, ...) needs Remote mode.${ansi.reset}\n`);
+        io.out(`${ansi.dim}Anything else (packages with native code, other tools) needs Remote mode.${ansi.reset}\n`);
       },
       pwd: async (_args, io) => io.out(`${displayPath(this.cwd)}\n`),
       cd: async (args) => {
@@ -349,6 +352,7 @@ export class Shell {
       // pip runs in the Node supervisor next to npm, sharing its download and archive code.
       pip: (args) => this.startRun('node', 'tide:pip', args, this.cwd),
       pip3: (args) => this.startRun('node', 'tide:pip', args, this.cwd),
+      git: (args) => this.startRun('node', 'tide:git', args, this.cwd, this.opts.toolEnv?.()),
       run: async (args) => {
         if (args.length) throw new CommandError('run takes no arguments; it uses tide.json');
         const config = await fs.readRunConfig();
@@ -368,7 +372,7 @@ export class Shell {
     await this.startRun(runtime, entry, rest, this.cwd);
   }
 
-  private async startRun(runtime: Runtime, entry: string, args: string[], cwd: string) {
+  private async startRun(runtime: Runtime, entry: string, args: string[], cwd: string, env?: Record<string, string>) {
     const id = this.nextId();
     const stdin = new LineEditor({
       write: (d) => this.write(d),
@@ -387,7 +391,7 @@ export class Shell {
     // Built-in tools ("tide:npm") are resolved by the runner, not the workspace.
     const entryPath = entry.startsWith('tide:') ? entry : joinPath(root, entry);
     this.opts.runner.run(
-      { type: 'run', id, runtime, entry: entryPath, cwd: joinPath(root, cwd), args },
+      { type: 'run', id, runtime, entry: entryPath, cwd: joinPath(root, cwd), args, ...(env ? { env } : {}) },
       (msg: RunnerMessage) => this.onRunnerMessage(id, msg),
     );
   }

@@ -6,18 +6,23 @@ import { Sheet } from '../../components/Sheet';
 import { Text } from '../../components/Text';
 import { borderWidth, fonts, fontSizes, radius, spacing } from '../../theme/tokens';
 import { templates } from '../files/templates';
+import { repoName } from '../git/runGit';
 import { makeStyles, useColors } from '../../theme/theme';
 
 interface NewProjectSheetProps {
   visible: boolean;
   onCreate(name: string, templateId: string): Promise<void>;
+  onClone(name: string, url: string): Promise<void>;
   onClose(): void;
 }
 
-export function NewProjectSheet({ visible, onCreate, onClose }: NewProjectSheetProps) {
+const CLONE = 'clone';
+
+export function NewProjectSheet({ visible, onCreate, onClone, onClose }: NewProjectSheetProps) {
   const styles = useStyles();
   const colors = useColors();
   const [name, setName] = useState('');
+  const [url, setUrl] = useState('');
   const [templateId, setTemplateId] = useState(templates[0].id);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -25,6 +30,7 @@ export function NewProjectSheet({ visible, onCreate, onClose }: NewProjectSheetP
   useEffect(() => {
     if (visible) {
       setName('');
+      setUrl('');
       setTemplateId(templates[0].id);
       setError(null);
     }
@@ -33,7 +39,8 @@ export function NewProjectSheet({ visible, onCreate, onClose }: NewProjectSheetP
   async function create() {
     setBusy(true);
     try {
-      await onCreate(name, templateId);
+      if (templateId === CLONE) await onClone(name.trim() || repoName(url), url.trim());
+      else await onCreate(name, templateId);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -52,7 +59,7 @@ export function NewProjectSheet({ visible, onCreate, onClose }: NewProjectSheetP
             setName(v);
             setError(null);
           }}
-          placeholder="Project name"
+          placeholder={templateId === CLONE ? 'Project name (default: repository name)' : 'Project name'}
           placeholderTextColor={colors.mutedForeground}
           autoFocus
           autoCapitalize="none"
@@ -63,10 +70,28 @@ export function NewProjectSheet({ visible, onCreate, onClose }: NewProjectSheetP
           selectionColor={colors.brand}
           style={styles.input}
         />
+        {templateId === CLONE && (
+          <TextInput
+            testID="clone-url"
+            value={url}
+            onChangeText={(v) => {
+              setUrl(v);
+              setError(null);
+            }}
+            placeholder="https://github.com/user/repo.git"
+            placeholderTextColor={colors.mutedForeground}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+            spellCheck={false}
+            selectionColor={colors.brand}
+            style={styles.input}
+          />
+        )}
         {error && <Text variant="error">{error}</Text>}
       </View>
       <View style={styles.templates} accessibilityRole="radiogroup">
-        {templates.map((t) => {
+        {[...templates, { id: CLONE, label: 'Clone from Git', description: 'Clone a repository over HTTPS. Private ones need a token in Settings, Git.' }].map((t) => {
           const selected = t.id === templateId;
           return (
             <Pressable
@@ -85,7 +110,12 @@ export function NewProjectSheet({ visible, onCreate, onClose }: NewProjectSheetP
       </View>
       <View style={styles.actions}>
         <Button title="Cancel" variant="outline" onPress={onClose} />
-        <Button title="Create" onPress={create} disabled={busy} testID="create-project" />
+        <Button
+          title={busy && templateId === CLONE ? 'Cloning...' : templateId === CLONE ? 'Clone' : 'Create'}
+          onPress={create}
+          disabled={busy || (templateId === CLONE && !url.trim())}
+          testID="create-project"
+        />
       </View>
     </Sheet>
   );

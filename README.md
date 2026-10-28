@@ -23,7 +23,8 @@ app/                             Expo app (dev client, prebuild, New Architectur
   src/features/remote            Remote mode: server settings, file sync, remote shell, preview
   web/editor                     CodeMirror 6 editor bundle (Vite, single HTML file)
   web/terminal                   xterm.js terminal bundle (Vite, single HTML file)
-  nodejs-assets/nodejs-project   Supervisor inside nodejs-mobile: runs each script in a worker thread
+  nodejs-assets/nodejs-project   Supervisor inside nodejs-mobile: runs each script in a worker thread; npm, pip and git built-ins
+  src/features/git               Git settings, Source Control sheet, running git from the UI
   modules/python-runtime         Expo module: Chaquopy on Android, CPython on iOS; python/tide_runner.py runs scripts
 server/                          Remote mode server: one Docker container per project
 shared/protocol.ts               Runner message types, imported as @shared/protocol
@@ -60,7 +61,7 @@ npm run ios       # or: npm run android
 
 ## Terminal
 
-The terminal has two modes, switched in its header. Local mode is a small built-in shell, not a real one (iOS can't start processes). It has `ls cd pwd cat echo touch mkdir rm mv cp clear help`, plus `node <file>`, `python <file>` and `run`, which starts the entry in the project's `tide.json`. Anything else, such as pip or git, needs Remote mode.
+The terminal has two modes, switched in its header. Local mode is a small built-in shell, not a real one (iOS can't start processes). It has `ls cd pwd cat echo touch mkdir rm mv cp clear help`, plus `node <file>`, `python <file>` and `run`, which starts the entry in the project's `tide.json`, and the `npm`, `pip` and `git` described below. Anything else needs Remote mode.
 
 Node scripts run in nodejs-mobile (Node 18), each in its own worker thread, so Ctrl-C stops a script without restarting Node. Each run is capped at 256 MB of heap. Leaving a project stops whatever its terminal was running.
 
@@ -111,6 +112,21 @@ Other settings: `HOST`, `PORT` (8787), `TIDE_IMAGE`, `TIDE_IDLE_MINUTES` (15), `
 - Previews are served at `/p/<previewKey>/<port>/`. The key is random and stands in for the token, because a WebView can't send headers. Pages that link to absolute paths like `/app.js` break under this prefix.
 
 `npm test` in `server/` runs integration tests against the local Docker daemon; build the image first.
+
+## Git
+
+`git` in the Local terminal runs isomorphic-git in the Node supervisor. It supports `clone` (HTTPS, shallow, single branch), `init`, `status [-s]`, `add`, `rm`, `commit [-a] -m`, `log [--oneline]`, `diff` (a `--stat` summary only), `branch`, `checkout [-b]`, `remote [-v|add]`, `push` and `pull`. Anything else, such as rebase, stash or merge conflicts, needs the real git in Remote mode.
+
+Set a name, email and personal access token under Settings, Git. They are kept in the Keychain and passed to each git run as environment variables, never written into the project. The token is sent as the HTTPS password, which works for GitHub, GitLab and Gitea.
+
+The branch icon in a project opens Source Control, which shows the changed files and can commit everything, push and pull. New project, Clone from Git clones a repository into a new project.
+
+isomorphic-git is bundled into `app/nodejs-assets/nodejs-project/git/isogit.js`, which is committed. After upgrading it, rebuild the bundle:
+
+```bash
+cd app
+npm run build:git
+```
 
 ## WebView bundles
 

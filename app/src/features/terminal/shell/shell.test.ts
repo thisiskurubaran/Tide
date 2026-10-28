@@ -46,6 +46,7 @@ async function setup() {
     write: (d) => (output += d),
     projectRoot: 'projects/demo',
     newId: () => 'r1',
+    toolEnv: () => ({ TIDE_GIT_NAME: 'Ada' }),
   });
   shell.start();
   await tick();
@@ -133,8 +134,8 @@ describe('shell', () => {
 
   it('points unknown commands at remote mode', async () => {
     const { run } = await setup();
-    const out = await run('git status');
-    expect(out).toContain('git: command not found');
+    const out = await run('svn status');
+    expect(out).toContain('svn: command not found');
     expect(out).toContain('switch the terminal to Remote');
   });
 
@@ -209,6 +210,16 @@ describe('shell', () => {
     const { run, runner } = await setup();
     await run('npm install express');
     expect(runner.requests[0]).toMatchObject({ runtime: 'node', entry: 'tide:npm', cwd: 'projects/demo', args: ['install', 'express'] });
+  });
+
+  it('runs git through the built-in client with the tool environment', async () => {
+    const { run, runner } = await setup();
+    await run('git commit -m "first try"');
+    expect(runner.requests[0]).toMatchObject({
+      entry: 'tide:git',
+      args: ['commit', '-m', 'first try'],
+      env: { TIDE_GIT_NAME: 'Ada' },
+    });
   });
 
   it('kills the running program when disposed', async () => {

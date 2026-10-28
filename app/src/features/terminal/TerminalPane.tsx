@@ -9,6 +9,7 @@ import { terminalThemes } from '../../theme/terminal';
 
 import type { TerminalBackend } from './backend';
 import { parseFromTerminal, ToTerminal } from './bridge';
+import { gitEnv } from '../git/settings';
 import type { Shortcut } from '../project/shortcuts';
 import { Shell } from './shell/shell';
 import { createShellFs } from './shell/shellFs';
@@ -74,6 +75,7 @@ export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(functi
       runner: localRunner,
       write,
       projectRoot: `${PROJECTS_DIR}/${project}`,
+      toolEnv: gitEnv,
     });
   }
 

@@ -13,6 +13,8 @@ export interface ProjectsState {
   loaded: boolean;
   refresh(): Promise<void>;
   createProject(name: string, templateId: string): Promise<string>;
+  // Creates an empty project and runs `clone` in it; removes the project if that fails.
+  cloneProject(name: string, clone: (project: string) => Promise<void>): Promise<string>;
   renameProject(name: string, newName: string): Promise<string>;
   deleteProject(name: string): Promise<void>;
   loadTree(project: string): Promise<void>;
@@ -44,6 +46,17 @@ export function createProjectsStore(workspace: Workspace, tabs: TabsStore, buffe
       },
       async createProject(name, templateId) {
         const project = await workspace.createProject(name, templateId);
+        await get().refresh();
+        return project;
+      },
+      async cloneProject(name, clone) {
+        const project = await workspace.createEmptyProject(name);
+        try {
+          await clone(project);
+        } catch (e) {
+          await workspace.deleteProject(project).catch(() => undefined);
+          throw e;
+        }
         await get().refresh();
         return project;
       },

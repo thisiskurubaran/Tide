@@ -159,6 +159,14 @@ export function createWorkspace(fs: FsAdapter) {
       return project;
     },
 
+    // For cloning: git fills the folder.
+    async createEmptyProject(name: string): Promise<string> {
+      const project = validateName(name, 'Project name');
+      await requireFree(projectRoot(project));
+      await fs.mkdir(projectRoot(project));
+      return project;
+    },
+
     async renameProject(name: string, newName: string): Promise<string> {
       const target = validateName(newName, 'Project name');
       await requireKind(projectRoot(name), 'dir');

@@ -3,6 +3,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 
+import { gitSettingsStore } from '../features/git/settings';
 import { remoteSettingsStore } from '../features/remote/settings';
 import { projectsStore, runnerStore, settingsStore, tabsStore } from '../state';
 import { useColorScheme, useColors } from '../theme/theme';
@@ -31,6 +32,7 @@ export default function RootLayout() {
       hydrated(settingsStore),
       projectsStore.getState().refresh(),
       remoteSettingsStore.getState().load().catch(() => undefined),
+      gitSettingsStore.getState().load().catch(() => undefined),
     ]).finally(() => {
       setReady(true);
       SplashScreen.hideAsync();

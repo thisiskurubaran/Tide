@@ -11,6 +11,7 @@ import { settingsStore, useSettings } from '../../state';
 import { FONT_SIZE_MAX, FONT_SIZE_MIN, ThemeSetting } from '../../state/settings';
 import { makeStyles, useColors } from '../../theme/theme';
 import { borderWidth, radius, spacing } from '../../theme/tokens';
+import { useGitSettings } from '../git/settings';
 import { useRemoteSettings } from '../remote/settings';
 
 export function SettingsScreen() {
@@ -20,6 +21,7 @@ export function SettingsScreen() {
   const editorFontSize = useSettings((s) => s.editorFontSize);
   const terminalFontSize = useSettings((s) => s.terminalFontSize);
   const remote = useRemoteSettings((s) => s.settings);
+  const git = useGitSettings((s) => s.settings);
   const settings = settingsStore.getState();
 
   return (
@@ -48,6 +50,15 @@ export function SettingsScreen() {
           <Row label="Terminal font size">
             <Stepper testID="terminal-font" value={terminalFontSize} onChange={(n) => settings.setTerminalFontSize(n)} />
           </Row>
+        </Section>
+
+        <Section title="Git">
+          <LinkRow
+            label="Identity and token"
+            detail={git.name ? `${git.name}${git.token ? ', token set' : ''}` : 'Not set up'}
+            onPress={() => router.push('/settings/git')}
+            testID="settings-git"
+          />
         </Section>
 
         <Section title="Remote">

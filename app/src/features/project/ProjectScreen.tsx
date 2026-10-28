@@ -16,6 +16,7 @@ import { EditorKeyBar } from '../editor/EditorKeyBar';
 import { useKeyboardHeight } from '../editor/useKeyboardHeight';
 import { TerminalKeyBar } from '../terminal/TerminalKeyBar';
 import { TerminalHandle } from '../terminal/TerminalPane';
+import { SourceControlSheet } from '../git/SourceControlSheet';
 import { Command, CommandPalette } from '../search/CommandPalette';
 import { SearchPanel } from '../search/SearchPanel';
 import type { Shortcut } from './shortcuts';
@@ -51,6 +52,7 @@ export function ProjectScreen({ project }: { project: string }) {
   const [searching, setSearching] = useState(false);
   const [goingToLine, setGoingToLine] = useState(false);
   const [terminalHidden, setTerminalHidden] = useState(false);
+  const [sourceControl, setSourceControl] = useState(false);
   const progress = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -96,6 +98,7 @@ export function ProjectScreen({ project }: { project: string }) {
     { id: 'toggle-terminal', title: 'Toggle terminal', icon: 'terminal', hint: '⌘J', run: () => setTerminalHidden((h) => !h) },
     { id: 'local', title: 'Terminal: use Local', icon: 'smartphone', run: () => runnerStore.getState().setMode('local') },
     { id: 'remote', title: 'Terminal: use Remote', icon: 'server', run: () => runnerStore.getState().setMode('remote') },
+    { id: 'source-control', title: 'Source control', icon: 'git-branch', run: () => setSourceControl(true) },
     { id: 'settings', title: 'Settings', icon: 'settings', run: () => router.push('/settings') },
   ];
 
@@ -113,6 +116,7 @@ export function ProjectScreen({ project }: { project: string }) {
         <Text variant="title" numberOfLines={1} style={styles.title}>
           {project}
         </Text>
+        <IconButton icon="git-branch" label="Source control" onPress={() => setSourceControl(true)} testID="open-source-control" />
         <IconButton icon="search" label="Search in project" onPress={() => setSearching(true)} testID="open-search" />
         <IconButton icon="command" label="Commands" onPress={() => setPalette('commands')} testID="open-palette" />
       </View>
@@ -199,6 +203,7 @@ export function ProjectScreen({ project }: { project: string }) {
       )}
 
       <CommandPalette mode={palette} project={project} commands={commands} onOpenFile={openFile} onClose={() => setPalette(null)} />
+      <SourceControlSheet visible={sourceControl} project={project} onClose={() => setSourceControl(false)} />
       <SearchPanel visible={searching} project={project} onOpen={openAt} onClose={() => setSearching(false)} />
       <PromptSheet
         visible={goingToLine}
