@@ -19,9 +19,10 @@ interface EditorPaneProps {
   project: string;
   path: string | null;
   onBrowse(): void;
+  onFocusChange(focused: boolean): void;
 }
 
-export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function EditorPane({ project, path, onBrowse }, ref) {
+export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function EditorPane({ project, path, onBrowse, onFocusChange }, ref) {
   const webview = useRef<WebView<object>>(null);
   const ready = useRef(false);
   const pathRef = useRef(path);
@@ -83,6 +84,9 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
         return;
       case 'save':
         buffersStore.getState().save(project, msg.path);
+        return;
+      case 'focus':
+        onFocusChange(msg.focused);
         return;
       case 'error':
         console.warn('Editor error:', msg.message);

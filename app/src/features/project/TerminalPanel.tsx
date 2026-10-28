@@ -1,17 +1,28 @@
+import { forwardRef } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { Text } from '../../components/Text';
 import { useRunner } from '../../state';
 import { borderWidth, colors, radius, spacing } from '../../theme/tokens';
+import { TerminalHandle, TerminalPane } from '../terminal/TerminalPane';
 
-// Placeholder until the xterm.js terminal and mini-shell exist.
-export function TerminalPanel() {
+interface TerminalPanelProps {
+  project: string;
+  onFocusChange(focused: boolean): void;
+}
+
+export const TerminalPanel = forwardRef<TerminalHandle, TerminalPanelProps>(function TerminalPanel({ project, onFocusChange }, ref) {
   const mode = useRunner((s) => s.mode);
   const setMode = useRunner((s) => s.setMode);
   return (
     <View style={styles.panel}>
       <View style={styles.header}>
         <Text variant="label">Terminal</Text>
+        {mode === 'remote' && (
+          <Text variant="muted" numberOfLines={1} style={styles.note}>
+            Remote isn't connected yet
+          </Text>
+        )}
         <View style={styles.toggle} accessibilityRole="radiogroup">
           {(['local', 'remote'] as const).map((m) => (
             <Pressable
@@ -30,27 +41,27 @@ export function TerminalPanel() {
         </View>
       </View>
       <View style={styles.body}>
-        <Text variant="mono" style={{ color: colors.mutedForeground }}>
-          The terminal isn't available yet.
-        </Text>
+        <TerminalPane ref={ref} project={project} onFocusChange={onFocusChange} />
       </View>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
-  panel: { flex: 1, borderTopWidth: borderWidth, borderColor: colors.border, backgroundColor: colors.card },
+  panel: { flex: 1, borderTopWidth: borderWidth, borderColor: colors.border, backgroundColor: colors.background },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: spacing.sm,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs + 2,
     borderBottomWidth: borderWidth,
     borderColor: colors.border,
+    backgroundColor: colors.card,
   },
-  toggle: { flexDirection: 'row', backgroundColor: colors.secondary, borderRadius: radius.sm, padding: 2 },
+  note: { flex: 1, textAlign: 'right' },
+  toggle: { flexDirection: 'row', backgroundColor: colors.secondary, borderRadius: radius.sm, padding: 2, marginLeft: 'auto' },
   option: { paddingHorizontal: spacing.sm + 2, paddingVertical: spacing.xs, borderRadius: radius.sm - 2 },
   optionOn: { backgroundColor: colors.background },
-  body: { flex: 1, padding: spacing.md },
+  body: { flex: 1 },
 });

@@ -119,6 +119,18 @@ describe('shell', () => {
     expect(await run('ls')).toContain('demo / $ ');
   });
 
+  it('keeps keys typed while a command is still running', async () => {
+    const { shell, out, clear, memfs } = await setup();
+    clear();
+    // All at once, the way a paste or a fast hardware keyboard delivers it.
+    shell.input('mkdir -p a/b\recho hi > a/b/x.txt\rcat a/b/x.txt\rcd a\rpwd\r');
+    await tick();
+    expect(memfs.files.get('projects/demo/a/b/x.txt')).toBe('hi\n');
+    expect(out()).toContain('hi\n');
+    expect(out()).toContain('/a\n');
+    expect(out()).not.toContain('command not found');
+  });
+
   it('points unknown commands at remote mode', async () => {
     const { run } = await setup();
     const out = await run('npm install');

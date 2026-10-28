@@ -54,6 +54,10 @@ npm install
 npm run ios       # or: npm run android
 ```
 
+## Terminal
+
+Local mode is a small built-in shell, not a real one (iOS can't start processes). It has `ls cd pwd cat echo touch mkdir rm mv cp clear help`, plus `node <file>`, `python <file>` and `run`, which starts the entry in the project's `tide.json`. Anything else, such as npm, pip or git, needs Remote mode.
+
 ## WebView bundles
 
 The editor (CodeMirror 6) and the terminal (xterm.js) each run inside a WebView. Their sources are in `app/web/editor` and `app/web/terminal`, and `npm run build:web` builds each with Vite into one HTML file, written to `app/src/features/<name>/<name>Html.generated.ts`. The generated files are committed, so rebuild them after changing anything in `app/web`:

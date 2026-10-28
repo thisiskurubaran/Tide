@@ -47,11 +47,13 @@ export class LineEditor {
     return this.history;
   }
 
-  input(data: string) {
+  // Returns whatever was not consumed because the line was submitted part way
+  // through `data` (e.g. a pasted block); the caller replays it at the next prompt.
+  input(data: string): string {
     let text = this.pendingEscape + data;
     this.pendingEscape = '';
     while (text.length > 0) {
-      if (!this.active) return;
+      if (!this.active) return text;
       const seq = /^\x1b(\[[0-9;]*[A-Za-z~]|O[A-Za-z])/.exec(text);
       if (seq) {
         this.escape(seq[0]);
@@ -61,11 +63,12 @@ export class LineEditor {
       if (text[0] === '\x1b' && text.length < 4 && /^\x1b(\[[0-9;]*|O)?$/.test(text)) {
         // A sequence split across two chunks; wait for the rest.
         this.pendingEscape = text;
-        return;
+        return '';
       }
       this.key(text[0]);
       text = text.slice(1);
     }
+    return '';
   }
 
   private key(c: string) {

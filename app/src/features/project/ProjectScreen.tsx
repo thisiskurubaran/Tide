@@ -11,8 +11,10 @@ import { projectTabs } from '../../state/tabs';
 import { borderWidth, colors, spacing } from '../../theme/tokens';
 import { FileTree } from '../files/FileTree';
 import { EditorHandle, EditorPane } from '../editor/EditorPane';
-import { KeyboardBar } from '../editor/KeyboardBar';
+import { EditorKeyBar } from '../editor/EditorKeyBar';
 import { useKeyboardHeight } from '../editor/useKeyboardHeight';
+import { TerminalKeyBar } from '../terminal/TerminalKeyBar';
+import { TerminalHandle } from '../terminal/TerminalPane';
 import { TabBar } from './TabBar';
 import { TerminalPanel } from './TerminalPanel';
 
@@ -29,7 +31,11 @@ export function ProjectScreen({ project }: { project: string }) {
   );
   const dirty = new Set(dirtyKey ? dirtyKey.split('\n') : []);
   const editor = useRef<EditorHandle>(null);
+  const terminal = useRef<TerminalHandle>(null);
   const keyboardHeight = useKeyboardHeight();
+  // The pane that last took focus gets the space above the keyboard.
+  const [typingIn, setTypingIn] = useState<'editor' | 'terminal'>('editor');
+  const keyboardOpen = keyboardHeight > 0;
   const [drawerOpen, setDrawerOpen] = useState(false);
   const progress = useRef(new Animated.Value(0)).current;
 
@@ -70,18 +76,32 @@ export function ProjectScreen({ project }: { project: string }) {
         }}
       />
 
-      <View style={styles.editor}>
-        <EditorPane ref={editor} project={project} path={tabs.active} onBrowse={() => setDrawerOpen(true)} />
+      {/* Both panes stay mounted so the terminal keeps its scrollback and the editor its undo history. */}
+      <View style={[styles.editor, keyboardOpen && typingIn === 'terminal' && styles.collapsed]}>
+        <EditorPane
+          ref={editor}
+          project={project}
+          path={tabs.active}
+          onBrowse={() => setDrawerOpen(true)}
+          onFocusChange={(focused) => focused && setTypingIn('editor')}
+        />
       </View>
-      {keyboardHeight > 0 ? (
-        // While typing, the terminal makes room for the editor and the accessory bar sits on the keyboard.
-        // Distinct keys: reusing one native view between the two branches kept the keyboard padding around.
-        <View key="keyboard-bar" style={{ paddingBottom: keyboardHeight }}>
-          <KeyboardBar send={(msg) => editor.current?.send(msg)} />
-        </View>
-      ) : (
-        <View key="terminal" style={[styles.terminal, { paddingBottom: insets.bottom }]}>
-          <TerminalPanel />
+      <View
+        style={[
+          styles.terminal,
+          { paddingBottom: keyboardOpen ? 0 : insets.bottom },
+          keyboardOpen && (typingIn === 'terminal' ? styles.expanded : styles.collapsed),
+        ]}
+      >
+        <TerminalPanel project={project} ref={terminal} onFocusChange={(focused) => focused && setTypingIn('terminal')} />
+      </View>
+      {keyboardOpen && (
+        <View style={{ paddingBottom: keyboardHeight }}>
+          {typingIn === 'terminal' ? (
+            <TerminalKeyBar input={(data) => terminal.current?.input(data)} onHide={() => terminal.current?.blur()} />
+          ) : (
+            <EditorKeyBar send={(msg) => editor.current?.send(msg)} />
+          )}
         </View>
       )}
 
@@ -123,6 +143,9 @@ const styles = StyleSheet.create({
   title: { flex: 1, marginLeft: spacing.xs },
   editor: { flex: 3 },
   terminal: { flex: 2 },
+  expanded: { flex: 1 },
+  // Kept mounted but out of the layout while the other pane is being typed in.
+  collapsed: { flex: 0, height: 0, overflow: 'hidden' },
   backdrop: { backgroundColor: colors.background },
   drawer: {
     position: 'absolute',

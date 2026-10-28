@@ -61,6 +61,8 @@ export class Shell {
   private editor: LineEditor;
   private running: { id: string; stdin: LineEditor } | null = null;
   private busy = false;
+  // Keys typed while a command is still finishing; replayed at the next prompt, like a real shell.
+  private typeahead = '';
   private commands: Record<string, Command>;
   private nextId: () => string;
 
@@ -92,12 +94,14 @@ export class Shell {
 
   input(data: string) {
     if (this.running) {
-      this.running.stdin.input(data);
+      this.typeahead += this.running.stdin.input(data);
       return;
     }
-    // Ignore typing while a quick command (ls, cp, ...) is still finishing.
-    if (this.busy) return;
-    this.editor.input(data);
+    if (this.busy) {
+      this.typeahead += data;
+      return;
+    }
+    this.typeahead += this.editor.input(data);
   }
 
   private write(data: string) {
@@ -107,6 +111,11 @@ export class Shell {
   private prompt() {
     const where = this.cwd ? `/${this.cwd}` : '/';
     this.editor.read(`${ansi.blue}${this.opts.project}${ansi.reset} ${ansi.cyan}${where}${ansi.reset} $ `);
+    if (this.typeahead) {
+      const pending = this.typeahead;
+      this.typeahead = '';
+      this.input(pending);
+    }
   }
 
   private async execute(line: string) {
