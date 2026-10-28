@@ -22,6 +22,7 @@ app/                             Expo app (dev client, prebuild, New Architectur
   web/terminal                   xterm.js terminal bundle (Vite, single HTML file)
   nodejs-assets/nodejs-project   Supervisor inside nodejs-mobile: runs each script in a worker thread
   modules/python-runtime         Expo module: Chaquopy on Android, CPython on iOS; python/tide_runner.py runs scripts
+server/                          Remote mode server: one Docker container per project
 shared/protocol.ts               Runner message types, imported as @shared/protocol
 ```
 
@@ -67,6 +68,26 @@ Python scripts run in the embedded CPython 3.15 (Chaquopy on Android), each on i
 `pip install <package>...` (also `pip install -r requirements.txt`, `pip uninstall`, `pip list` and `python -m pip`) installs pure-Python wheels from PyPI into the project's `.pylibs` folder, which is on `sys.path` for every run. It resolves dependencies, extras and environment markers for the device and checks each wheel's sha256. Packages that only ship compiled wheels need Remote mode. pip itself runs in the Node supervisor, next to npm. Python scripts can make HTTPS requests with the standard library or `requests`.
 
 `npm install [package...]` works locally for pure-JS packages: it resolves versions from the registry, checks each tarball's integrity and extracts it into `node_modules`. Install scripts never run, and packages that need a native build print a warning; install those in Remote mode.
+
+## Remote server
+
+Remote mode runs a real bash shell in a Docker container on a machine you control. The server needs Node 24 or newer (it runs its TypeScript directly) and a Docker daemon.
+
+```bash
+cd server
+npm install
+npm run image                    # builds tide-session:dev (Node 24, Python 3, git, build tools)
+TIDE_TOKEN=<at least 16 characters> npm start
+```
+
+Other settings: `HOST`, `PORT` (8787), `TIDE_IMAGE`, `TIDE_IDLE_MINUTES` (15), `TIDE_MEMORY_MB` (1024), `TIDE_CPUS` and `TIDE_PIDS`.
+
+- Every request needs `Authorization: Bearer <token>`. `POST /sessions {"project"}` starts or reuses that project's container; `DELETE /sessions/:id` removes it.
+- `/sessions/:id/pty` is a WebSocket to bash. `/sessions/:id/sync` syncs files both ways and reports listening ports.
+- Containers run as a non-root user with no capabilities, no privileged mode, memory, CPU and process limits, and no published ports. A container with no open connections is removed after the idle timeout, and leftovers are removed when the server starts.
+- Previews are served at `/p/<previewKey>/<port>/`. The key is random and stands in for the token, because a WebView can't send headers. Pages that link to absolute paths like `/app.js` break under this prefix.
+
+`npm test` in `server/` runs integration tests against the local Docker daemon; build the image first.
 
 ## WebView bundles
 

@@ -41,3 +41,18 @@ export type SupervisorRequest = { type: 'init'; root: string } | { type: 'ping' 
 export type SupervisorEvent =
   | { type: 'ready'; node: string }
   | { type: 'pong'; node: string; platform: string; arch: string };
+
+// Remote file sync (WebSocket /sessions/:id/sync), both directions. Paths are
+// relative to the project root; contents are base64 so binary files survive.
+export type SyncFile = { type: 'file'; path: string; data: string };
+export type SyncDelete = { type: 'delete'; path: string };
+// App -> server once per connection: the whole project, before the shell is used.
+export type SyncInit = { type: 'init'; files: { path: string; data: string }[] };
+// Server -> app: the set of ports something is listening on in the container.
+export type SyncPorts = { type: 'ports'; ports: number[] };
+
+export type SyncToServer = SyncInit | SyncFile | SyncDelete;
+export type SyncToApp = SyncFile | SyncDelete | SyncPorts | { type: 'ready' };
+
+// POST /sessions response.
+export type SessionInfo = { id: string; project: string; previewBase: string };
