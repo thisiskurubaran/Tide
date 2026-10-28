@@ -19,6 +19,10 @@ export interface FsAdapter {
   rename(path: string, newName: string): Promise<void>;
   // Recursive for directories.
   remove(path: string): Promise<void>;
+  // Raw bytes as base64, for syncing files that may not be text.
+  readBase64(path: string): Promise<string>;
+  // Creates missing parents.
+  writeBase64(path: string, data: string): Promise<void>;
   // Byte-for-byte file copy; creates missing parents and overwrites `to`.
   copyFile(from: string, to: string): Promise<void>;
 }

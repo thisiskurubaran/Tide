@@ -31,6 +31,16 @@ export function createExpoFs(root: Directory = Paths.document): FsAdapter {
       if (!f.exists) f.create();
       await f.write(content);
     },
+    async readBase64(path) {
+      return file(path).base64();
+    },
+    async writeBase64(path, data) {
+      const parent = dirname(path);
+      if (parent) dir(parent).create({ intermediates: true, idempotent: true });
+      const f = file(path);
+      if (!f.exists) f.create();
+      await f.write(data, { encoding: 'base64' });
+    },
     async rename(path, newName) {
       const info = Paths.info(dir(path).uri);
       if (info.isDirectory) dir(path).rename(newName);

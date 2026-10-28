@@ -1,7 +1,7 @@
 import { createStore } from 'zustand';
 import { createJSONStorage, persist, StateStorage } from 'zustand/middleware';
 
-// Where commands run. Remote mode arrives in Phase 6.
+// Where commands run: the built-in shell on the device, or a container on the Tide server.
 export type RunnerMode = 'local' | 'remote';
 
 export interface RunnerState {

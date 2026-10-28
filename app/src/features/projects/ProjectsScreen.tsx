@@ -48,6 +48,7 @@ export function ProjectsScreen() {
           Projects
         </Text>
         {__DEV__ && <IconButton icon="cpu" label="Runtime spike" onPress={() => router.push('/debug')} />}
+        <IconButton icon="server" label="Remote server" onPress={() => router.push('/settings')} testID="open-settings" />
       </View>
 
       <FlatList

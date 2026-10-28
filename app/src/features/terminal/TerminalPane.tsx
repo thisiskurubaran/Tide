@@ -7,6 +7,7 @@ import { buffersStore, projectsStore, workspace } from '../../state';
 import { PROJECTS_DIR } from '../files/workspace';
 import { terminalThemes } from '../../theme/terminal';
 import { colors } from '../../theme/tokens';
+import type { TerminalBackend } from './backend';
 import { parseFromTerminal, ToTerminal } from './bridge';
 import { Shell } from './shell/shell';
 import { createShellFs } from './shell/shellFs';
@@ -20,18 +21,20 @@ export interface TerminalHandle {
 interface TerminalPaneProps {
   project: string;
   onFocusChange(focused: boolean): void;
+  // Remote mode passes its PTY; read once, when the pane mounts.
+  createBackend?: (write: (data: string) => void) => TerminalBackend;
 }
 
 // Output from fast programs arrives in many small chunks; batching them keeps
 // the number of injectJavaScript calls to roughly one per frame.
 const FLUSH_MS = 16;
 
-export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(function TerminalPane({ project, onFocusChange }, ref) {
+export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(function TerminalPane({ project, onFocusChange, createBackend }, ref) {
   const webview = useRef<WebView<object>>(null);
   const ready = useRef(false);
   const pending = useRef('');
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const shell = useRef<Shell | null>(null);
+  const shell = useRef<TerminalBackend | null>(null);
 
   const send = useCallback((msg: ToTerminal) => {
     if (!ready.current) return;
@@ -54,9 +57,9 @@ export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(functi
     [flush],
   );
 
-  // One shell per project screen; it outlives WebView reloads.
+  // One backend per pane; it outlives WebView reloads.
   if (shell.current === null) {
-    shell.current = new Shell({
+    shell.current = createBackend?.(write) ?? new Shell({
       project,
       fs: createShellFs(project, workspace, projectsStore, buffersStore),
       runner: localRunner,
@@ -91,7 +94,7 @@ export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(functi
       case 'ready':
         ready.current = true;
         send({ type: 'setTheme', theme: terminalThemes.dark });
-        shell.current?.resize(msg.cols);
+        shell.current?.resize(msg.cols, msg.rows);
         if (!started.current) {
           started.current = true;
           shell.current?.start();
@@ -102,7 +105,7 @@ export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(functi
         shell.current?.input(msg.data);
         return;
       case 'resize':
-        shell.current?.resize(msg.cols);
+        shell.current?.resize(msg.cols, msg.rows);
         return;
       case 'focus':
         onFocusChange(msg.focused);

@@ -219,6 +219,36 @@ export function createWorkspace(fs: FsAdapter) {
       await fs.remove(abs(project, target));
     },
 
+    // Every file path in the project, skipping the folders the tree doesn't list.
+    async listFiles(project: string): Promise<string[]> {
+      const out: string[] = [];
+      const walk = async (rel: string) => {
+        for (const e of await fs.readDir(abs(project, rel))) {
+          const path = joinPath(rel, e.name);
+          if (e.kind === 'file') out.push(path);
+          else if (!UNLISTED_DIRS.has(e.name)) await walk(path);
+        }
+      };
+      await walk('');
+      return out;
+    },
+
+    async readBase64(project: string, path: string): Promise<string> {
+      return fs.readBase64(abs(project, path));
+    },
+
+    // Unlike writeFile, creates the file and its folders if needed.
+    async writeBase64(project: string, path: string, data: string): Promise<void> {
+      if (!normalizePath(path)) throw new WorkspaceError('invalid-path', 'Missing file path');
+      await fs.writeBase64(abs(project, path), data);
+    },
+
+    // Deletes a file if it exists; used when the other side of a sync already removed it.
+    async removeIfPresent(project: string, path: string): Promise<void> {
+      const target = abs(project, path);
+      if (normalizePath(path) && (await fs.stat(target))) await fs.remove(target);
+    },
+
     async readFile(project: string, path: string): Promise<string> {
       await requireKind(abs(project, path), 'file');
       return fs.readFile(abs(project, path));

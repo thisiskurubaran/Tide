@@ -18,6 +18,8 @@ export interface BuffersState {
   // Writes `content` to disk and makes it the buffer's text, dropping unsaved edits.
   // Used when something other than the editor (the shell) changes a file.
   replace(project: string, path: string, content: string): Promise<void>;
+  // Rereads a file that changed on disk behind the editor's back. Unsaved edits win.
+  reload(project: string, path: string): Promise<void>;
   // Saves everything pending, e.g. before the app goes to the background.
   flushAll(): Promise<void>;
   flushProject(project: string): Promise<void>;
@@ -29,7 +31,7 @@ export interface BuffersState {
 
 const SEP = '\u0000';
 export const bufferKey = (project: string, path: string) => `${project}${SEP}${path}`;
-const splitKey = (key: string) => key.split(SEP) as [string, string];
+export const splitKey = (key: string) => key.split(SEP) as [string, string];
 const isUnder = (path: string, prefix: string) => path === prefix || path.startsWith(`${prefix}/`);
 
 export const isDirty = (b: Buffer | undefined) => b !== undefined && b.content !== b.saved;
@@ -114,6 +116,18 @@ export function createBuffersStore(workspace: Workspace, autosaveMs = AUTOSAVE_M
         cancel(key);
         await workspace.writeFile(project, path, content);
         set((s) => (s.buffers[key] ? { buffers: { ...s.buffers, [key]: { content, saved: content } } } : s));
+      },
+      async reload(project, path) {
+        const key = bufferKey(project, path);
+        const buffer = get().buffers[key];
+        if (!buffer || isDirty(buffer)) return;
+        const content = await workspace.readFile(project, path).catch(() => null);
+        if (content === null) return;
+        set((s) => {
+          const current = s.buffers[key];
+          if (!current || isDirty(current)) return s;
+          return { buffers: { ...s.buffers, [key]: { content, saved: content } } };
+        });
       },
       flushAll: () => flushWhere(() => true),
       flushProject: (project) => flushWhere((p) => p === project),

@@ -3,6 +3,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 
+import { remoteSettingsStore } from '../features/remote/settings';
 import { projectsStore, runnerStore, tabsStore } from '../state';
 import { colors } from '../theme/tokens';
 
@@ -22,7 +23,12 @@ export default function RootLayout() {
   useEffect(() => {
     // Keep the splash up until saved tabs and the project list are loaded,
     // so a restart lands on the right screen without flashing an empty one.
-    Promise.all([hydrated(tabsStore), hydrated(runnerStore), projectsStore.getState().refresh()]).finally(() => {
+    Promise.all([
+      hydrated(tabsStore),
+      hydrated(runnerStore),
+      projectsStore.getState().refresh(),
+      remoteSettingsStore.getState().load().catch(() => undefined),
+    ]).finally(() => {
       setReady(true);
       SplashScreen.hideAsync();
     });

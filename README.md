@@ -18,6 +18,7 @@ app/                             Expo app (dev client, prebuild, New Architectur
   assets/icons                   App icons and splash images, built from the mark
   src/features/editor            Editor WebView, bridge types, generated editor HTML
   src/features/terminal          Terminal WebView, mini-shell, generated terminal HTML
+  src/features/remote            Remote mode: server settings, file sync, remote shell, preview
   web/editor                     CodeMirror 6 editor bundle (Vite, single HTML file)
   web/terminal                   xterm.js terminal bundle (Vite, single HTML file)
   nodejs-assets/nodejs-project   Supervisor inside nodejs-mobile: runs each script in a worker thread
@@ -57,7 +58,7 @@ npm run ios       # or: npm run android
 
 ## Terminal
 
-Local mode is a small built-in shell, not a real one (iOS can't start processes). It has `ls cd pwd cat echo touch mkdir rm mv cp clear help`, plus `node <file>`, `python <file>` and `run`, which starts the entry in the project's `tide.json`. Anything else, such as pip or git, needs Remote mode.
+The terminal has two modes, switched in its header. Local mode is a small built-in shell, not a real one (iOS can't start processes). It has `ls cd pwd cat echo touch mkdir rm mv cp clear help`, plus `node <file>`, `python <file>` and `run`, which starts the entry in the project's `tide.json`. Anything else, such as pip or git, needs Remote mode.
 
 Node scripts run in nodejs-mobile (Node 18), each in its own worker thread, so Ctrl-C stops a script without restarting Node. Each run is capped at 256 MB of heap. Leaving a project stops whatever its terminal was running.
 
@@ -68,6 +69,16 @@ Python scripts run in the embedded CPython 3.15 (Chaquopy on Android), each on i
 `pip install <package>...` (also `pip install -r requirements.txt`, `pip uninstall`, `pip list` and `python -m pip`) installs pure-Python wheels from PyPI into the project's `.pylibs` folder, which is on `sys.path` for every run. It resolves dependencies, extras and environment markers for the device and checks each wheel's sha256. Packages that only ship compiled wheels need Remote mode. pip itself runs in the Node supervisor, next to npm. Python scripts can make HTTPS requests with the standard library or `requests`.
 
 `npm install [package...]` works locally for pure-JS packages: it resolves versions from the registry, checks each tarball's integrity and extracts it into `node_modules`. Install scripts never run, and packages that need a native build print a warning; install those in Remote mode.
+
+## Remote mode
+
+Remote mode runs the project in a container on a Tide server you host (see below). Set the server URL and token from the server icon on the projects list; both are kept in the Keychain (Keystore on Android).
+
+When a project's terminal switches to Remote, the app starts or reuses the project's container, uploads the project's files, and then opens a real bash shell in `/workspace`. After that, files sync both ways: saves, new files and deletes on the phone go to the container, and changes made in the container come back to the phone. Changes to a file with unsaved edits on the phone don't overwrite those edits. `node_modules`, `.git`, `.pylibs` and `__pycache__` are not synced, and neither is any file over 2 MB.
+
+When something in the container listens on a port, a button such as `:3000` appears in the terminal header and opens that port in an in-app browser.
+
+The simulator reaches a server on the same Mac at `localhost:8787`. On a phone, use the Mac's LAN address and start the server with `HOST=0.0.0.0`.
 
 ## Remote server
 

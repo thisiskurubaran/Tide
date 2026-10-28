@@ -47,6 +47,17 @@ export function createMemoryFs(): FsAdapter & { files: Map<string, string>; dirs
       mkdirp(dirname(path));
       files.set(path, content);
     },
+    // Files are stored as text here, so only UTF-8 content round-trips.
+    async readBase64(path) {
+      const content = files.get(path);
+      if (content === undefined) throw new Error(`ENOENT: ${path}`);
+      return Buffer.from(content, 'utf8').toString('base64');
+    },
+    async writeBase64(path, data) {
+      if (dirs.has(path)) throw new Error(`EISDIR: ${path}`);
+      mkdirp(dirname(path));
+      files.set(path, Buffer.from(data, 'base64').toString('utf8'));
+    },
     async rename(path, newName) {
       const target = joinPath(dirname(path), newName);
       if (kind(path) === null) throw new Error(`ENOENT: ${path}`);
