@@ -108,6 +108,10 @@ function baseExtensions(lang: Language): Extension[] {
     saveKeymap,
     languageConf.of(languageExtension(lang)),
     themeConf.of(themeExtension),
+    EditorView.focusChangeEffect.of((_state, focusing) => {
+      post({ type: 'focus', focused: focusing });
+      return null;
+    }),
     EditorView.updateListener.of((u) => {
       if (!u.docChanged || currentPath === null) return;
       if (pendingChange !== null) clearTimeout(pendingChange);

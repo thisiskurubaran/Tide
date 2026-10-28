@@ -17,7 +17,9 @@ app/                             Expo app (dev client, prebuild, New Architectur
   assets/brand                   Logo SVGs (mark, wordmark, logo; light, dark, mono)
   assets/icons                   App icons and splash images, built from the mark
   src/features/editor            Editor WebView, bridge types, generated editor HTML
+  src/features/terminal          Terminal WebView, mini-shell, generated terminal HTML
   web/editor                     CodeMirror 6 editor bundle (Vite, single HTML file)
+  web/terminal                   xterm.js terminal bundle (Vite, single HTML file)
   nodejs-assets/nodejs-project   Node code that runs inside nodejs-mobile
   modules/python-runtime         Expo module: Chaquopy on Android, CPython on iOS
 shared/protocol.ts               Runner message types, imported as @shared/protocol
@@ -54,7 +56,7 @@ npm run ios       # or: npm run android
 
 ## WebView bundles
 
-The editor runs CodeMirror 6 inside a WebView. Its source is in `app/web/editor`, and `npm run build:web` builds it with Vite into one HTML file, written to `app/src/features/editor/editorHtml.generated.ts`. The generated file is committed, so rebuild it after changing anything in `app/web`:
+The editor (CodeMirror 6) and the terminal (xterm.js) each run inside a WebView. Their sources are in `app/web/editor` and `app/web/terminal`, and `npm run build:web` builds each with Vite into one HTML file, written to `app/src/features/<name>/<name>Html.generated.ts`. The generated files are committed, so rebuild them after changing anything in `app/web`:
 
 ```bash
 cd app

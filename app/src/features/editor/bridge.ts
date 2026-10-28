@@ -24,6 +24,7 @@ export type FromEditor =
   | { type: 'change'; path: string; content: string }
   // Cmd/Ctrl-S from a hardware keyboard.
   | { type: 'save'; path: string }
+  | { type: 'focus'; focused: boolean }
   | { type: 'error'; message: string };
 
 const EXTENSIONS: Record<string, Language> = {
@@ -52,7 +53,7 @@ export function languageFor(path: string): Language {
 }
 
 const TO_EDITOR = new Set<ToEditor['type']>(['open', 'setTheme', 'undo', 'redo', 'find', 'insert', 'key', 'focus', 'blur']);
-const FROM_EDITOR = new Set<FromEditor['type']>(['ready', 'change', 'save', 'error']);
+const FROM_EDITOR = new Set<FromEditor['type']>(['ready', 'change', 'save', 'focus', 'error']);
 
 function parse<T extends { type: string }>(raw: string, types: Set<string>): T | null {
   try {
