@@ -8,7 +8,7 @@ public class PythonRuntimeModule: Module {
     Name("PythonRuntime")
 
     AsyncFunction("version") { () throws -> String in
-      try TidePython.version()
+      try TidePython.pythonVersion()
     }.runOnQueue(queue)
 
     AsyncFunction("run") { (code: String) throws -> String in

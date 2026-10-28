@@ -93,7 +93,7 @@ static NSString *_Nullable TideCall(const char *function, NSString *_Nullable ar
 
 @implementation TidePython
 
-+ (nullable NSString *)versionAndReturnError:(NSError **)error {
++ (nullable NSString *)pythonVersionAndReturnError:(NSError **)error {
   return TideCall("version", nil, error);
 }
 
