@@ -7,6 +7,7 @@ import { Terminal } from '@xterm/xterm';
 import fontRegular from '../../assets/fonts/JetBrainsMono-Regular.ttf';
 import { shortcutFor } from '../../src/features/project/shortcuts';
 import { FromTerminal, parseToTerminal, ToTerminal } from '../../src/features/terminal/bridge';
+import { controlChar } from '../../src/features/terminal/keys';
 
 const FONT_FAMILY = 'JetBrains Mono';
 
@@ -58,11 +59,23 @@ async function start() {
   fit.fit();
   term.onData((data) => post({ type: 'input', data }));
   term.attachCustomKeyEventHandler((e) => {
-    const id = e.type === 'keydown' ? shortcutFor(e) : null;
-    if (!id) return true;
-    e.preventDefault();
-    post({ type: 'shortcut', id });
-    return false;
+    if (e.type !== 'keydown') {
+      // The keypress after a handled Ctrl+key would otherwise type the letter.
+      return !controlChar(e);
+    }
+    const id = shortcutFor(e);
+    if (id) {
+      e.preventDefault();
+      post({ type: 'shortcut', id });
+      return false;
+    }
+    const ctrl = controlChar(e);
+    if (ctrl) {
+      e.preventDefault();
+      post({ type: 'input', data: ctrl });
+      return false;
+    }
+    return true;
   });
   term.onResize(({ cols, rows }) => post({ type: 'resize', cols, rows }));
   new ResizeObserver(() => fit.fit()).observe(container);
