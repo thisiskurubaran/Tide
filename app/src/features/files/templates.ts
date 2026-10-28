@@ -47,7 +47,8 @@ export const templates: Template[] = [
           version: '1.0.0',
           private: true,
           main: 'index.js',
-          dependencies: { express: '^5.1.0' },
+          // Express 5's router uses Unicode regex escapes, which nodejs-mobile (built without Intl) rejects.
+          dependencies: { express: '^4.22.0' },
         },
         null,
         2,

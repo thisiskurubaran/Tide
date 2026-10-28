@@ -89,6 +89,13 @@ export class Shell {
     this.prompt();
   }
 
+  // Stops whatever is running. Programs live in the shared Node runtime, so
+  // without this a server would keep running after its terminal is gone.
+  dispose() {
+    if (this.running) this.opts.runner.send({ type: 'kill', id: this.running.id });
+    this.running = null;
+  }
+
   resize(cols: number) {
     this.cols = Math.max(20, cols);
   }

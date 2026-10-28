@@ -175,7 +175,7 @@ describe('install', () => {
     const cwd = tmp();
     fs.writeFileSync(path.join(cwd, 'package.json'), JSON.stringify({ name: 'x' }));
     await install({ cwd, registry, add: ['b@1'], log: () => {} });
-    expect(read(cwd, 'package.json').dependencies).toEqual({ b: '1' });
+    expect(read(cwd, 'package.json').dependencies).toEqual({ b: '^1.1.0' });
     expect(read(cwd, 'node_modules/b/package.json').version).toBe('1.1.0');
     const before = requests.length;
     const again = await install({ cwd, registry, log: () => {} });

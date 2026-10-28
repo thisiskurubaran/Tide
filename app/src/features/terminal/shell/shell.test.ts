@@ -211,6 +211,13 @@ describe('shell', () => {
     expect(runner.requests[0]).toMatchObject({ runtime: 'node', entry: 'tide:npm', cwd: 'projects/demo', args: ['install', 'express'] });
   });
 
+  it('kills the running program when disposed', async () => {
+    const { shell, run, runner } = await setup();
+    await run('node index.js');
+    shell.dispose();
+    expect(runner.sent).toContainEqual({ type: 'kill', id: 'r1' });
+  });
+
   it('run uses tide.json', async () => {
     const { run, runner } = await setup();
     await run('cd /');

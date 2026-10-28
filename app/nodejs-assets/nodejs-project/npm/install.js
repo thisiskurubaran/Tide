@@ -115,7 +115,8 @@ async function install({ cwd, add = [], registry = DEFAULT_REGISTRY, log = conso
   for (const spec of add) {
     const [name, range] = parseSpec(spec);
     const { version } = await resolveVersion(name, range);
-    pkg.dependencies[name] = range === 'latest' || semver.parse(range) ? `^${version}` : range;
+    // Same as npm's default save-prefix: whatever was asked for, save ^<installed>.
+    pkg.dependencies[name] = `^${version}`;
   }
 
   // Plan the tree. Each entry is a node_modules location: "node_modules/a" or

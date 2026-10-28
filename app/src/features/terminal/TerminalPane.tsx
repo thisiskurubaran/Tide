@@ -68,6 +68,7 @@ export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(functi
   useEffect(
     () => () => {
       if (timer.current !== null) clearTimeout(timer.current);
+      shell.current?.dispose();
     },
     [],
   );
