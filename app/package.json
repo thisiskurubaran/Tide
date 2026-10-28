@@ -31,6 +31,9 @@
   },
   "private": true,
   "jest": {
-    "preset": "jest-expo"
+    "preset": "jest-expo",
+    "moduleNameMapper": {
+      "^@shared/(.*)$": "<rootDir>/../shared/$1"
+    }
   }
 }
