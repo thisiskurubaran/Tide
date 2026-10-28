@@ -9,6 +9,8 @@ app/                             Expo app (dev client, prebuild, New Architectur
   src/                           App code (features, runtime clients, theme)
   src/theme                      Tokens from the FuseOps theme, editor and terminal themes
   assets/fonts                   Inter, Instrument Sans, JetBrains Mono (SIL OFL 1.1)
+  assets/brand                   Logo SVGs (mark, wordmark, logo; light, dark, mono)
+  assets/icons                   App icons and splash images, built from the mark
   nodejs-assets/nodejs-project   Node code that runs inside nodejs-mobile
   modules/python-runtime         Expo module: Chaquopy on Android, CPython on iOS
 ```
@@ -38,6 +40,15 @@ The Android profile produces an APK you can install directly. iOS cloud builds n
 cd app
 npm install
 npm run ios       # or: npm run android
+```
+
+## Icons
+
+App icons and splash images are generated from `app/assets/brand/tide-mark.svg`. After changing the mark:
+
+```bash
+cd app
+npm run build:icons
 ```
 
 ## Tests

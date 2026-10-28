@@ -4,29 +4,44 @@
     "slug": "tide",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "icon": "./assets/icons/ios-light.png",
+    "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.thisiskurubaran.tide"
+      "bundleIdentifier": "com.thisiskurubaran.tide",
+      "icon": {
+        "light": "./assets/icons/ios-light.png",
+        "dark": "./assets/icons/ios-dark.png",
+        "tinted": "./assets/icons/ios-tinted.png"
+      }
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "backgroundColor": "#111413",
+        "foregroundImage": "./assets/icons/android-foreground.png",
+        "monochromeImage": "./assets/icons/android-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.thisiskurubaran.tide"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/icons/favicon.png"
     },
     "scheme": "tide",
     "plugins": [
       "./modules/python-runtime/app.plugin.js",
-      "expo-splash-screen",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/icons/splash-light.png",
+          "backgroundColor": "#fcfcfb",
+          "imageWidth": 120,
+          "dark": {
+            "image": "./assets/icons/splash-dark.png",
+            "backgroundColor": "#0d0f0e"
+          }
+        }
+      ],
       [
         "expo-font",
         {

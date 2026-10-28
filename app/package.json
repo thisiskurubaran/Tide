@@ -13,6 +13,7 @@
     "react-native": "0.88.0"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "@types/jest": "^30.0.0",
     "@types/react": "~19.3.0",
     "jest": "^30.5.2",
@@ -25,7 +26,8 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "test": "jest --passWithNoTests",
-    "postinstall": "node modules/python-runtime/scripts/fetch-ios-python.js"
+    "postinstall": "node modules/python-runtime/scripts/fetch-ios-python.js",
+    "build:icons": "node scripts/build-icons.js"
   },
   "private": true,
   "jest": {
