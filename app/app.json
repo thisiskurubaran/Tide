@@ -33,13 +33,9 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/icons/splash-light.png",
-          "backgroundColor": "#fcfcfb",
-          "imageWidth": 120,
-          "dark": {
-            "image": "./assets/icons/splash-dark.png",
-            "backgroundColor": "#0d0f0e"
-          }
+          "image": "./assets/icons/splash-dark.png",
+          "backgroundColor": "#0d0f0e",
+          "imageWidth": 120
         }
       ],
       [
@@ -55,7 +51,8 @@
             "./assets/fonts/JetBrainsMono-SemiBold.ttf"
           ]
         }
-      ]
+      ],
+      "expo-router"
     ]
   }
 }

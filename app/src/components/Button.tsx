@@ -1,0 +1,83 @@
+import Feather from '@expo/vector-icons/Feather';
+import { ComponentProps } from 'react';
+import { Pressable, StyleSheet, View } from 'react-native';
+
+import { borderWidth, colors, fonts, fontSizes, radius, spacing } from '../theme/tokens';
+import { Text } from './Text';
+
+export type IconName = ComponentProps<typeof Feather>['name'];
+
+interface ButtonProps {
+  title: string;
+  onPress(): void;
+  variant?: 'primary' | 'outline';
+  icon?: IconName;
+  disabled?: boolean;
+  testID?: string;
+}
+
+// FuseOps buttons: primary is foreground on background, outline sits on a card.
+export function Button({ title, onPress, variant = 'primary', icon, disabled, testID }: ButtonProps) {
+  const primary = variant === 'primary';
+  const color = primary ? colors.background : colors.foreground;
+  return (
+    <Pressable
+      testID={testID}
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      style={({ pressed }) => [
+        styles.button,
+        primary ? styles.primary : styles.outline,
+        (pressed || disabled) && styles.dimmed,
+      ]}
+    >
+      {icon && <Feather name={icon} size={16} color={color} />}
+      <Text style={[styles.title, { color }]}>{title}</Text>
+    </Pressable>
+  );
+}
+
+interface IconButtonProps {
+  icon: IconName;
+  label: string;
+  onPress(): void;
+  color?: string;
+  testID?: string;
+}
+
+export function IconButton({ icon, label, onPress, color = colors.mutedForeground, testID }: IconButtonProps) {
+  return (
+    <Pressable
+      testID={testID}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      hitSlop={spacing.sm}
+      style={({ pressed }) => [styles.icon, pressed && { backgroundColor: colors.secondary }]}
+    >
+      <View>
+        <Feather name={icon} size={18} color={color} />
+      </View>
+    </Pressable>
+  );
+}
+
+const styles = StyleSheet.create({
+  button: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    height: 44,
+    paddingHorizontal: spacing.md + 4,
+    borderRadius: radius.md,
+    borderWidth,
+    borderColor: 'transparent',
+  },
+  primary: { backgroundColor: colors.foreground },
+  outline: { backgroundColor: colors.card, borderColor: colors.border },
+  dimmed: { opacity: 0.6 },
+  title: { fontFamily: fonts.sans.medium, fontSize: fontSizes.sm },
+  icon: { padding: spacing.xs + 2, borderRadius: radius.sm },
+});
