@@ -4,7 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { nodeClient } from '../../runtime/node';
 import { pythonRuntime } from '../../runtime/python';
-import { colors, fonts, radius, spacing } from '../../theme/tokens';
+import { borderWidth, colors, fonts, fontSizes, letterSpacing, radius, spacing } from '../../theme/tokens';
 
 type Line = { source: 'node' | 'python'; text: string; error?: boolean };
 
@@ -59,17 +59,31 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     paddingTop: spacing.lg * 3,
   },
-  title: { color: colors.text, fontSize: 20, marginBottom: spacing.md },
+  title: {
+    color: colors.foreground,
+    fontFamily: fonts.heading.medium,
+    fontSize: fontSizes.xxl,
+    letterSpacing: letterSpacing(fontSizes.xxl),
+    marginBottom: spacing.md,
+  },
   buttons: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
   button: {
     flex: 1,
-    backgroundColor: colors.primary,
+    // FuseOps primary buttons are foreground on background, not brand colored.
+    backgroundColor: colors.foreground,
     borderRadius: radius.md,
     padding: spacing.md,
     alignItems: 'center',
   },
-  buttonText: { color: colors.background, fontWeight: '600' },
-  output: { flex: 1, backgroundColor: colors.surface, borderRadius: radius.md, padding: spacing.sm },
-  line: { color: colors.text, fontFamily: fonts.mono, fontSize: 13, marginBottom: spacing.xs },
-  error: { color: colors.danger },
+  buttonText: { color: colors.background, fontFamily: fonts.sans.medium, fontSize: fontSizes.sm },
+  output: {
+    flex: 1,
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderWidth,
+    borderRadius: radius.lg,
+    padding: spacing.sm,
+  },
+  line: { color: colors.foreground, fontFamily: fonts.mono.regular, fontSize: fontSizes.sm, marginBottom: spacing.xs },
+  error: { color: colors.destructive },
 });

@@ -7,6 +7,8 @@ Tide is a mobile IDE for Android and iOS built with React Native. It has a code 
 ```
 app/                             Expo app (dev client, prebuild, New Architecture)
   src/                           App code (features, runtime clients, theme)
+  src/theme                      Tokens from the FuseOps theme, editor and terminal themes
+  assets/fonts                   Inter, Instrument Sans, JetBrains Mono (SIL OFL 1.1)
   nodejs-assets/nodejs-project   Node code that runs inside nodejs-mobile
   modules/python-runtime         Expo module: Chaquopy on Android, CPython on iOS
 ```

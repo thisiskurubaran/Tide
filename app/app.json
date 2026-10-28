@@ -25,7 +25,22 @@
     },
     "scheme": "tide",
     "plugins": [
-      "./modules/python-runtime/app.plugin.js"
+      "./modules/python-runtime/app.plugin.js",
+      "expo-splash-screen",
+      [
+        "expo-font",
+        {
+          "fonts": [
+            "./assets/fonts/InstrumentSans-Medium.ttf",
+            "./assets/fonts/InstrumentSans-SemiBold.ttf",
+            "./assets/fonts/Inter-Medium.ttf",
+            "./assets/fonts/Inter-Regular.ttf",
+            "./assets/fonts/Inter-SemiBold.ttf",
+            "./assets/fonts/JetBrainsMono-Regular.ttf",
+            "./assets/fonts/JetBrainsMono-SemiBold.ttf"
+          ]
+        }
+      ]
     ]
   }
 }
