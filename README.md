@@ -16,6 +16,8 @@ app/                             Expo app (dev client, prebuild, New Architectur
   assets/fonts                   Inter, Instrument Sans, JetBrains Mono (SIL OFL 1.1)
   assets/brand                   Logo SVGs (mark, wordmark, logo; light, dark, mono)
   assets/icons                   App icons and splash images, built from the mark
+  src/features/editor            Editor WebView, bridge types, generated editor HTML
+  web/editor                     CodeMirror 6 editor bundle (Vite, single HTML file)
   nodejs-assets/nodejs-project   Node code that runs inside nodejs-mobile
   modules/python-runtime         Expo module: Chaquopy on Android, CPython on iOS
 shared/protocol.ts               Runner message types, imported as @shared/protocol
@@ -48,6 +50,15 @@ The Android profile produces an APK you can install directly. iOS cloud builds n
 cd app
 npm install
 npm run ios       # or: npm run android
+```
+
+## WebView bundles
+
+The editor runs CodeMirror 6 inside a WebView. Its source is in `app/web/editor`, and `npm run build:web` builds it with Vite into one HTML file, written to `app/src/features/editor/editorHtml.generated.ts`. The generated file is committed, so rebuild it after changing anything in `app/web`:
+
+```bash
+cd app
+npm run build:web
 ```
 
 ## Icons

@@ -45,3 +45,6 @@ nodejs-assets/build-native-modules-MacOS-helper-script-*.sh
 
 # Fetched on install by modules/python-runtime/scripts/fetch-ios-python.js
 modules/python-runtime/ios/Python.xcframework/
+
+# Vite output; the app uses the generated .ts files instead
+web/*/dist/
