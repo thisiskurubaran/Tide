@@ -20,7 +20,7 @@ app/                             Expo app (dev client, prebuild, New Architectur
   src/features/terminal          Terminal WebView, mini-shell, generated terminal HTML
   web/editor                     CodeMirror 6 editor bundle (Vite, single HTML file)
   web/terminal                   xterm.js terminal bundle (Vite, single HTML file)
-  nodejs-assets/nodejs-project   Node code that runs inside nodejs-mobile
+  nodejs-assets/nodejs-project   Supervisor inside nodejs-mobile: runs each script in a worker thread
   modules/python-runtime         Expo module: Chaquopy on Android, CPython on iOS
 shared/protocol.ts               Runner message types, imported as @shared/protocol
 ```

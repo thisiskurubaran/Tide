@@ -38,6 +38,7 @@
     "@lezer/highlight": "^1.2.5",
     "@resvg/resvg-js": "^2.6.2",
     "@types/jest": "^30.0.0",
+    "@types/node": "^22.20.5",
     "@types/react": "~19.3.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-web-links": "^0.12.0",

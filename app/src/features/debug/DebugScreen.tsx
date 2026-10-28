@@ -2,7 +2,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { nodeClient } from '../../runtime/node';
+import { nodeRunner } from '../../runtime/node';
 import { pythonRuntime } from '../../runtime/python';
 import { borderWidth, colors, fonts, fontSizes, letterSpacing, radius, spacing } from '../../theme/tokens';
 
@@ -21,7 +21,11 @@ export function DebugScreen() {
     }
   }
 
-  const runNode = () => capture('node', () => nodeClient.request('1+1'));
+  const runNode = () =>
+    capture('node', async () => {
+      const pong = await nodeRunner.ping();
+      return `node ${pong.node} on ${pong.platform}/${pong.arch}`;
+    });
   const runPython = () =>
     capture('python', async () => {
       const version = await pythonRuntime.version();

@@ -3,6 +3,9 @@
 
 export type Runtime = 'node' | 'python';
 
+// Optional per-run caps. Local runners apply defaults when they are missing.
+export type RunLimits = { maxMemoryMb?: number; timeoutMs?: number };
+
 export type RunRequest = {
   type: 'run';
   id: string;
@@ -11,6 +14,7 @@ export type RunRequest = {
   cwd: string;
   args: string[];
   env?: Record<string, string>;
+  limits?: RunLimits;
 };
 
 export type StdinMsg = { type: 'stdin'; id: string; data: string };
@@ -29,3 +33,11 @@ export type PtyData = { type: 'pty'; data: string };
 export type ClientMessage = RunRequest | StdinMsg | KillMsg | ResizeMsg | PtyData;
 
 export type RunnerMessage = OutputMsg | ExitMsg | PtyData;
+
+// Local Node supervisor only (the nodejs-mobile channel), next to the runner messages above.
+// `root` is the absolute path that RunRequest `entry` and `cwd` are relative to.
+export type SupervisorRequest = { type: 'init'; root: string } | { type: 'ping' };
+
+export type SupervisorEvent =
+  | { type: 'ready'; node: string }
+  | { type: 'pong'; node: string; platform: string; arch: string };

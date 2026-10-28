@@ -1,9 +1,24 @@
-// Phase 0 spike: echo messages back so the app can prove the RN <-> Node round trip.
-// The full supervisor (worker_threads runner) replaces this in Phase 4.
-const rnBridge = require('rn-bridge');
+// Entry point inside nodejs-mobile. Messages are JSON strings in both
+// directions; the shapes are in shared/protocol.ts.
+'use strict';
 
-rnBridge.channel.on('message', (msg) => {
-  rnBridge.channel.send(`node ${process.version} on ${process.platform}/${process.arch}: ${msg}`);
+const path = require('path');
+const rnBridge = require('rn-bridge');
+const { createSupervisor } = require('./supervisor');
+
+const supervisor = createSupervisor({
+  send: (msg) => rnBridge.channel.send(JSON.stringify(msg)),
+  builtins: { npm: path.join(__dirname, 'npm', 'cli.js') },
 });
 
-rnBridge.channel.send('ready');
+rnBridge.channel.on('message', (raw) => {
+  let msg;
+  try {
+    msg = JSON.parse(raw);
+  } catch {
+    return;
+  }
+  supervisor.handle(msg);
+});
+
+rnBridge.channel.send(JSON.stringify({ type: 'ready', node: process.version }));
