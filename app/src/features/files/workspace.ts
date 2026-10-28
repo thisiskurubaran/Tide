@@ -1,0 +1,175 @@
+import { EntryKind, FsAdapter, basename, dirname, joinPath } from './fs';
+import { RUN_CONFIG_FILE, RunConfig, findTemplate } from './templates';
+
+export const PROJECTS_DIR = 'projects';
+
+export type WorkspaceErrorCode = 'invalid-name' | 'invalid-path' | 'exists' | 'not-found' | 'unknown-template';
+
+export class WorkspaceError extends Error {
+  constructor(
+    readonly code: WorkspaceErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'WorkspaceError';
+  }
+}
+
+export interface TreeNode {
+  name: string;
+  // Relative to the project root, e.g. "src/app.js".
+  path: string;
+  kind: EntryKind;
+  children?: TreeNode[];
+}
+
+const MAX_NAME = 128;
+
+export function validateName(name: string, what = 'Name'): string {
+  const trimmed = name.trim();
+  if (!trimmed) throw new WorkspaceError('invalid-name', `${what} can't be empty`);
+  if (trimmed.length > MAX_NAME) throw new WorkspaceError('invalid-name', `${what} is longer than ${MAX_NAME} characters`);
+  if (trimmed === '.' || trimmed === '..') throw new WorkspaceError('invalid-name', `${what} can't be "${trimmed}"`);
+  if (/[/\\:\u0000-\u001f]/.test(trimmed)) {
+    throw new WorkspaceError('invalid-name', `${what} can't contain / \\ : or control characters`);
+  }
+  return trimmed;
+}
+
+// Normalizes a project-relative path and rejects anything that would leave the project.
+export function normalizePath(path: string): string {
+  const parts: string[] = [];
+  for (const part of path.split('/')) {
+    if (!part || part === '.') continue;
+    if (part === '..') throw new WorkspaceError('invalid-path', `Path "${path}" leaves the project`);
+    parts.push(validateName(part, 'Path segment'));
+  }
+  return parts.join('/');
+}
+
+function sortEntries<T extends { name: string; kind: EntryKind }>(entries: T[]): T[] {
+  return entries.sort((a, b) =>
+    a.kind === b.kind ? a.name.localeCompare(b.name, undefined, { numeric: true }) : a.kind === 'dir' ? -1 : 1,
+  );
+}
+
+export function createWorkspace(fs: FsAdapter) {
+  const projectRoot = (project: string) => joinPath(PROJECTS_DIR, validateName(project, 'Project name'));
+  const abs = (project: string, path: string) => joinPath(projectRoot(project), normalizePath(path));
+
+  async function requireKind(path: string, kind?: EntryKind) {
+    const found = await fs.stat(path);
+    if (!found || (kind && found !== kind)) throw new WorkspaceError('not-found', `"${path}" doesn't exist`);
+    return found;
+  }
+
+  async function requireFree(path: string) {
+    if (await fs.stat(path)) throw new WorkspaceError('exists', `"${basename(path)}" already exists`);
+  }
+
+  async function readTree(project: string, rel = ''): Promise<TreeNode[]> {
+    const entries = sortEntries(await fs.readDir(abs(project, rel)));
+    return Promise.all(
+      entries.map(async (e) => {
+        const path = joinPath(rel, e.name);
+        return e.kind === 'dir'
+          ? { name: e.name, path, kind: e.kind, children: await readTree(project, path) }
+          : { name: e.name, path, kind: e.kind };
+      }),
+    );
+  }
+
+  return {
+    async listProjects(): Promise<string[]> {
+      if ((await fs.stat(PROJECTS_DIR)) !== 'dir') return [];
+      const entries = await fs.readDir(PROJECTS_DIR);
+      return sortEntries(entries.filter((e) => e.kind === 'dir')).map((e) => e.name);
+    },
+
+    async createProject(name: string, templateId: string): Promise<string> {
+      const template = findTemplate(templateId);
+      if (!template) throw new WorkspaceError('unknown-template', `Unknown template "${templateId}"`);
+      const project = validateName(name, 'Project name');
+      const root = projectRoot(project);
+      await requireFree(root);
+      await fs.mkdir(root);
+      const files = { ...template.files, [RUN_CONFIG_FILE]: `${JSON.stringify(template.run, null, 2)}\n` };
+      for (const [path, content] of Object.entries(files)) {
+        await fs.writeFile(joinPath(root, path), content);
+      }
+      return project;
+    },
+
+    async renameProject(name: string, newName: string): Promise<string> {
+      const target = validateName(newName, 'Project name');
+      await requireKind(projectRoot(name), 'dir');
+      if (target === name) return target;
+      await requireFree(projectRoot(target));
+      await fs.rename(projectRoot(name), target);
+      return target;
+    },
+
+    async deleteProject(name: string): Promise<void> {
+      await requireKind(projectRoot(name), 'dir');
+      await fs.remove(projectRoot(name));
+    },
+
+    readTree: (project: string) => readTree(project),
+
+    async readRunConfig(project: string): Promise<RunConfig | null> {
+      const path = abs(project, RUN_CONFIG_FILE);
+      if ((await fs.stat(path)) !== 'file') return null;
+      try {
+        return JSON.parse(await fs.readFile(path)) as RunConfig;
+      } catch {
+        return null;
+      }
+    },
+
+    async createFile(project: string, parent: string, name: string, content = ''): Promise<string> {
+      const path = joinPath(normalizePath(parent), validateName(name, 'File name'));
+      await requireKind(abs(project, parent), 'dir');
+      await requireFree(abs(project, path));
+      await fs.writeFile(abs(project, path), content);
+      return path;
+    },
+
+    async createFolder(project: string, parent: string, name: string): Promise<string> {
+      const path = joinPath(normalizePath(parent), validateName(name, 'Folder name'));
+      await requireKind(abs(project, parent), 'dir');
+      await requireFree(abs(project, path));
+      await fs.mkdir(abs(project, path));
+      return path;
+    },
+
+    async renameEntry(project: string, path: string, newName: string): Promise<string> {
+      const from = normalizePath(path);
+      if (!from) throw new WorkspaceError('invalid-path', 'Rename the project from the projects list');
+      const to = joinPath(dirname(from), validateName(newName));
+      await requireKind(abs(project, from));
+      if (to === from) return to;
+      await requireFree(abs(project, to));
+      await fs.rename(abs(project, from), basename(to));
+      return to;
+    },
+
+    async deleteEntry(project: string, path: string): Promise<void> {
+      const target = normalizePath(path);
+      if (!target) throw new WorkspaceError('invalid-path', 'Delete the project from the projects list');
+      await requireKind(abs(project, target));
+      await fs.remove(abs(project, target));
+    },
+
+    async readFile(project: string, path: string): Promise<string> {
+      await requireKind(abs(project, path), 'file');
+      return fs.readFile(abs(project, path));
+    },
+
+    async writeFile(project: string, path: string, content: string): Promise<void> {
+      await requireKind(abs(project, path), 'file');
+      await fs.writeFile(abs(project, path), content);
+    },
+  };
+}
+
+export type Workspace = ReturnType<typeof createWorkspace>;

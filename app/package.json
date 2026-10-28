@@ -4,13 +4,21 @@
   "main": "index.ts",
   "dependencies": {
     "expo": "~58.0.20",
+    "expo-constants": "~58.0.13",
     "expo-dev-client": "~58.0.16",
+    "expo-file-system": "~58.0.12",
     "expo-font": "~58.0.10",
+    "expo-linking": "~58.0.14",
+    "expo-router": "~58.0.27",
     "expo-splash-screen": "~58.0.11",
     "expo-status-bar": "~58.0.4",
     "nodejs-mobile-react-native": "18.20.4",
     "react": "19.3.0",
-    "react-native": "0.88.0"
+    "react-dom": "19.3.0",
+    "react-native": "0.88.0",
+    "react-native-safe-area-context": "~5.10.1",
+    "react-native-screens": "~4.30.0",
+    "zustand": "^5.0.16"
   },
   "devDependencies": {
     "@resvg/resvg-js": "^2.6.2",

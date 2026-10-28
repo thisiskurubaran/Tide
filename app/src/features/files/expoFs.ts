@@ -1,0 +1,46 @@
+import { Directory, File, Paths } from 'expo-file-system';
+
+import { DirEntry, FsAdapter, dirname } from './fs';
+
+// FsAdapter over the app's Documents directory.
+export function createExpoFs(root: Directory = Paths.document): FsAdapter {
+  const file = (path: string) => new File(root, path);
+  const dir = (path: string) => (path ? new Directory(root, path) : root);
+
+  return {
+    async stat(path) {
+      const info = Paths.info(dir(path).uri);
+      if (!info.exists) return null;
+      return info.isDirectory ? 'dir' : 'file';
+    },
+    async readDir(path) {
+      return dir(path)
+        .list()
+        .map((e): DirEntry => ({ name: e.name, kind: e instanceof Directory ? 'dir' : 'file' }));
+    },
+    async mkdir(path) {
+      dir(path).create({ intermediates: true, idempotent: true });
+    },
+    async readFile(path) {
+      return file(path).text();
+    },
+    async writeFile(path, content) {
+      const parent = dirname(path);
+      if (parent) dir(parent).create({ intermediates: true, idempotent: true });
+      const f = file(path);
+      if (!f.exists) f.create();
+      await f.write(content);
+    },
+    async rename(path, newName) {
+      const info = Paths.info(dir(path).uri);
+      if (info.isDirectory) dir(path).rename(newName);
+      else file(path).rename(newName);
+    },
+    async remove(path) {
+      const info = Paths.info(dir(path).uri);
+      if (!info.exists) throw new Error(`ENOENT: ${path}`);
+      if (info.isDirectory) dir(path).delete();
+      else file(path).delete();
+    },
+  };
+}
