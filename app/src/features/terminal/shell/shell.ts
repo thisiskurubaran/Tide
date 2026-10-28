@@ -346,7 +346,7 @@ export class Shell {
       python3: (args) => this.runProgram('python', args),
       // Built into the Node supervisor; resolves packages from the registry without running scripts.
       npm: (args) => this.startRun('node', 'tide:npm', args, this.cwd),
-      // pip downloads with Node's TLS stack; the embedded Python has no CA store on iOS.
+      // pip runs in the Node supervisor next to npm, sharing its download and archive code.
       pip: (args) => this.startRun('node', 'tide:pip', args, this.cwd),
       pip3: (args) => this.startRun('node', 'tide:pip', args, this.cwd),
       run: async (args) => {
