@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { View } from 'react-native';
+import { Linking, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import WebView, { WebViewMessageEvent } from 'react-native-webview';
 
@@ -14,6 +14,7 @@ import { addInput, clearConsole, DevtoolsState, emptyDevtools, parsePageMessage,
 import { DevtoolsPanel } from './devtools/DevtoolsPanel';
 import { DEVTOOLS_SCRIPT, evalScript } from './devtools/inject';
 import { requirePro } from '../pro';
+import { previewNavigation } from './navigation';
 
 const LIVE_RELOAD_DELAY_MS = 400;
 
@@ -97,6 +98,12 @@ export function PreviewScreen() {
           ref={webview}
           testID="preview-webview"
           source={{ uri: url }}
+          // Pages of the project's server stay here; other sites open in Safari.
+          onShouldStartLoadWithRequest={(req) => {
+            const where = previewNavigation(req.url, url, req.isTopFrame ?? true);
+            if (where === 'external') Linking.openURL(req.url).catch(() => undefined);
+            return where === 'allow';
+          }}
           style={styles.webview}
           onError={(e) => setError(e.nativeEvent.description)}
           onMessage={onMessage}
