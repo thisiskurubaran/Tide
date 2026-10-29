@@ -57,6 +57,7 @@ export function ProjectsScreen() {
           Projects
         </Text>
         {__DEV__ && <IconButton icon="cpu" label="Runtime spike" onPress={() => router.push('/debug')} />}
+        <IconButton icon="package" label="Extensions" onPress={() => router.push('/extensions')} testID="open-extensions" />
         <IconButton icon="settings" label="Settings" onPress={() => router.push('/settings')} testID="open-settings" />
       </View>
 

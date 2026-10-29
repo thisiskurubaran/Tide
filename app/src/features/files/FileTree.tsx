@@ -6,6 +6,7 @@ import { Action, ActionSheet } from '../../components/ActionSheet';
 import { IconButton } from '../../components/Button';
 import { PromptSheet } from '../../components/PromptSheet';
 import { Text } from '../../components/Text';
+import { FileIcon } from '../../extensions/themes';
 import { projectsStore } from '../../state';
 import { radius, spacing } from '../../theme/tokens';
 import { basename } from './fs';
@@ -80,11 +81,11 @@ export function FileTree({ project, nodes, activePath, onOpenFile }: FileTreePro
             (active || pressed) && { backgroundColor: active ? colors.brandSoft : colors.secondary },
           ]}
         >
-          <Feather
-            name={isDir ? (open ? 'chevron-down' : 'chevron-right') : 'file-text'}
-            size={16}
-            color={isDir ? colors.mutedForeground : active ? colors.brand : colors.mutedForeground}
-          />
+          {isDir ? (
+            <Feather name={open ? 'chevron-down' : 'chevron-right'} size={16} color={colors.mutedForeground} />
+          ) : (
+            <FileIcon name={node.name} fallback={<Feather name="file-text" size={16} color={active ? colors.brand : colors.mutedForeground} />} />
+          )}
           {isDir && <Feather name="folder" size={16} color={colors.brand} />}
           <Text variant="label" numberOfLines={1} style={styles.name}>
             {node.name}

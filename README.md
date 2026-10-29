@@ -28,6 +28,7 @@ app/                             Expo app (dev client, prebuild, New Architectur
   src/features/privacy           Opt-in crash reports (Sentry) and the scrubbing applied to them
   .maestro                       End-to-end flows (Maestro)
   modules/python-runtime         Expo module: Chaquopy on Android, CPython on iOS; python/tide_runner.py runs scripts
+  src/extensions                 Paid extensions: the extension API, in-app purchases, the Extensions screen and each extension
 server/                          Remote mode server: one Docker container per project
 shared/protocol.ts               Runner message types, imported as @shared/protocol
 ```
@@ -37,6 +38,8 @@ shared/protocol.ts               Runner message types, imported as @shared/proto
 On the device, projects are stored under `Documents/projects/<name>`, and app state (open tabs, runner mode) under `Documents/.tide`. Each project has a `tide.json` with its run config (`runtime` and `entry`).
 
 On macOS, `npm install` downloads the CPython iOS XCframework (about 86 MB) into `app/modules/python-runtime/ios/Python.xcframework`. It is checksum-verified and not committed.
+
+`npm install` also builds the code the extensions run in the Node supervisor (Prettier, ESLint and TypeScript, about 5 MB, by `scripts/build-services.js`) and fetches pyflakes, autopep8 and pycodestyle (checksum-pinned wheels) into `app/modules/python-runtime/python`. None of it is committed. Run `npm run build:services` after upgrading prettier, eslint or typescript.
 
 ## Requirements
 
@@ -141,6 +144,28 @@ isomorphic-git is bundled into `app/nodejs-assets/nodejs-project/git/isogit.js`,
 cd app
 npm run build:git
 ```
+
+## Extensions
+
+Extensions are paid add-ons, each a separate one-time in-app purchase (non-consumable). Their code ships inside the app and a purchase only unlocks it, so nothing executable is downloaded. The Extensions screen (the package icon on the projects list, or Settings) shows each one with its store price, a Buy button, Restore purchases, an on/off switch for owned ones and their settings.
+
+| Extension | Product ID | What it adds |
+|---|---|---|
+| Themes & Icons Pack | `com.thisiskurubaran.tide.ext.themes` | Seven editor and terminal themes (Dracula, One Dark, Monokai, Nord, Solarized Dark and Light, GitHub Light) and file icons in the tree and tabs. Color theme in the command palette. |
+| Format & Lint | `com.thisiskurubaran.tide.ext.format_lint` | Format document (⇧⌥F) with Prettier for JS, TS, JSON, CSS, HTML, Markdown and YAML and autopep8 for Python, optionally on save. ESLint (recommended rules) and pyflakes warnings as you type, and a Problems panel. A JSON Prettier config in the project is used. |
+| Git Pro | `com.thisiskurubaran.tide.ext.git_pro` | Replaces the Source Control sheet: staged and unstaged changes, diffs, staging, unstaging and discarding a file or a single hunk, commit only what is staged, branches (create, switch, delete, merge), history with each commit's diff, and Accept current / incoming / both on conflict markers in the editor. |
+| IntelliSense Pro | `com.thisiskurubaran.tide.ext.intellisense` | The TypeScript language service for JS and TS: completions, hover, go to definition (F12 or Cmd-click), find references, rename symbol and type errors inline. Uses the project's tsconfig.json or jsconfig.json. |
+| Debugger | `com.thisiskurubaran.tide.ext.debugger` | Gutter breakpoints, Debug: start for the open JavaScript or Python file (or the tide.json entry), continue, pause, step over, into and out, variables, call stack, and a console for output, input and evaluating expressions. |
+
+Store setup: create the five product IDs above as non-consumable in-app products in App Store Connect and as one-time products in the Google Play Console, and sign the paid apps agreements. Prices come from the stores; the fallback prices in `src/extensions/manifests.ts` only show until the store answers. Test purchases with a Sandbox account on iOS and license testers on Android. Purchases go through expo-iap (its config plugin is in `app.json`), so run `npx expo prebuild --clean` after pulling this change. Purchases are checked on the device only; there is no server receipt validation yet.
+
+How they run:
+
+- Prettier, ESLint and the TypeScript language service are long-lived workers in the Node supervisor that answer JSON requests on stdin (`nodejs-project/service.js`, `format/`, `intellisense/`). They start on first use and work in Local and Remote mode, because the files are on the device. The TypeScript service can take a few seconds for its first answer on a phone.
+- Python formatting and linting run in the app's Python through `tide_runner.snippet`, so the native modules didn't change.
+- The Node debugger debugs each run's worker thread from the supervisor's main thread over the inspector's NodeWorker domain (`nodejs-project/debugger.js`). The Python debugger is bdb from the standard library (`python/tide_debugger.py`). Debugging runs on the device, not in the Remote container. Exceptions don't pause the program; they print their stack trace and end the run, as without the debugger.
+
+The extension API is in `src/extensions/types.ts`: an extension can add palette commands, panels, a bar under the tabs, editor features, a language provider (completions, hover, definition), a hook before explicit saves, and a listener for open files' text, which is how linting and type checking report into the Problems panel.
 
 ## WebView bundles
 

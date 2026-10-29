@@ -51,7 +51,8 @@ const IOS_PHASE_SCRIPT = [
   'source "$PROJECT_DIR/$XCFW/build/utils.sh"',
   'install_python "$XCFW"',
   'mkdir -p "$CODESIGNING_FOLDER_PATH/python/tide"',
-  'cp "$PROJECT_DIR/../modules/python-runtime/python/"*.py "$CODESIGNING_FOLDER_PATH/python/tide/"',
+  // Packages too: Format & Lint's pyflakes is a folder.
+  'rsync -a --exclude __pycache__ --exclude ".*" "$PROJECT_DIR/../modules/python-runtime/python/" "$CODESIGNING_FOLDER_PATH/python/tide/"',
   // Size: Tide never runs Python with -O, so the optimized .pyc copies are never read.
   // There is no Tk on iOS, Tide has its own pip, and CPython's test modules are for its own suite.
   'LIB="$CODESIGNING_FOLDER_PATH/python/lib"',

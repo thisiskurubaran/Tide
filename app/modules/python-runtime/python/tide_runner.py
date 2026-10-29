@@ -3,6 +3,7 @@
 # on it; feed(), eof() and kill() may be called from any other thread.
 import ctypes
 import io
+import json
 import os
 import queue
 import runpy
@@ -15,11 +16,18 @@ _runs = {}
 _lock = threading.Lock()
 
 
+# The app runs a script under the debugger by passing these first (see
+# pythonRunner.ts), and sends debugger commands as stdin with a prefix.
+_DEBUG_ARG = "--tide-debug"
+_DEBUG_PREFIX = "\x00tide-debug:"
+
+
 class _Run:
     def __init__(self):
         self.queue = queue.Queue()
         self.ident = threading.get_ident()
         self.killed = False
+        self.debugger = None
 
 
 class _Output(io.TextIOBase):
@@ -141,6 +149,12 @@ def run(emit, run_id, entry, cwd, args, extra_paths=(), purge_root=None):
     """
     entry = os.path.abspath(entry)
     state = _Run()
+    if args and args[0] == _DEBUG_ARG:
+        from tide_debugger import Debugger
+
+        config = json.loads(args[1])
+        args = list(args[2:])
+        state.debugger = Debugger(emit, run_id, purge_root or os.path.dirname(entry), config.get("breakpoints"))
     with _lock:
         _runs[run_id] = state
 
@@ -154,7 +168,10 @@ def run(emit, run_id, entry, cwd, args, extra_paths=(), purge_root=None):
     code = 0
     try:
         os.chdir(cwd)
-        runpy.run_path(entry, run_name="__main__")
+        if state.debugger:
+            state.debugger.run_script(lambda: runpy.run_path(entry, run_name="__main__"))
+        else:
+            runpy.run_path(entry, run_name="__main__")
     except SystemExit as e:
         code = _exit_code(e.code, err)
     except KeyboardInterrupt:
@@ -182,8 +199,13 @@ def run(emit, run_id, entry, cwd, args, extra_paths=(), purge_root=None):
 
 def feed(run_id, data):
     state = _runs.get(run_id)
-    if state:
-        state.queue.put(data)
+    if not state:
+        return
+    if data.startswith(_DEBUG_PREFIX):
+        if state.debugger:
+            state.debugger.command(data[len(_DEBUG_PREFIX):])
+        return
+    state.queue.put(data)
 
 
 def eof(run_id):
@@ -198,8 +220,10 @@ def kill(run_id):
     if not state:
         return
     state.killed = True
-    # Wakes a blocked input(); the async exception covers running code.
+    # Wakes a blocked input() or a paused debugger; the async exception covers running code.
     state.queue.put(_KILL)
+    if state.debugger:
+        state.debugger.kill()
     ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(state.ident), ctypes.py_object(KeyboardInterrupt))
 
 
@@ -207,8 +231,18 @@ def version():
     return sys.version
 
 
+# Requests for tide_tools (Format & Lint) arrive through snippet() so the
+# native modules need no new function. They return a value instead of
+# capturing stdout, which may belong to a script running on another thread.
+_TOOL_PREFIX = "#tide-tool\n"
+
+
 def snippet(code):
     """Runs a code string and returns its output. Used by the debug screen."""
+    if code.startswith(_TOOL_PREFIX):
+        import tide_tools
+
+        return tide_tools.handle(code[len(_TOOL_PREFIX):])
     buf = io.StringIO()
     old_out, old_err = sys.stdout, sys.stderr
     sys.stdout = sys.stderr = buf

@@ -13,7 +13,7 @@ export interface NodeHost {
 type Pong = Extract<SupervisorEvent, { type: 'pong' }>;
 type Received = { type?: string; id?: string };
 
-const RUNNER_TYPES = new Set(['stdout', 'stderr', 'exit', 'pty']);
+const RUNNER_TYPES = new Set(['stdout', 'stderr', 'exit', 'pty', 'debug']);
 
 // Runner backed by the supervisor inside nodejs-mobile. Node can only start
 // once per app process, so it starts on first use and stays up.

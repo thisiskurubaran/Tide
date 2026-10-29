@@ -15,6 +15,9 @@ export type RunRequest = {
   args: string[];
   env?: Record<string, string>;
   limits?: RunLimits;
+  // Run under the debugger (local Node and Python only). Breakpoint files
+  // are relative to the same root as `entry`; lines are 1-based.
+  debug?: { breakpoints: Record<string, number[]> };
 };
 
 export type StdinMsg = { type: 'stdin'; id: string; data: string };
@@ -30,9 +33,45 @@ export type ResizeMsg = { type: 'resize'; cols: number; rows: number };
 
 export type PtyData = { type: 'pty'; data: string };
 
-export type ClientMessage = RunRequest | StdinMsg | KillMsg | ResizeMsg | PtyData;
+// Debugger (Debugger extension). The same commands and events for Node and Python.
+export type DebugCommand =
+  | { cmd: 'setBreakpoints'; file: string; lines: number[] }
+  | { cmd: 'continue' }
+  | { cmd: 'pause' }
+  | { cmd: 'stepOver' }
+  | { cmd: 'stepInto' }
+  | { cmd: 'stepOut' }
+  // `ref` comes from a scope or an expandable variable; answered by a 'variables' event with the same `req`.
+  | { cmd: 'variables'; ref: number; req: number }
+  // In the paused frame `frame` (0 is the top), answered by an 'evaluated' event.
+  | { cmd: 'evaluate'; expression: string; frame: number; req: number };
 
-export type RunnerMessage = OutputMsg | ExitMsg | PtyData;
+export type DebugScope = { name: string; ref: number };
+
+export type DebugFrame = {
+  name: string;
+  // Relative to the run's root, or null for runtime internals.
+  file: string | null;
+  line: number;
+  column: number;
+  scopes: DebugScope[];
+};
+
+// `ref` is 0 when the value has nothing to expand.
+export type DebugVariable = { name: string; value: string; type: string; ref: number };
+
+export type DebugEvent =
+  | { event: 'stopped'; reason: string; frames: DebugFrame[] }
+  | { event: 'resumed' }
+  | { event: 'variables'; req: number; variables: DebugVariable[] }
+  | { event: 'evaluated'; req: number; result?: DebugVariable; error?: string };
+
+export type DebugCommandMsg = { type: 'debug'; id: string; command: DebugCommand };
+export type DebugEventMsg = { type: 'debug'; id: string; event: DebugEvent };
+
+export type ClientMessage = RunRequest | StdinMsg | KillMsg | ResizeMsg | PtyData | DebugCommandMsg;
+
+export type RunnerMessage = OutputMsg | ExitMsg | PtyData | DebugEventMsg;
 
 // Local Node supervisor only (the nodejs-mobile channel), next to the runner messages above.
 // `root` is the absolute path that RunRequest `entry` and `cwd` are relative to.

@@ -17,6 +17,7 @@ delete globalThis.DecompressionStream;
 const { git, http } = require('./isogit');
 const { porcelainCode } = require('./status');
 const { lineStat } = require('./diffstat');
+const { createUi } = require('./ui');
 
 const USAGE = `usage: git <command>
 
@@ -211,6 +212,14 @@ const commands = {
       if (c.row[2] === 0) await git.remove({ fs, dir, filepath: c.path });
       else await git.add({ fs, dir, filepath: c.path });
     }
+    // Staging a file marks its merge conflict resolved (see ui.js).
+    const conflicts = path.join(dir, '.git', 'TIDE_CONFLICTS');
+    if (fs.existsSync(conflicts)) {
+      const staged = new Set(list.map((c) => c.path));
+      const left = JSON.parse(fs.readFileSync(conflicts, 'utf8')).filter((p) => !staged.has(p));
+      if (left.length) fs.writeFileSync(conflicts, JSON.stringify(left));
+      else fs.rmSync(conflicts);
+    }
     return 0;
   },
 
@@ -246,7 +255,16 @@ const commands = {
       console.log('nothing to commit (use git add)');
       return 1;
     }
-    const oid = await git.commit({ fs, dir, message, author: author() });
+    // A merge started from Git Pro makes this a merge commit, as in real git.
+    let parent;
+    try {
+      const merging = fs.readFileSync(path.join(dir, '.git', 'MERGE_HEAD'), 'utf8').trim();
+      parent = [await git.resolveRef({ fs, dir, ref: 'HEAD' }), merging];
+    } catch {
+      parent = undefined;
+    }
+    const oid = await git.commit({ fs, dir, message, author: author(), parent });
+    if (parent) for (const f of ['MERGE_HEAD', 'MERGE_MSG', 'TIDE_CONFLICTS']) fs.rmSync(path.join(dir, '.git', f), { force: true });
     const branch = (await git.currentBranch({ fs, dir })) ?? 'HEAD';
     console.log(`[${branch} ${oid.slice(0, 7)}] ${message.split('\n')[0]}`);
     console.log(` ${staged.length} file${staged.length === 1 ? '' : 's'} changed`);
@@ -424,6 +442,8 @@ async function main(args) {
     console.log(`git version isomorphic-git ${git.version()} (Tide)`);
     return 0;
   }
+  // JSON commands for Git Pro's screens; see ui.js.
+  if (command === '__tide') return createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure, GitError })(rest);
   const run = Object.prototype.hasOwnProperty.call(commands, command) ? commands[command] : null;
   if (!run) {
     console.error(`git ${command}: not available locally.\n\n${USAGE}`);

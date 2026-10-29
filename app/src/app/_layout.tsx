@@ -3,6 +3,8 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useState } from 'react';
 import { Appearance } from 'react-native';
 
+import { breakpointsStore } from '../extensions/debugger/breakpoints';
+import { extensionsStore } from '../extensions/state';
 import { gitSettingsStore } from '../features/git/settings';
 import { startCrashReports } from '../features/privacy/crashReports';
 import { remoteSettingsStore } from '../features/remote/settings';
@@ -38,6 +40,8 @@ export default function RootLayout() {
       hydrated(tabsStore),
       hydrated(runnerStore),
       hydrated(settingsStore),
+      hydrated(extensionsStore),
+      hydrated(breakpointsStore),
       projectsStore.getState().refresh(),
       remoteSettingsStore.getState().load().catch(() => undefined),
       gitSettingsStore.getState().load().catch(() => undefined),
@@ -45,6 +49,8 @@ export default function RootLayout() {
       startCrashReports(settingsStore);
       setReady(true);
       SplashScreen.hideAsync();
+      // Prices and purchases made on another device; the cached list works until it answers.
+      extensionsStore.getState().refresh().catch(() => undefined);
     });
   }, []);
 

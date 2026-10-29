@@ -1,4 +1,4 @@
-import { acceptCompletion, autocompletion, closeBrackets, closeBracketsKeymap, completeAnyWord, completionKeymap, completionStatus } from '@codemirror/autocomplete';
+import { acceptCompletion, autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap, completionStatus, startCompletion } from '@codemirror/autocomplete';
 import { cursorCharLeft, cursorCharRight, cursorLineDown, cursorLineUp, defaultKeymap, history, historyKeymap, indentMore, redo, undo } from '@codemirror/commands';
 import { css } from '@codemirror/lang-css';
 import { html } from '@codemirror/lang-html';
@@ -19,11 +19,22 @@ import {
 } from '@codemirror/view';
 
 import fontRegular from '../../assets/fonts/JetBrainsMono-Regular.ttf';
-import { EditorKey, FromEditor, Language, parseToEditor, ToEditor } from '../../src/features/editor/bridge';
+import { EditorFeatures, EditorKey, FromEditor, Language, NO_FEATURES, parseToEditor, ToEditor } from '../../src/features/editor/bridge';
 import { shortcutFor } from '../../src/features/project/shortcuts';
+import {
+  breakpointLines,
+  completionSource,
+  createRequests,
+  execLineEffect,
+  featureExtensions,
+  lintDiagnostics,
+  minimalChange,
+  setBreakpoints,
+} from './features';
 import { buildTheme, FONT_FAMILY } from './theme';
 
 const CHANGE_DEBOUNCE_MS = 150;
+const CURSOR_DEBOUNCE_MS = 200;
 
 const style = document.createElement('style');
 style.textContent = `
@@ -67,10 +78,22 @@ function languageExtension(lang: Language): Extension {
 
 const languageConf = new Compartment();
 const themeConf = new Compartment();
+const featureConf = new Compartment();
 let themeExtension: Extension = [];
+let features: EditorFeatures = NO_FEATURES;
 
 let currentPath: string | null = null;
 let pendingChange: ReturnType<typeof setTimeout> | null = null;
+let pendingCursor: ReturnType<typeof setTimeout> | null = null;
+
+const requests = createRequests(post);
+const currentFile = () => currentPath;
+const featureExtension = () => featureExtensions(features, currentFile, post, requests.ask);
+
+// Per-file state the app pushes that has to outlive tab switches.
+const diagnostics = new Map<string, Extract<ToEditor, { type: 'diagnostics' }>['items']>();
+const breakpointsByPath = new Map<string, number[]>();
+let execLine: { path: string; line: number } | null = null;
 
 function flushChange() {
   if (pendingChange === null || currentPath === null) return;
@@ -108,6 +131,8 @@ const appShortcuts = Prec.highest(
 function baseExtensions(lang: Language): Extension[] {
   return [
     appShortcuts,
+    // Before lineNumbers so the breakpoint gutter sits on the outside.
+    featureConf.of(featureExtension()),
     lineNumbers(),
     highlightActiveLine(),
     highlightActiveLineGutter(),
@@ -116,10 +141,9 @@ function baseExtensions(lang: Language): Extension[] {
     indentOnInput(),
     bracketMatching(),
     closeBrackets(),
-    autocompletion(),
+    autocompletion({ override: [completionSource(() => features.language, currentFile, requests.ask)] }),
     EditorState.tabSize.of(2),
     indentUnit.of('  '),
-    EditorState.languageData.of(() => [{ autocomplete: completeAnyWord }]),
     keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...completionKeymap]),
     saveKeymap,
     languageConf.of(languageExtension(lang)),
@@ -129,11 +153,27 @@ function baseExtensions(lang: Language): Extension[] {
       return null;
     }),
     EditorView.updateListener.of((u) => {
-      if (!u.docChanged || currentPath === null) return;
+      if (currentPath === null) return;
+      if (u.selectionSet || u.docChanged) {
+        if (pendingCursor !== null) clearTimeout(pendingCursor);
+        pendingCursor = setTimeout(() => {
+          pendingCursor = null;
+          if (currentPath) post({ type: 'cursor', path: currentPath, offset: view.state.selection.main.head });
+        }, CURSOR_DEBOUNCE_MS);
+      }
+      if (!u.docChanged) return;
       if (pendingChange !== null) clearTimeout(pendingChange);
       pendingChange = setTimeout(flushChange, CHANGE_DEBOUNCE_MS);
     }),
   ];
+}
+
+// Reapplies what the app pushed for this file: diagnostics, breakpoints and the paused line.
+function restoreFileState(path: string) {
+  view.dispatch(lintDiagnostics(view.state, diagnostics.get(path) ?? []));
+  view.dispatch({
+    effects: [setBreakpoints(breakpointsByPath.get(path) ?? []), execLineEffect(execLine?.path === path ? execLine.line : null)],
+  });
 }
 
 // One state per file keeps undo history and cursor position across tab switches.
@@ -151,18 +191,32 @@ function open(path: string, content: string, lang: Language) {
   const cached = states.get(path);
   if (cached && cached.doc.toString() === content) {
     view.setState(cached);
-    // The theme may have changed while this file was in the background.
-    view.dispatch({ effects: themeConf.reconfigure(themeExtension) });
-    return;
+    // The theme and features may have changed while this file was in the background.
+    view.dispatch({ effects: [themeConf.reconfigure(themeExtension), featureConf.reconfigure(featureExtension())] });
+  } else {
+    view.setState(EditorState.create({ doc: content, extensions: baseExtensions(lang) }));
+    view.scrollDOM.scrollTop = 0;
   }
-  view.setState(EditorState.create({ doc: content, extensions: baseExtensions(lang) }));
-  view.scrollDOM.scrollTop = 0;
+  restoreFileState(path);
 }
 
-function goto(path: string, line: number) {
+function setContent(path: string, content: string, base: string | undefined) {
+  if (path !== currentPath) {
+    // open() compares the cached text with what it is given, so a stale state is dropped there.
+    return;
+  }
+  const doc = view.state.doc.toString();
+  // Typing that the app hasn't seen yet wins over a change computed from older text.
+  if (base !== undefined && doc !== base) return;
+  const change = minimalChange(doc, content);
+  if (change) view.dispatch({ changes: change, userEvent: 'input.replace' });
+}
+
+function goto(path: string, line: number, column = 1) {
   if (path !== currentPath) return;
   const n = Math.min(Math.max(1, Math.floor(line)), view.state.doc.lines);
-  const pos = view.state.doc.line(n).from;
+  const docLine = view.state.doc.line(n);
+  const pos = Math.min(docLine.from + Math.max(0, Math.floor(column) - 1), docLine.to);
   view.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: 'center' }) });
 }
 
@@ -213,7 +267,7 @@ function handle(msg: ToEditor) {
     case 'find':
       return openSearchPanel(view);
     case 'goto':
-      return goto(msg.path, msg.line);
+      return goto(msg.path, msg.line, msg.column);
     case 'insert':
       return typeText(msg.text);
     case 'key':
@@ -222,6 +276,32 @@ function handle(msg: ToEditor) {
       return view.focus();
     case 'blur':
       return view.contentDOM.blur();
+    case 'features':
+      features = msg.features;
+      view.dispatch({ effects: featureConf.reconfigure(featureExtension()) });
+      if (currentPath) restoreFileState(currentPath);
+      return;
+    case 'setContent':
+      return setContent(msg.path, msg.content, msg.base);
+    case 'diagnostics':
+      diagnostics.set(msg.path, msg.items);
+      if (msg.path === currentPath) view.dispatch(lintDiagnostics(view.state, msg.items));
+      return;
+    case 'response':
+      return requests.settle(msg.id, msg.result);
+    case 'breakpoints':
+      breakpointsByPath.set(msg.path, msg.lines);
+      if (msg.path === currentPath && breakpointLines(view.state).join() !== [...msg.lines].sort((a, b) => a - b).join()) {
+        view.dispatch({ effects: setBreakpoints(msg.lines) });
+      }
+      return;
+    case 'execLine':
+      execLine = msg.path ? { path: msg.path, line: msg.line } : null;
+      if (currentPath) view.dispatch({ effects: execLineEffect(execLine?.path === currentPath ? execLine.line : null) });
+      if (execLine && execLine.path === currentPath) goto(execLine.path, execLine.line);
+      return;
+    case 'complete':
+      return startCompletion(view);
   }
 }
 

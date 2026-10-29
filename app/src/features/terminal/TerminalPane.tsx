@@ -5,7 +5,7 @@ import WebView, { WebViewMessageEvent } from 'react-native-webview';
 import { localRunner } from '../../runtime';
 import { buffersStore, projectsStore, useSettings, workspace } from '../../state';
 import { PROJECTS_DIR } from '../files/workspace';
-import { terminalThemes } from '../../theme/terminal';
+import { useTerminalTheme } from '../../extensions/themes';
 
 import type { TerminalBackend } from './backend';
 import { parseFromTerminal, ToTerminal } from './bridge';
@@ -41,6 +41,7 @@ export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(functi
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shell = useRef<TerminalBackend | null>(null);
   const scheme = useColorScheme();
+  const theme = useTerminalTheme(scheme);
   const fontSize = useSettings((s) => s.terminalFontSize);
 
   const send = useCallback((msg: ToTerminal) => {
@@ -48,7 +49,7 @@ export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(functi
     webview.current?.injectJavaScript(`window.tide && window.tide.receive(${JSON.stringify(JSON.stringify(msg))});true;`);
   }, []);
 
-  const sendTheme = useCallback(() => send({ type: 'setTheme', theme: terminalThemes[scheme], fontSize }), [send, scheme, fontSize]);
+  const sendTheme = useCallback(() => send({ type: 'setTheme', theme, fontSize }), [send, theme, fontSize]);
   useEffect(sendTheme, [sendTheme]);
 
   const flush = useCallback(() => {
