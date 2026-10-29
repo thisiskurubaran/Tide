@@ -7,7 +7,7 @@ import { ansi } from './ansi';
 import { LineEditor } from './lineEditor';
 import { displayPath, PathError, resolvePath } from './paths';
 import type { ShellFs } from './shellFs';
-import { ParseError, tokenize } from './tokenize';
+import { currentWord, escapeWord, ParseError, tokenize } from './tokenize';
 import { DEFAULT_CONFIG, parseTasks } from '../../project/tasks';
 
 export interface ShellOptions {
@@ -255,7 +255,13 @@ export class Shell {
       },
       pwd: async (_args, io) => io.out(`${displayPath(this.cwd)}\n`),
       cd: async (args) => {
-        if (args.length > 1) throw new CommandError('too many arguments');
+        if (args.length > 1) {
+          // `cd My Folder` without quotes: take it as one name when that folder exists.
+          const joined = args.join(' ');
+          if ((await fs.stat(this.resolve(joined))) !== 'dir') throw new CommandError(`too many arguments (put names with spaces in quotes: cd "${joined}")`);
+          this.cwd = this.resolve(joined);
+          return;
+        }
         this.cwd = args.length === 0 ? '' : await this.requireKind(args[0], 'dir');
       },
       ls: async (args, io) => {
@@ -426,8 +432,7 @@ export class Shell {
 
   private async complete(line: string, cursor: number) {
     const before = line.slice(0, cursor);
-    const wordStart = before.lastIndexOf(' ') + 1;
-    const word = before.slice(wordStart);
+    const { start: wordStart, text: word, quote } = currentWord(before);
     const isCommand = before.slice(0, wordStart).trim() === '';
 
     let options: string[];
@@ -456,7 +461,13 @@ export class Shell {
     for (const o of options) {
       while (!o.startsWith(common)) common = common.slice(0, -1);
     }
-    const completed = before.slice(0, wordStart) + prefix + common;
+    // Names with spaces are escaped, or kept as typed inside an open quote,
+    // so the completed line runs as one argument.
+    let insert: string;
+    if (isCommand) insert = common;
+    else if (quote) insert = quote + prefix + (common.endsWith(' ') ? `${common.trimEnd()}${quote} ` : common);
+    else insert = escapeWord(prefix) + (common.endsWith(' ') ? `${escapeWord(common.trimEnd())} ` : escapeWord(common));
+    const completed = before.slice(0, wordStart) + insert;
     return {
       line: completed + line.slice(cursor),
       cursor: completed.length,

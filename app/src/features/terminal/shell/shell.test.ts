@@ -181,6 +181,43 @@ describe('shell', () => {
     expect(out()).toContain('cat src/server.js ');
   });
 
+  it('changes into folders with spaces, quoted, escaped or not', async () => {
+    const { run } = await setup();
+    await run('mkdir "Operating System Portfolio"');
+    await run('cd Operating System Portfolio/');
+    expect(await run('pwd')).toContain('/Operating System Portfolio');
+    await run('cd ..');
+    await run('cd "Operating System Portfolio"');
+    expect(await run('pwd')).toContain('/Operating System Portfolio');
+    await run('cd ..');
+    await run('cd Operating\\ System\\ Portfolio');
+    expect(await run('pwd')).toContain('/Operating System Portfolio');
+    await run('cd ..');
+    expect(await run('cd no such folder')).toContain('put names with spaces in quotes: cd "no such folder"');
+  });
+
+  it('escapes spaces when completing names with Tab', async () => {
+    const { shell, run, out, clear } = await setup();
+    await run('mkdir "My App"');
+    await run('touch "My App/main file.js"');
+    clear();
+    shell.input('cd My\t');
+    await tick();
+    expect(out()).toContain('cd My\\ App/');
+    shell.input('\x15cat My\\ App/ma\t');
+    await tick();
+    expect(out()).toContain('cat My\\ App/main\\ file.js ');
+    shell.input('\x15cat "My App/ma\t');
+    await tick();
+    expect(out()).toContain('cat "My App/main file.js" ');
+    shell.input('\x15cd My\t');
+    await tick();
+    shell.input('\r');
+    await tick();
+    clear();
+    expect(await run('pwd')).toContain('/My App');
+  });
+
   it('runs programs through the runner and forwards stdin and Ctrl-C', async () => {
     const { shell, run, runner, out, clear } = await setup();
     await run('node index.js world');

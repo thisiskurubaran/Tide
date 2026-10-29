@@ -63,3 +63,32 @@ export function tokenize(line: string): Parsed {
     redirect: { append: words[op].text === '>>', path: target.text },
   };
 }
+
+// The reverse of tokenize for one word: backslashes before anything tokenize
+// would otherwise split on or treat specially, so "My App" stays one argument.
+export const escapeWord = (word: string) => word.replace(/[\s'"\\>]/g, '\\$&');
+
+// The word the cursor is in, for Tab completion: where it starts, its text
+// with escapes and quotes removed, and the quote it is still inside, if any.
+export function currentWord(before: string) {
+  let start = 0;
+  let quote: '"' | "'" | null = null;
+  let text = '';
+  for (let i = 0; i < before.length; i++) {
+    const c = before[i];
+    if (quote) {
+      if (c === quote) quote = null;
+      else text += c;
+    } else if (c === '\\' && i + 1 < before.length) {
+      text += before[++i];
+    } else if (c === '"' || c === "'") {
+      quote = c;
+    } else if (c === ' ' || c === '\t') {
+      start = i + 1;
+      text = '';
+    } else {
+      text += c;
+    }
+  }
+  return { start, text, quote };
+}
