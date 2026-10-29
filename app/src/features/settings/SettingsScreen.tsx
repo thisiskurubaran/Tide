@@ -23,6 +23,7 @@ export function SettingsScreen() {
   const editorFontSize = useSettings((s) => s.editorFontSize);
   const terminalFontSize = useSettings((s) => s.terminalFontSize);
   const crashReports = useSettings((s) => s.crashReports);
+  const haptics = useSettings((s) => s.haptics);
   const editorOptions: Record<EditorOptionKey, boolean> = {
     wordWrap: useSettings((s) => s.wordWrap),
     folding: useSettings((s) => s.folding),
@@ -85,6 +86,14 @@ export function SettingsScreen() {
 
         <Section title="Keyboard">
           <LinkRow label="Key bar" detail="Keys above the keyboard" onPress={() => router.push('/settings/keys')} testID="settings-keybar" />
+          <Row label="Haptics">
+            <Switch
+              testID="settings-haptics"
+              value={haptics}
+              onValueChange={(on) => settings.setHaptics(on)}
+              trackColor={{ true: colors.brand, false: colors.secondary }}
+            />
+          </Row>
         </Section>
 
         <Section title="Extensions">

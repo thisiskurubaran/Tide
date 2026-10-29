@@ -18,11 +18,13 @@ export interface SettingsState {
   folding: boolean;
   indentGuides: boolean;
   minimap: boolean;
+  haptics: boolean;
   setTheme(theme: ThemeSetting): void;
   setEditorFontSize(size: number): void;
   setTerminalFontSize(size: number): void;
   setCrashReports(on: boolean): void;
   setEditorOption(key: EditorOptionKey, on: boolean): void;
+  setHaptics(on: boolean): void;
 }
 
 export type EditorOptionKey = 'wordWrap' | 'folding' | 'indentGuides' | 'minimap';
@@ -39,17 +41,19 @@ export function createSettingsStore(storage: StateStorage) {
         folding: true,
         indentGuides: true,
         minimap: false,
+        haptics: true,
         setTheme: (theme) => set({ theme }),
         setEditorFontSize: (size) => set({ editorFontSize: clampFontSize(size) }),
         setTerminalFontSize: (size) => set({ terminalFontSize: clampFontSize(size) }),
         setCrashReports: (crashReports) => set({ crashReports }),
         setEditorOption: (key, on) => set({ [key]: on }),
+        setHaptics: (haptics) => set({ haptics }),
       }),
       {
         name: 'settings',
         version: 1,
         storage: createJSONStorage(() => storage),
-        partialize: ({ theme, editorFontSize, terminalFontSize, crashReports, wordWrap, folding, indentGuides, minimap }) => ({
+        partialize: ({ theme, editorFontSize, terminalFontSize, crashReports, wordWrap, folding, indentGuides, minimap, haptics }) => ({
           theme,
           editorFontSize,
           terminalFontSize,
@@ -58,6 +62,7 @@ export function createSettingsStore(storage: StateStorage) {
           folding,
           indentGuides,
           minimap,
+          haptics,
         }),
       },
     ),

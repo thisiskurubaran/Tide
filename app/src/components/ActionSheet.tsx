@@ -1,8 +1,10 @@
 import Feather from '@expo/vector-icons/Feather';
+import { useEffect } from 'react';
 import { Pressable } from 'react-native';
 
 import { radius, spacing } from '../theme/tokens';
 import { IconName } from './Button';
+import { haptic } from './haptics';
 import { Sheet } from './Sheet';
 import { Text } from './Text';
 import { makeStyles, useColors } from '../theme/theme';
@@ -24,8 +26,13 @@ interface ActionSheetProps {
 export function ActionSheet({ title, actions, onClose }: ActionSheetProps) {
   const styles = useStyles();
   const colors = useColors();
+  // Most menus open from a long press; a bump confirms it took.
+  const open = title !== null;
+  useEffect(() => {
+    if (open) haptic('press');
+  }, [open]);
   return (
-    <Sheet visible={title !== null} onClose={onClose}>
+    <Sheet visible={open} onClose={onClose}>
       <Text variant="muted" numberOfLines={1}>
         {title}
       </Text>

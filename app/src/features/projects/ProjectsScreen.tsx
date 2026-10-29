@@ -21,6 +21,7 @@ import { launchedFromQuickAction } from '../launch/quickActions';
 import { lastLines, runGit } from '../git/runGit';
 import { NewProjectSheet } from './NewProjectSheet';
 import { makeStyles, useColors } from '../../theme/theme';
+import { haptic } from '../../components/haptics';
 
 const mark = require('../../../assets/icons/splash.png');
 
@@ -56,6 +57,7 @@ export function ProjectsScreen() {
   }, []);
 
   function confirmDelete(name: string) {
+    haptic('warning');
     Alert.alert(`Delete ${name}?`, 'This removes the project and all its files from this device.', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: () => projectsStore.getState().deleteProject(name) },
@@ -110,6 +112,7 @@ export function ProjectsScreen() {
         onClose={() => setCreating(false)}
         onCreate={async (name, templateId) => {
           const project = await projectsStore.getState().createProject(name, templateId);
+          haptic('success');
           setCreating(false);
           router.push(projectHref(project));
         }}

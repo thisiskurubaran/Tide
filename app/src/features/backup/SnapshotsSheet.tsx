@@ -10,6 +10,7 @@ import { projectTabs } from '../../state/tabs';
 import { makeStyles, useColors } from '../../theme/theme';
 import { spacing } from '../../theme/tokens';
 import type { Snapshot } from './snapshots';
+import { haptic } from '../../components/haptics';
 
 const REASONS: Record<Snapshot['reason'], string> = {
   auto: 'Automatic',
@@ -62,6 +63,7 @@ export function SnapshotsSheet({ project, onClose }: { project: string | null; o
             // Unsaved edits are saved first, so they are in the "before restore" snapshot.
             await buffersStore.getState().flushProject(project);
             await snapshots.restore(project, s.id);
+            haptic('success');
             await projectsStore.getState().loadTree(project);
             for (const path of projectTabs(tabsStore.getState(), project).open) await buffersStore.getState().reload(project, path);
           }),

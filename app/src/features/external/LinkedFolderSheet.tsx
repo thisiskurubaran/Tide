@@ -9,6 +9,7 @@ import { makeStyles, useColors } from '../../theme/theme';
 import { spacing } from '../../theme/tokens';
 import { linkedStore, linkFolder, pullFolder, pushFolder, regrantFolder, useLinked } from './index';
 import type { SyncResult } from './sync';
+import { haptic } from '../../components/haptics';
 
 const summary = (r: SyncResult, verb: string) => {
   const parts = [`${r.written} ${r.written === 1 ? 'file' : 'files'} ${verb}`];
@@ -36,6 +37,7 @@ export function LinkedFolderSheet({ project, onClose }: { project: string | null
     try {
       setStatus((await step()) ?? null);
     } catch (e) {
+      haptic('error');
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
@@ -46,6 +48,7 @@ export function LinkedFolderSheet({ project, onClose }: { project: string | null
     run(async () => {
       if (!project) return;
       const r = direction === 'pull' ? await pullFolder(project) : await pushFolder(project);
+      haptic('success');
       const note = r.overwritten.length ? `. Changed on both sides, ${direction === 'pull' ? 'the folder' : 'this copy'} won: ${r.overwritten.join(', ')}` : '';
       return summary(r, direction === 'pull' ? 'updated here' : 'written to the folder') + note;
     });

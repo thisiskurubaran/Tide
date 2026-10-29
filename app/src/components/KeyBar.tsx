@@ -4,6 +4,7 @@ import { Pressable, ScrollView, View } from 'react-native';
 
 import { borderWidth, fonts, fontSizes, radius, spacing } from '../theme/tokens';
 import { IconName } from './Button';
+import { haptic } from './haptics';
 import { Text } from './Text';
 import { makeStyles, useColors } from '../theme/theme';
 
@@ -39,7 +40,10 @@ export function KeyBar({ groups, leading, onHide, testID }: KeyBarProps) {
                 key={`${i}-${k.a11y}`}
                 accessibilityLabel={k.a11y}
                 accessibilityState={k.active === undefined ? undefined : { selected: k.active }}
-                onPress={k.onPress}
+                onPress={() => {
+                  haptic('tap');
+                  k.onPress();
+                }}
                 style={({ pressed }) => [styles.key, (pressed || k.active) && styles.pressed, k.active && styles.active]}
               >
                 {'icon' in k ? (

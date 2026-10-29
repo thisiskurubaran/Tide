@@ -36,6 +36,7 @@ import { SplitDivider } from './SplitDivider';
 import { TabBar } from './TabBar';
 import { TerminalPanel, TerminalPanelHandle } from './TerminalPanel';
 import { makeStyles } from '../../theme/theme';
+import { haptic } from '../../components/haptics';
 
 // Extensions can contribute the same command or panel (Show problems); the first one wins.
 const uniqueById = <T extends { id: string }>(items: T[]) => items.filter((x, i) => items.findIndex((o) => o.id === x.id) === i);
@@ -155,6 +156,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     const config = await workspace.readFile(project, 'tide.json').catch(() => null);
     const line = runLine(runnerStore.getState().mode, config);
     if (!line) return;
+    haptic('press');
     await buffersStore.getState().flushProject(project);
     setTerminalHidden(false);
     terminal.current?.input(line);
@@ -222,7 +224,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     { id: 'search', title: 'Search in project', icon: 'search', hint: '⇧⌘F', run: () => setSearching(true) },
     { id: 'find', title: 'Find in file', icon: 'search', hint: '⌘F', run: () => editor.current?.send({ type: 'find' }) },
     { id: 'goto-line', title: 'Go to line', icon: 'corner-down-right', hint: '⌘L', run: () => current && setGoingToLine(true) },
-    { id: 'save', title: 'Save file', icon: 'save', hint: '⌘S', run: () => current && save(current) },
+    { id: 'save', title: 'Save file', icon: 'save', hint: '⌘S', run: () => current && save(current).then(() => haptic('success')) },
     { id: 'close-tab', title: 'Close file', icon: 'x', hint: '⌘W', run: () => current && closeFile(current) },
     ...(wide ? [{ id: 'split', title: splitOn ? 'Close the second editor' : 'Split editor', icon: 'columns' as const, hint: '⌘\\', run: toggleSplit }] : []),
     { id: 'undo', title: 'Undo', icon: 'rotate-ccw', run: () => editor.current?.send({ type: 'undo' }) },

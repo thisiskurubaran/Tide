@@ -14,6 +14,7 @@ import { basename } from './fs';
 import { TreeRow, visibleRows } from './flatten';
 import type { TreeNode } from './workspace';
 import { makeStyles, useColors } from '../../theme/theme';
+import { haptic } from '../../components/haptics';
 
 type Prompt =
   | { kind: 'new-file' | 'new-folder'; parent: string }
@@ -47,6 +48,7 @@ export function FileTree({ project, nodes, activePath, onOpenFile }: FileTreePro
   const expand = (path: string) => setExpanded((prev) => new Set(prev).add(path));
 
   function confirmDelete(node: TreeNode) {
+    haptic('warning');
     const what = node.kind === 'dir' ? 'folder and everything in it' : 'file';
     Alert.alert(`Delete ${node.name}?`, `This deletes the ${what}.`, [
       { text: 'Cancel', style: 'cancel' },

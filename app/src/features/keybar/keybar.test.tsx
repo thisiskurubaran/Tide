@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react-native';
 
 jest.mock('expo-router', () => ({ router: { back: jest.fn(), push: jest.fn() } }));
 jest.mock('@expo/vector-icons/Feather', () => 'Feather');
+jest.mock('../../components/haptics', () => ({ haptic: () => undefined }));
 jest.mock('react-native-safe-area-context', () => require('react-native-safe-area-context/jest/mock').default);
 jest.mock('expo-clipboard', () => ({ getStringAsync: jest.fn(async () => 'pasted'), setStringAsync: jest.fn(async () => true) }));
 jest.mock('../../state', () => {

@@ -4,6 +4,7 @@ import { PanResponder, View } from 'react-native';
 
 import { makeStyles, useColors } from '../theme/theme';
 import { radius, spacing } from '../theme/tokens';
+import { haptic } from './haptics';
 
 export type Direction = 'left' | 'right' | 'up' | 'down';
 
@@ -31,6 +32,8 @@ export function Trackpad({ onStep, testID }: { onStep(direction: Direction): voi
         onPanResponderMove: (_e, g) => {
           const sx = Math.trunc((g.dx - used.current.x) / STEP_X);
           const sy = Math.trunc((g.dy - used.current.y) / STEP_Y);
+          // One tick per move, not per step: fast drags would buzz continuously.
+          if (sx || sy) haptic('select');
           for (let i = 0; i < Math.abs(sx); i++) step.current(sx > 0 ? 'right' : 'left');
           for (let i = 0; i < Math.abs(sy); i++) step.current(sy > 0 ? 'down' : 'up');
           used.current = { x: used.current.x + sx * STEP_X, y: used.current.y + sy * STEP_Y };

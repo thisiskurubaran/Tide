@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 
 jest.mock('@expo/vector-icons/Feather', () => 'Feather');
+jest.mock('../../components/haptics', () => ({ haptic: () => undefined }));
 jest.mock('react-native-safe-area-context', () => require('react-native-safe-area-context/jest/mock').default);
 jest.mock('../../state', () => {
   const { createMemoryFs } = jest.requireActual('../files/memoryFs');

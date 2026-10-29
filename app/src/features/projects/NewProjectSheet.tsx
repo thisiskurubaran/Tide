@@ -8,6 +8,7 @@ import { borderWidth, fonts, fontSizes, radius, spacing } from '../../theme/toke
 import { templates } from '../files/templates';
 import { repoName } from '../git/runGit';
 import { makeStyles, useColors } from '../../theme/theme';
+import { haptic } from '../../components/haptics';
 
 interface NewProjectSheetProps {
   visible: boolean;
@@ -50,6 +51,7 @@ export function NewProjectSheet({ visible, onCreate, onClone, onImport, onOpenFo
       else if (templateId === FOLDER) await onOpenFolder(name.trim());
       else await onCreate(name, templateId);
     } catch (e) {
+      haptic('error');
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);

@@ -9,6 +9,7 @@ import { bufferKey } from '../../state/buffers';
 import { makeStyles, useColors } from '../../theme/theme';
 import { borderWidth, fonts, fontSizes, radius, spacing } from '../../theme/tokens';
 import { FileReplacement, planReplace, SearchMatch, SearchOptions, SearchResult, searchProject } from './search';
+import { haptic } from '../../components/haptics';
 
 const DEBOUNCE_MS = 250;
 
@@ -81,7 +82,10 @@ export function SearchPanel({ visible, project, onOpen, onClose }: SearchPanelPr
       const changes = await planReplace(workspace, project, query, replacement, options, only);
       const count = changes.reduce((n, c) => n + c.count, 0);
       if (!count) return;
-      const go = () => apply(changes).then(search);
+      const go = () =>
+        apply(changes)
+          .then(() => haptic('success'))
+          .then(search);
       if (only) await go();
       else {
         await new Promise<void>((resolve) =>

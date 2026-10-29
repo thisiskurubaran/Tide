@@ -3,6 +3,7 @@ import { PanResponder, View } from 'react-native';
 
 import { makeStyles } from '../../theme/theme';
 import { borderWidth } from '../../theme/tokens';
+import { haptic } from '../../components/haptics';
 
 export const MIN_RATIO = 0.25;
 export const MAX_RATIO = 0.75;
@@ -21,6 +22,7 @@ export function SplitDivider({ ratio, width, onChange }: { ratio: number; width:
         onPanResponderTerminationRequest: () => false,
         onPanResponderGrant: () => {
           start.current = latest.current.ratio;
+          haptic('select');
         },
         onPanResponderMove: (_e, g) => {
           const { width: w, onChange: change } = latest.current;
