@@ -19,7 +19,8 @@ export type Shortcut =
   | 'run'
   | 'settings'
   | 'keyboard-shortcuts'
-  | 'new-terminal';
+  | 'new-terminal'
+  | 'split';
 
 type KeyEvent = { key: string; code?: string; metaKey: boolean; shiftKey: boolean; altKey: boolean };
 
@@ -55,6 +56,8 @@ export function shortcutFor(e: KeyEvent): Shortcut | null {
       return 'run';
     case 't':
       return 'new-terminal';
+    case '\\':
+      return 'split';
     case ',':
       return 'settings';
     default:
@@ -79,6 +82,7 @@ export const SHORTCUT_HELP: { group: string; items: [keys: string, title: string
       ['⌘J', 'Show or hide the terminal'],
       ['⌘R', 'Run the project'],
       ['⌘T', 'New terminal'],
+      ['⌘\\', 'Split the editor (iPad)'],
       ['⌘L', 'Go to line'],
       ['⌘,', 'Settings'],
       ['⇧⌘?', 'Keyboard shortcuts'],

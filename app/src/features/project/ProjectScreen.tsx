@@ -25,6 +25,7 @@ import { SearchPanel } from '../search/SearchPanel';
 import { runLine } from './run';
 import type { Shortcut } from './shortcuts';
 import { ShortcutsSheet } from './ShortcutsSheet';
+import { SplitDivider } from './SplitDivider';
 import { TabBar } from './TabBar';
 import { TerminalPanel, TerminalPanelHandle } from './TerminalPanel';
 import { makeStyles } from '../../theme/theme';
@@ -49,7 +50,19 @@ export function ProjectScreen({ project }: { project: string }) {
     tabs.open.filter((p) => isDirty(s.buffers[bufferKey(project, p)])).join('\n'),
   );
   const dirty = new Set(dirtyKey ? dirtyKey.split('\n') : []);
-  const editor = useRef<EditorHandle>(null);
+  const leftEditor = useRef<EditorHandle>(null);
+  const rightEditor = useRef<EditorHandle>(null);
+  // iPad: a second editor beside the first. `path` is its file; the focused
+  // pane is where opened files, the key bar and editor commands go.
+  const [split, setSplit] = useState<{ path: string | null } | null>(null);
+  const [focusedPane, setFocusedPane] = useState<'left' | 'right'>('left');
+  const [splitRatio, setSplitRatio] = useState(0.5);
+  const [editorWidth, setEditorWidth] = useState(0);
+  const splitOn = wide && split !== null;
+  const rightFocused = splitOn && focusedPane === 'right';
+  // The file in the focused pane.
+  const current = rightFocused ? split.path : tabs.active;
+  const editor = { current: rightFocused ? rightEditor.current : leftEditor.current };
   const terminal = useRef<TerminalPanelHandle>(null);
   const keyboardHeight = useKeyboardHeight();
   // The pane that last took focus gets the space above the keyboard.
@@ -65,8 +78,8 @@ export function ProjectScreen({ project }: { project: string }) {
   const [sourceControl, setSourceControl] = useState(false);
   const [panel, setPanel] = useState<string | null>(null);
   const progress = useRef(new Animated.Value(0)).current;
-  const activePath = useRef(tabs.active);
-  activePath.current = tabs.active;
+  const activePath = useRef(current);
+  activePath.current = current;
   const cursor = useRef<{ path: string; offset: number } | null>(null);
   const extensions = useActiveExtensions();
   const features = useMemo(() => editorFeatures(extensions), [extensions]);
@@ -85,15 +98,38 @@ export function ProjectScreen({ project }: { project: string }) {
   }, [drawerOpen, progress]);
 
   const openFile = (path: string) => {
-    tabsStore.getState().openTab(project, path);
+    if (rightFocused) {
+      tabsStore.getState().openTab(project, path, false);
+      setSplit({ path });
+    } else tabsStore.getState().openTab(project, path);
     setDrawerOpen(false);
   };
 
   // Wraps around, like Ctrl-Tab in most editors.
   function switchTab(step: number) {
     if (!tabs.open.length) return;
-    const i = tabs.active ? tabs.open.indexOf(tabs.active) : -1;
+    const i = current ? tabs.open.indexOf(current) : -1;
     openFile(tabs.open[(i + step + tabs.open.length) % tabs.open.length]);
+  }
+
+  async function closeFile(path: string) {
+    await buffersStore.getState().save(project, path);
+    const rest = tabs.open.filter((p) => p !== path);
+    // The right pane moves to a neighbour too.
+    if (split?.path === path) setSplit({ path: rest[Math.min(tabs.open.indexOf(path), rest.length - 1)] ?? null });
+    tabsStore.getState().closeTab(project, path);
+  }
+
+  function toggleSplit() {
+    if (!wide) return;
+    if (splitOn) {
+      setSplit(null);
+      setFocusedPane('left');
+    } else {
+      // Start with the same file, the way most editors split.
+      setSplit({ path: tabs.active });
+      setFocusedPane('right');
+    }
   }
 
   async function runProject() {
@@ -141,18 +177,10 @@ export function ProjectScreen({ project }: { project: string }) {
     { id: 'quick-open', title: 'Open file', icon: 'file', hint: '⌘P', run: () => setPalette('files') },
     { id: 'search', title: 'Search in project', icon: 'search', hint: '⇧⌘F', run: () => setSearching(true) },
     { id: 'find', title: 'Find in file', icon: 'search', hint: '⌘F', run: () => editor.current?.send({ type: 'find' }) },
-    { id: 'goto-line', title: 'Go to line', icon: 'corner-down-right', hint: '⌘L', run: () => tabs.active && setGoingToLine(true) },
-    { id: 'save', title: 'Save file', icon: 'save', hint: '⌘S', run: () => tabs.active && save(tabs.active) },
-    {
-      id: 'close-tab',
-      title: 'Close file',
-      icon: 'x',
-      run: async () => {
-        if (!tabs.active) return;
-        await buffersStore.getState().save(project, tabs.active);
-        tabsStore.getState().closeTab(project, tabs.active);
-      },
-    },
+    { id: 'goto-line', title: 'Go to line', icon: 'corner-down-right', hint: '⌘L', run: () => current && setGoingToLine(true) },
+    { id: 'save', title: 'Save file', icon: 'save', hint: '⌘S', run: () => current && save(current) },
+    { id: 'close-tab', title: 'Close file', icon: 'x', hint: '⌘W', run: () => current && closeFile(current) },
+    ...(wide ? [{ id: 'split', title: splitOn ? 'Close the second editor' : 'Split editor', icon: 'columns' as const, hint: '⌘\\', run: toggleSplit }] : []),
     { id: 'undo', title: 'Undo', icon: 'rotate-ccw', run: () => editor.current?.send({ type: 'undo' }) },
     { id: 'redo', title: 'Redo', icon: 'rotate-cw', run: () => editor.current?.send({ type: 'redo' }) },
     { id: 'files', title: 'Show or hide files', icon: 'sidebar', hint: '⌘B', run: () => (wide ? setSidebarHidden((h) => !h) : setDrawerOpen((o) => !o)) },
@@ -208,34 +236,58 @@ export function ProjectScreen({ project }: { project: string }) {
       <View style={[styles.body, wide && styles.row]}>
         {wide && !sidebarHidden && (
           <View style={[styles.sidebar, { paddingBottom: insets.bottom }]} testID="sidebar">
-            <FileTree project={project} nodes={tree ?? []} activePath={tabs.active} onOpenFile={openFile} />
+            <FileTree project={project} nodes={tree ?? []} activePath={current} onOpenFile={openFile} />
           </View>
         )}
         <View style={styles.body}>
-          <TabBar
-            open={tabs.open}
-            active={tabs.active}
-            onSelect={(path) => tabsStore.getState().openTab(project, path)}
-            dirty={dirty}
-            onClose={async (path) => {
-              await buffersStore.getState().save(project, path);
-              tabsStore.getState().closeTab(project, path);
-            }}
-          />
+          <TabBar open={tabs.open} active={current} onSelect={openFile} dirty={dirty} onClose={(path) => closeFile(path)} />
 
           {extensions.map((ext) => ext.bar && <ext.bar key={ext.id} ctx={ctx} />)}
           {/* Both panes stay mounted so the terminal keeps its scrollback and the editor its undo history. */}
-          <View style={[styles.editor, keyboardOpen && typingIn === 'terminal' && !terminalHidden && styles.collapsed]}>
-            <EditorPane
-              ref={editor}
-              project={project}
-              path={tabs.active}
-              features={features}
-              host={editorHost}
-              onBrowse={() => (wide ? setPalette('files') : setDrawerOpen(true))}
-              onFocusChange={(focused) => focused && setTypingIn('editor')}
-              onShortcut={onShortcut}
-            />
+          <View
+            style={[styles.editor, splitOn && styles.row, keyboardOpen && typingIn === 'terminal' && !terminalHidden && styles.collapsed]}
+            onLayout={(e) => setEditorWidth(e.nativeEvent.layout.width)}
+          >
+            <View style={[styles.pane, splitOn && { flex: splitRatio }, splitOn && !rightFocused && styles.focusedPane]}>
+              <EditorPane
+                ref={leftEditor}
+                project={project}
+                path={tabs.active}
+                features={features}
+                host={editorHost}
+                onBrowse={() => (wide ? setPalette('files') : setDrawerOpen(true))}
+                onFocusChange={(focused) => {
+                  if (!focused) return;
+                  setTypingIn('editor');
+                  setFocusedPane('left');
+                }}
+                onShortcut={onShortcut}
+              />
+            </View>
+            {splitOn && (
+              <>
+                <SplitDivider ratio={splitRatio} width={editorWidth} onChange={setSplitRatio} />
+                <View style={[styles.pane, { flex: 1 - splitRatio }, rightFocused && styles.focusedPane]} testID="right-editor">
+                  <EditorPane
+                    ref={rightEditor}
+                    project={project}
+                    path={split.path}
+                    features={features}
+                    host={editorHost}
+                    onBrowse={() => {
+                      setFocusedPane('right');
+                      setPalette('files');
+                    }}
+                    onFocusChange={(focused) => {
+                      if (!focused) return;
+                      setTypingIn('editor');
+                      setFocusedPane('right');
+                    }}
+                    onShortcut={onShortcut}
+                  />
+                </View>
+              </>
+            )}
           </View>
           <View
             style={[
@@ -259,7 +311,7 @@ export function ProjectScreen({ project }: { project: string }) {
           {typingIn === 'terminal' && !terminalHidden ? (
             <TerminalKeyBar input={(data) => terminal.current?.input(data)} onHide={() => terminal.current?.blur()} />
           ) : (
-            <EditorKeyBar send={(msg) => editor.current?.send(msg)} language={languageFor(tabs.active ?? '')} />
+            <EditorKeyBar send={(msg) => editor.current?.send(msg)} language={languageFor(current ?? '')} />
           )}
         </View>
       )}
@@ -284,7 +336,7 @@ export function ProjectScreen({ project }: { project: string }) {
               },
             ]}
           >
-            <FileTree project={project} nodes={tree ?? []} activePath={tabs.active} onOpenFile={openFile} />
+            <FileTree project={project} nodes={tree ?? []} activePath={current} onOpenFile={openFile} />
           </Animated.View>
         </>
       )}
@@ -305,7 +357,7 @@ export function ProjectScreen({ project }: { project: string }) {
         onSubmit={async (value) => {
           const line = Number.parseInt(value, 10);
           if (!Number.isFinite(line) || line < 1) throw new Error('Enter a line number');
-          if (tabs.active) editor.current?.reveal(tabs.active, line);
+          if (current) editor.current?.reveal(current, line);
         }}
         onClose={() => setGoingToLine(false)}
       />
@@ -329,6 +381,9 @@ const useStyles = makeStyles((colors) => ({
   row: { flexDirection: 'row' },
   sidebar: { width: SIDEBAR_WIDTH, borderRightWidth: borderWidth, borderColor: colors.border, backgroundColor: colors.card },
   editor: { flex: 3 },
+  pane: { flex: 1 },
+  // A thin line marks which editor gets the key bar and commands.
+  focusedPane: { borderTopWidth: 2, borderColor: colors.brand },
   terminal: { flex: 2 },
   expanded: { flex: 1 },
   // Kept mounted but out of the layout while the other pane is being typed in.

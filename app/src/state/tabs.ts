@@ -10,7 +10,8 @@ export interface TabsState {
   byProject: Record<string, ProjectTabs>;
   // Last opened project, so a restart lands back where the user was.
   lastProject: string | null;
-  openTab(project: string, path: string): void;
+  // `activate: false` adds the tab without showing it, e.g. for the second editor pane.
+  openTab(project: string, path: string, activate?: boolean): void;
   closeTab(project: string, path: string): void;
   setLastProject(project: string | null): void;
   // Keep tabs pointing at the right files after a rename or delete in the tree.
@@ -34,8 +35,8 @@ export function createTabsStore(storage: StateStorage) {
         return {
           byProject: {},
           lastProject: null,
-          openTab: (project, path) =>
-            update(project, (t) => ({ open: t.open.includes(path) ? t.open : [...t.open, path], active: path })),
+          openTab: (project, path, activate = true) =>
+            update(project, (t) => ({ open: t.open.includes(path) ? t.open : [...t.open, path], active: activate ? path : t.active })),
           closeTab: (project, path) =>
             update(project, (t) => {
               const i = t.open.indexOf(path);
