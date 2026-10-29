@@ -78,7 +78,9 @@ const useStyles = makeStyles((colors) => ({
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.sm,
-    height: 44,
+    // A minimum rather than a fixed height, so larger text sizes don't clip the title.
+    minHeight: 44,
+    paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md + 4,
     borderRadius: radius.md,
     borderWidth,

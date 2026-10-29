@@ -1,6 +1,6 @@
 import Feather from '@expo/vector-icons/Feather';
 import { useEffect, useState } from 'react';
-import { Modal, Pressable, View } from 'react-native';
+import { Modal, Pressable, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '../../components/Button';
@@ -33,39 +33,53 @@ export function Onboarding({ visible, onDone }: OnboardingProps) {
     <Modal visible={visible} animationType={animation} onRequestClose={() => onDone(false)} supportedOrientations={['portrait', 'landscape']}>
       <View style={[styles.screen, { paddingTop: insets.top + spacing.md, paddingBottom: insets.bottom + spacing.md }]}>
         <View style={styles.top}>
+          {index > 0 && (
+            <Pressable
+              onPress={() => setIndex(index - 1)}
+              accessibilityRole="button"
+              accessibilityLabel="Back"
+              hitSlop={12}
+              style={styles.back}
+              testID="onboarding-back"
+            >
+              <Feather name="chevron-left" size={18} color={colors.mutedForeground} />
+              <Text variant="muted">Back</Text>
+            </Pressable>
+          )}
+          <View style={styles.flex} />
           {!last && (
             <Pressable onPress={() => onDone(false)} accessibilityRole="button" hitSlop={12} testID="onboarding-skip">
               <Text variant="muted">Skip</Text>
             </Pressable>
           )}
         </View>
-        <View style={styles.content} accessible accessibilityLabel={`Step ${index + 1} of ${STEPS.length}. ${step.title}. ${step.body}`}>
-          <View style={styles.icon}>
-            <Feather name={step.icon} size={40} color={colors.brand} />
+        <ScrollView style={styles.flex} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+          <View style={styles.content} accessible accessibilityLabel={`Step ${index + 1} of ${STEPS.length}. ${step.title}. ${step.body}`}>
+            <View style={styles.icon}>
+              <Feather name={step.icon} size={40} color={colors.brand} />
+            </View>
+            <Text variant="heading" style={styles.center}>
+              {step.title}
+            </Text>
+            <Text style={[styles.center, styles.body]}>{step.body}</Text>
+            <View style={styles.tips}>
+              {step.tips.map((tip) => (
+                <View key={tip} style={styles.tip}>
+                  <Text variant="muted">{tip}</Text>
+                </View>
+              ))}
+            </View>
           </View>
-          <Text variant="heading" style={styles.center}>
-            {step.title}
-          </Text>
-          <Text style={[styles.center, styles.body]}>{step.body}</Text>
-          <View style={styles.tips}>
-            {step.tips.map((tip) => (
-              <View key={tip} style={styles.tip}>
-                <Text variant="muted">{tip}</Text>
-              </View>
-            ))}
-          </View>
-        </View>
+        </ScrollView>
         <View style={styles.dots} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
           {STEPS.map((s, i) => (
             <View key={s.title} style={[styles.dot, i === index && { backgroundColor: colors.brand, width: 18 }]} />
           ))}
         </View>
+        {/* Full-width and stacked, so the buttons fit narrow phones and large text sizes. */}
         <View style={styles.actions}>
-          {index > 0 && <Button title="Back" variant="outline" onPress={() => setIndex(index - 1)} testID="onboarding-back" />}
-          <View style={styles.flex} />
           {last ? (
             <>
-              <Button title="Explore first" variant="outline" onPress={() => onDone(false)} testID="onboarding-explore" />
               <Button
                 title="Create a project"
                 icon="plus"
@@ -75,6 +89,7 @@ export function Onboarding({ visible, onDone }: OnboardingProps) {
                 }}
                 testID="onboarding-create"
               />
+              <Button title="Explore first" variant="outline" onPress={() => onDone(false)} testID="onboarding-explore" />
             </>
           ) : (
             <Button
@@ -94,8 +109,11 @@ export function Onboarding({ visible, onDone }: OnboardingProps) {
 
 const useStyles = makeStyles((colors) => ({
   screen: { flex: 1, backgroundColor: colors.background, paddingHorizontal: spacing.lg },
-  top: { height: 32, alignItems: 'flex-end', justifyContent: 'center' },
-  content: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.md, maxWidth: 520, alignSelf: 'center' },
+  top: { minHeight: 32, flexDirection: 'row', alignItems: 'center' },
+  back: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  // Centred when it fits; scrolls when a large text size makes a step taller than the screen.
+  scroll: { flexGrow: 1, justifyContent: 'center' },
+  content: { alignItems: 'center', gap: spacing.md, maxWidth: 520, alignSelf: 'center', paddingVertical: spacing.md },
   icon: { width: 88, height: 88, borderRadius: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.brandSoft, marginBottom: spacing.sm },
   center: { textAlign: 'center' },
   body: { color: colors.mutedForeground, lineHeight: 22 },
@@ -103,6 +121,6 @@ const useStyles = makeStyles((colors) => ({
   tip: { paddingHorizontal: spacing.sm + 2, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth, borderColor: colors.border },
   dots: { flexDirection: 'row', justifyContent: 'center', gap: 6, paddingVertical: spacing.lg },
   dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.border },
-  actions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  actions: { gap: spacing.sm, width: '100%', maxWidth: 520, alignSelf: 'center' },
   flex: { flex: 1 },
 }));
