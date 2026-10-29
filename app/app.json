@@ -60,7 +60,34 @@
       "infoPlist": {
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
-        }
+        },
+        "LSSupportsOpeningDocumentsInPlace": false,
+        "CFBundleDocumentTypes": [
+          {
+            "CFBundleTypeName": "Source code and text",
+            "CFBundleTypeRole": "Editor",
+            "LSHandlerRank": "Alternate",
+            "LSItemContentTypes": [
+              "public.source-code",
+              "public.script",
+              "public.plain-text",
+              "public.text",
+              "public.json",
+              "public.xml",
+              "public.html",
+              "public.css",
+              "net.daringfireball.markdown"
+            ]
+          },
+          {
+            "CFBundleTypeName": "Zip archive",
+            "CFBundleTypeRole": "Viewer",
+            "LSHandlerRank": "Alternate",
+            "LSItemContentTypes": [
+              "public.zip-archive"
+            ]
+          }
+        ]
       }
     },
     "android": {
@@ -71,7 +98,41 @@
         "monochromeImage": "./assets/icons/android-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.thisiskurubaran.tide"
+      "package": "com.thisiskurubaran.tide",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "category": [
+            "DEFAULT"
+          ],
+          "data": [
+            {
+              "scheme": "content",
+              "mimeType": "text/*"
+            },
+            {
+              "scheme": "content",
+              "mimeType": "application/json"
+            },
+            {
+              "scheme": "content",
+              "mimeType": "application/javascript"
+            },
+            {
+              "scheme": "content",
+              "mimeType": "application/x-python"
+            },
+            {
+              "scheme": "content",
+              "mimeType": "application/zip"
+            },
+            {
+              "scheme": "content",
+              "mimeType": "application/x-zip-compressed"
+            }
+          ]
+        }
+      ]
     },
     "web": {
       "favicon": "./assets/icons/favicon.png"

@@ -8,6 +8,7 @@ import { PromptSheet } from '../../components/PromptSheet';
 import { Text } from '../../components/Text';
 import { FileIcon } from '../../extensions/themes';
 import { projectsStore } from '../../state';
+import { shareFile } from '../external/share';
 import { radius, spacing } from '../../theme/tokens';
 import { basename } from './fs';
 import type { TreeNode } from './workspace';
@@ -57,7 +58,15 @@ export function FileTree({ project, nodes, activePath, onOpenFile }: FileTreePro
       { label: 'Rename', icon: 'edit-2', onPress: () => setPrompt({ kind: 'rename', path: node.path }) },
       { label: 'Delete', icon: 'trash-2', destructive: true, onPress: () => confirmDelete(node) },
     ];
-    if (node.kind === 'file') return common;
+    if (node.kind === 'file')
+      return [
+        {
+          label: 'Share',
+          icon: 'share',
+          onPress: () => shareFile(project, node.path).catch((e: Error) => Alert.alert("Couldn't share", e.message)),
+        },
+        ...common,
+      ];
     return [
       { label: 'New file', icon: 'file-plus', onPress: () => setPrompt({ kind: 'new-file', parent: node.path }) },
       { label: 'New folder', icon: 'folder-plus', onPress: () => setPrompt({ kind: 'new-folder', parent: node.path }) },

@@ -24,7 +24,12 @@ export async function pickZip(): Promise<{ name: string; entries: ReturnType<typ
   const result = await DocumentPicker.getDocumentAsync({ type: ['application/zip', 'application/x-zip-compressed'], copyToCacheDirectory: true });
   if (result.canceled || !result.assets[0]) return null;
   const asset = result.assets[0];
-  const entries = zipEntries(await new File(asset.uri).bytes());
+  return { name: asset.name.replace(/\.zip$/i, ''), entries: await readZip(asset.uri) };
+}
+
+// The files in a .zip at `uri`, e.g. one picked or handed over by another app.
+export async function readZip(uri: string): Promise<ReturnType<typeof zipEntries>> {
+  const entries = zipEntries(await new File(uri).bytes());
   if (!entries.length) throw new BackupError('The zip has no files in it');
-  return { name: asset.name.replace(/\.zip$/i, ''), entries };
+  return entries;
 }

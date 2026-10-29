@@ -17,6 +17,7 @@ import { exportProject } from '../backup/actions';
 import { SnapshotsSheet } from '../backup/SnapshotsSheet';
 import { pullFolder, pushFolder, useLinked } from '../external';
 import { LinkedFolderSheet } from '../external/LinkedFolderSheet';
+import { shareFile } from '../external/share';
 import { FileTree } from '../files/FileTree';
 import { EditorHandle, EditorHost, EditorPane } from '../editor/EditorPane';
 import { languageFor } from '../editor/bridge';
@@ -239,6 +240,12 @@ export function ProjectScreen({ project }: { project: string }) {
           .flushProject(project)
           .then(() => exportProject(project))
           .catch((e: Error) => Alert.alert("Couldn't export", e.message)),
+    },
+    {
+      id: 'share-file',
+      title: 'Share file',
+      icon: 'share',
+      run: () => current && shareFile(project, current).catch((e: Error) => Alert.alert("Couldn't share", e.message)),
     },
     { id: 'snapshots', title: 'Snapshots', icon: 'clock', run: () => setShowSnapshots(true) },
     { id: 'linked-folder', title: linked ? `Linked folder: ${linked}` : 'Link to a folder in Files', icon: 'folder', run: () => setShowLinked(true) },
