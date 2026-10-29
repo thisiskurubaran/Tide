@@ -13,12 +13,9 @@ import { borderWidth, fontSizes, radius, spacing } from '../../theme/tokens';
 import { localRunner } from '../../runtime';
 import { lastLines, runGit } from '../git/runGit';
 import { NewProjectSheet } from './NewProjectSheet';
-import { makeStyles, useColorScheme, useColors } from '../../theme/theme';
+import { makeStyles, useColors } from '../../theme/theme';
 
-const marks = {
-  dark: require('../../../assets/icons/splash-dark.png'),
-  light: require('../../../assets/icons/splash-light.png'),
-};
+const mark = require('../../../assets/icons/splash.png');
 
 export const projectHref = (name: string) => `/project/${encodeURIComponent(name)}` as const;
 
@@ -27,7 +24,6 @@ let restoredLastProject = false;
 
 export function ProjectsScreen() {
   const styles = useStyles();
-  const scheme = useColorScheme();
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const projects = useProjects((s) => s.projects);
@@ -52,7 +48,7 @@ export function ProjectsScreen() {
   return (
     <View style={[styles.screen, { paddingTop: insets.top + spacing.md }]}>
       <View style={styles.header}>
-        <Image source={marks[scheme]} style={styles.mark} accessibilityLabel="Tide" />
+        <Image source={mark} style={styles.mark} accessibilityLabel="Tide" />
         <Text variant="heading" style={styles.headerTitle}>
           Projects
         </Text>

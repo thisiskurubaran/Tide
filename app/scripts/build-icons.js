@@ -12,9 +12,8 @@ const out = path.join(root, 'assets', 'icons');
 // The light tile is a gradient, drawn with the `tile-gradient` defs every svg() includes.
 const light = { tile: 'url(#tile-gradient)', body: '#ffffff', accent: '#d4ddff' };
 const tileGradient = ['#3b5bdb', '#0e1a4d'];
-// The wave on transparent dark icons, where there is no blue tile behind it.
-const brandBlue = '#7c9bff';
-const dark = { tile: '#f1f3f2', body: '#0d0f0e', accent: '#1d4ed8' };
+// Transparent dark icons, which iOS draws on its own dark background instead of the blue tile.
+const dark = { body: '#f1f3f2', accent: '#7c9bff' };
 
 const mark = fs.readFileSync(path.join(root, 'assets', 'brand', 'tide-mark.svg'), 'utf8');
 const [chevron, wave] = [...mark.matchAll(/<path d="([^"]+)"/g)].map((m) => m[1]);
@@ -98,15 +97,15 @@ const outputs = {
   // iOS masks the corners itself, so the tile color runs to the edges.
   'ios-light.png': () => opaquePng(render(svg(32, 0, symbol(light.body, light.accent), light.tile), 1024)),
   // iOS 18 draws dark and tinted icons on its own background, so these are transparent.
-  'ios-dark.png': () => render(svg(32, 0, symbol(dark.tile, brandBlue)), 1024).asPng(),
+  'ios-dark.png': () => render(svg(32, 0, symbol(dark.body, dark.accent)), 1024).asPng(),
   'ios-tinted.png': () => render(svg(32, 0, symbol('#ffffff', '#b8b8b8')), 1024).asPng(),
   'android-background.png': () => render(svg(ANDROID, 0, '', light.tile), 1024).asPng(),
   'android-foreground.png': () =>
     render(svg(ANDROID, ANDROID_INSET, symbol(light.body, light.accent)), 1024).asPng(),
   'android-monochrome.png': () =>
     render(svg(ANDROID, ANDROID_INSET, symbol('#ffffff', '#ffffff')), 1024).asPng(),
-  'splash-dark.png': () => render(svg(32, 0, tile(dark)), 512).asPng(),
-  'splash-light.png': () => render(svg(32, 0, tile(light)), 512).asPng(),
+  // The blue tile reads on both light and dark backgrounds, so one splash image serves both.
+  'splash.png': () => render(svg(32, 0, tile(light)), 512).asPng(),
   'favicon.png': () => render(svg(32, 0, tile(light)), 48).asPng(),
 };
 
