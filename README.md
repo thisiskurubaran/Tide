@@ -95,6 +95,8 @@ EXPO_PUBLIC_SENTRY_DSN=https://<key>@<org>.ingest.sentry.io/<project> npx expo s
 
 Without it, Sentry is never started. When it is on, reports carry no breadcrumbs, user data, request data, screenshots or view hierarchy, and any path under Documents (which would name a project or file) is replaced with `<documents>`. Native crash reports also include the random installation ID the Sentry SDK generates. Source maps are not uploaded, so JS stack traces from release builds are minified.
 
+The iOS privacy manifest is set in `app.json` (`ios.privacyManifests`) and declares crash data and the required-reason APIs the app and its Node and Python runtimes use (user defaults, file timestamps, boot time and disk space). `ios.config.usesNonExemptEncryption` is false: the app only uses standard encryption.
+
 ## Remote mode
 
 Remote mode runs the project in a container on a Tide server you host (see below). Set the server URL and token under Settings, Remote server; both are kept in the Keychain (Keystore on Android).
