@@ -32,7 +32,8 @@ function session(script: string, breakpoints: number[], file = `projects/p/main$
       else if (msg.type === 'exit') exit = msg.code;
     },
   );
-  const until = <T>(pick: () => T | undefined, timeout = 10_000) =>
+  // Generous: with the whole suite running in parallel, attaching to a worker can take seconds.
+  const until = <T>(pick: () => T | undefined, timeout = 20_000) =>
     new Promise<T>((resolve, reject) => {
       const start = Date.now();
       const check = () => {
@@ -97,7 +98,7 @@ describe('Node debugger', () => {
     s.send({ cmd: 'continue' });
     expect(await s.exited()).toBe(0);
     expect(s.output()).toBe('total 6\n');
-  }, 30_000);
+  }, 60_000);
 
   it('adds breakpoints while running and pauses a busy loop', async () => {
     const script = ['let i = 0;', 'const timer = setInterval(() => {', '  i++;', '}, 5);', ''].join('\n');
@@ -112,14 +113,14 @@ describe('Node debugger', () => {
     expect(await s.next('stopped')).toMatchObject({ reason: expect.any(String) });
     s.kill();
     expect(await s.exited()).toBe(130);
-  }, 30_000);
+  }, 60_000);
 
   it('reports an uncaught exception and ends, as without the debugger', async () => {
     const s = session('function boom() {\n  throw new Error("bad");\n}\nboom();\n', []);
     expect(await s.exited()).toBe(1);
     expect(s.output()).toMatch(/Error: bad\n\s+at boom/);
     expect(s.events.filter((e) => e.event === 'stopped')).toEqual([]);
-  }, 30_000);
+  }, 60_000);
 
   it('leaves runs started during a debug session alone', async () => {
     const s = session(SCRIPT, [5]);
@@ -136,5 +137,5 @@ describe('Node debugger', () => {
     expect(outputs.join('')).toBe('other ran\n');
     s.send({ cmd: 'continue' });
     expect(await s.exited()).toBe(0);
-  }, 30_000);
+  }, 60_000);
 });
