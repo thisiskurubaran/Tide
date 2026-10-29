@@ -5,7 +5,9 @@ import type { Shortcut } from '../project/shortcuts';
 
 export type Language = 'javascript' | 'typescript' | 'jsx' | 'tsx' | 'python' | 'json' | 'html' | 'css' | 'markdown' | 'plain';
 
-export type EditorKey = 'left' | 'right' | 'up' | 'down' | 'tab';
+export type EditorKey = 'left' | 'right' | 'up' | 'down' | 'home' | 'end' | 'tab';
+
+export type SelectUnit = 'word' | 'line' | 'all' | 'expand';
 
 // Editor behavior that paid extensions switch on. The code is always in the
 // bundle; these flags only enable it.
@@ -59,7 +61,11 @@ export type ToEditor =
   // 1-based; ignored unless `path` is the open file.
   | { type: 'goto'; path: string; line: number; column?: number }
   | { type: 'insert'; text: string }
-  | { type: 'key'; key: EditorKey }
+  // `select` extends the selection instead of moving the cursor.
+  | { type: 'key'; key: EditorKey; select?: boolean }
+  | { type: 'select'; unit: SelectUnit }
+  // Answered with a 'clipboard' message; cut also deletes the selection.
+  | { type: 'copy'; cut: boolean }
   | { type: 'focus' }
   // Keyboard.dismiss() only blurs RN text inputs, so the WebView is asked directly.
   | { type: 'blur' }
@@ -86,6 +92,10 @@ export type FromEditor =
   | { type: 'save'; path: string }
   | { type: 'focus'; focused: boolean }
   | { type: 'shortcut'; id: Shortcut }
+  // Text to put on the system clipboard, after a 'copy' message.
+  | { type: 'clipboard'; text: string }
+  // A pinch changed the font size.
+  | { type: 'zoom'; fontSize: number }
   | { type: 'error'; message: string }
   | ({ type: 'request' } & EditorRequest)
   // F12, or Cmd/Ctrl-click on a symbol.
@@ -139,6 +149,8 @@ const TO_EDITOR = new Set<ToEditor['type']>([
   'breakpoints',
   'execLine',
   'complete',
+  'select',
+  'copy',
 ]);
 const FROM_EDITOR = new Set<FromEditor['type']>([
   'ready',
@@ -151,6 +163,8 @@ const FROM_EDITOR = new Set<FromEditor['type']>([
   'definition',
   'cursor',
   'breakpointsChanged',
+  'clipboard',
+  'zoom',
 ]);
 
 function parse<T extends { type: string }>(raw: string, types: Set<string>): T | null {

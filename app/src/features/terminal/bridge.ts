@@ -16,10 +16,12 @@ export type FromTerminal =
   | { type: 'resize'; cols: number; rows: number }
   | { type: 'focus'; focused: boolean }
   | { type: 'link'; url: string }
-  | { type: 'shortcut'; id: Shortcut };
+  | { type: 'shortcut'; id: Shortcut }
+  // A pinch changed the font size.
+  | { type: 'zoom'; fontSize: number };
 
 const TO = new Set<ToTerminal['type']>(['write', 'setTheme', 'focus', 'blur']);
-const FROM = new Set<FromTerminal['type']>(['ready', 'input', 'resize', 'focus', 'link', 'shortcut']);
+const FROM = new Set<FromTerminal['type']>(['ready', 'input', 'resize', 'focus', 'link', 'shortcut', 'zoom']);
 
 function parse<T extends { type: string }>(raw: string, types: Set<string>): T | null {
   try {

@@ -8,6 +8,7 @@ import fontRegular from '../../assets/fonts/JetBrainsMono-Regular.ttf';
 import { shortcutFor } from '../../src/features/project/shortcuts';
 import { FromTerminal, parseToTerminal, ToTerminal } from '../../src/features/terminal/bridge';
 import { controlChar } from '../../src/features/terminal/keys';
+import { pinchToZoom } from '../pinch';
 
 const FONT_FAMILY = 'JetBrains Mono';
 
@@ -80,6 +81,14 @@ async function start() {
     return true;
   });
   term.onResize(({ cols, rows }) => post({ type: 'resize', cols, rows }));
+  pinchToZoom(container, {
+    get: () => term.options.fontSize ?? 13,
+    preview: (size) => {
+      term.options.fontSize = size;
+      fit.fit();
+    },
+    commit: (fontSize) => post({ type: 'zoom', fontSize }),
+  });
   new ResizeObserver(() => fit.fit()).observe(container);
   post({ type: 'ready', cols: term.cols, rows: term.rows });
 }

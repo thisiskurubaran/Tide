@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react-native';
 jest.mock('expo-router', () => ({ router: { back: jest.fn(), push: jest.fn() } }));
 jest.mock('@expo/vector-icons/Feather', () => 'Feather');
 jest.mock('react-native-safe-area-context', () => require('react-native-safe-area-context/jest/mock').default);
+jest.mock('expo-clipboard', () => ({ getStringAsync: jest.fn(async () => 'pasted'), setStringAsync: jest.fn(async () => true) }));
 jest.mock('../../state', () => {
   const { createStore, useStore } = jest.requireActual('zustand');
   const settings = createStore(() => ({ theme: 'dark' }));
@@ -45,7 +46,7 @@ describe('key bars', () => {
     await fireEvent.press(screen.getByLabelText('Tab'));
     await fireEvent.press(screen.getByLabelText('Type self.'));
     await fireEvent.press(screen.getByLabelText('Show suggestions'));
-    expect(send.mock.calls.map((c) => c[0])).toEqual([{ type: 'key', key: 'tab' }, { type: 'insert', text: 'self.' }, { type: 'complete' }]);
+    expect(send.mock.calls.map((c) => c[0])).toEqual([{ type: 'key', key: 'tab', select: false }, { type: 'insert', text: 'self.' }, { type: 'complete' }]);
   });
 
   it('types terminal keys as bytes', async () => {
@@ -58,6 +59,45 @@ describe('key bars', () => {
   });
 });
 
+describe('touch editing keys', () => {
+  it('moves the cursor from the trackpad, extending the selection in select mode', async () => {
+    const send = jest.fn();
+    await render(<EditorKeyBar send={send} language="plain" />);
+    const pad = screen.getByTestId('editor-trackpad');
+    await fireEvent(pad, 'accessibilityAction', { nativeEvent: { actionName: 'increment' } });
+    await fireEvent.press(screen.getByLabelText('Select mode'));
+    expect(screen.getByLabelText('Select mode').props.accessibilityState).toEqual({ selected: true });
+    await fireEvent(pad, 'accessibilityAction', { nativeEvent: { actionName: 'decrement' } });
+    await fireEvent.press(screen.getByLabelText('Cursor up'));
+    expect(send.mock.calls.map((c) => c[0])).toEqual([
+      { type: 'key', key: 'right', select: false },
+      { type: 'key', key: 'left', select: true },
+      { type: 'key', key: 'up', select: true },
+    ]);
+  });
+
+  it('copies, expands and pastes through the system clipboard', async () => {
+    const send = jest.fn();
+    await render(<EditorKeyBar send={send} language="plain" />);
+    await fireEvent.press(screen.getByLabelText('Expand selection'));
+    await fireEvent.press(screen.getByLabelText('Copy'));
+    await fireEvent.press(screen.getByLabelText('Paste'));
+    expect(send.mock.calls.map((c) => c[0])).toEqual([
+      { type: 'select', unit: 'expand' },
+      { type: 'copy', cut: false },
+      { type: 'insert', text: 'pasted' },
+    ]);
+  });
+
+  it('turns terminal trackpad moves into arrow keys and pastes', async () => {
+    const input = jest.fn();
+    await render(<TerminalKeyBar input={input} onHide={() => undefined} />);
+    await fireEvent(screen.getByTestId('terminal-trackpad'), 'accessibilityAction', { nativeEvent: { actionName: 'decrement' } });
+    await fireEvent.press(screen.getByLabelText('Paste'));
+    expect(input.mock.calls.map((c) => c[0])).toEqual(['\x1b[D', 'pasted']);
+  });
+});
+
 describe('Key bar settings', () => {
   it('gives a language its own keys, edits them and resets', async () => {
     await render(<KeyBarSettingsScreen />);
@@ -67,9 +107,9 @@ describe('Key bar settings', () => {
     expect(keyBarStore.getState().editor.python).toEqual(LANGUAGE_PRESETS.python);
 
     await fireEvent.press(screen.getByTestId('keybar-remove-0'));
-    expect(keyBarStore.getState().editor.python![0]).toBe('up');
+    expect(keyBarStore.getState().editor.python![0]).toBe('select');
     await fireEvent.press(screen.getByTestId('keybar-down-0'));
-    expect(keyBarStore.getState().editor.python!.slice(0, 2)).toEqual(['down', 'up']);
+    expect(keyBarStore.getState().editor.python!.slice(0, 2)).toEqual(['left', 'select']);
 
     await fireEvent.press(screen.getByTestId('keybar-add-text'));
     await fireEvent.changeText(screen.getByPlaceholderText('e.g. => or self.'), 'print(');

@@ -1,5 +1,27 @@
 import { acceptCompletion, autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap, completionStatus, startCompletion } from '@codemirror/autocomplete';
-import { cursorCharLeft, cursorCharRight, cursorLineDown, cursorLineUp, defaultKeymap, history, historyKeymap, indentMore, redo, undo } from '@codemirror/commands';
+import {
+  cursorCharLeft,
+  cursorCharRight,
+  cursorLineBoundaryBackward,
+  cursorLineBoundaryForward,
+  cursorLineDown,
+  cursorLineUp,
+  defaultKeymap,
+  history,
+  historyKeymap,
+  indentMore,
+  redo,
+  selectAll,
+  selectCharLeft,
+  selectCharRight,
+  selectLine,
+  selectLineBoundaryBackward,
+  selectLineBoundaryForward,
+  selectLineDown,
+  selectLineUp,
+  selectParentSyntax,
+  undo,
+} from '@codemirror/commands';
 import { css } from '@codemirror/lang-css';
 import { html } from '@codemirror/lang-html';
 import { javascript } from '@codemirror/lang-javascript';
@@ -21,7 +43,7 @@ import {
 } from '@codemirror/view';
 
 import fontRegular from '../../assets/fonts/JetBrainsMono-Regular.ttf';
-import { EditorFeatures, EditorKey, EditorOptions, FromEditor, Language, NO_FEATURES, parseToEditor, ToEditor } from '../../src/features/editor/bridge';
+import { EditorFeatures, EditorKey, EditorOptions, FromEditor, Language, NO_FEATURES, parseToEditor, SelectUnit, ToEditor } from '../../src/features/editor/bridge';
 import type { EditorTheme } from '../../src/theme/editor';
 import { shortcutFor } from '../../src/features/project/shortcuts';
 import {
@@ -34,6 +56,7 @@ import {
   minimalChange,
   setBreakpoints,
 } from './features';
+import { pinchToZoom } from '../pinch';
 import { optionsExtension } from './options';
 import { buildTheme, FONT_FAMILY } from './theme';
 
@@ -247,22 +270,59 @@ function typeText(text: string) {
   }
 }
 
-function pressKey(key: EditorKey) {
+function pressKey(key: EditorKey, select = false) {
   switch (key) {
     case 'left':
-      return cursorCharLeft(view);
+      return (select ? selectCharLeft : cursorCharLeft)(view);
     case 'right':
-      return cursorCharRight(view);
+      return (select ? selectCharRight : cursorCharRight)(view);
     case 'up':
-      return cursorLineUp(view);
+      return (select ? selectLineUp : cursorLineUp)(view);
     case 'down':
-      return cursorLineDown(view);
+      return (select ? selectLineDown : cursorLineDown)(view);
+    case 'home':
+      return (select ? selectLineBoundaryBackward : cursorLineBoundaryBackward)(view);
+    case 'end':
+      return (select ? selectLineBoundaryForward : cursorLineBoundaryForward)(view);
     case 'tab':
       if (completionStatus(view.state) === 'active') return acceptCompletion(view);
       if (!view.state.selection.main.empty) return indentMore(view);
       typeText(view.state.facet(indentUnit));
       return true;
   }
+}
+
+function selectUnit(unit: SelectUnit) {
+  switch (unit) {
+    case 'all':
+      return selectAll(view);
+    case 'line':
+      return selectLine(view);
+    case 'expand':
+      // Grows to the enclosing syntax node: word, expression, block, function...
+      return selectParentSyntax(view);
+    case 'word': {
+      const { state } = view;
+      const word = state.wordAt(state.selection.main.head);
+      if (word) view.dispatch({ selection: { anchor: word.from, head: word.to } });
+      return true;
+    }
+  }
+}
+
+// With nothing selected, copy and cut take the whole line, like most editors.
+function copy(cut: boolean) {
+  const { state } = view;
+  const ranges = state.selection.ranges;
+  const empty = ranges.every((r) => r.empty);
+  const parts = empty
+    ? ranges.map((r) => {
+        const line = state.doc.lineAt(r.head);
+        return { from: line.from, to: Math.min(line.to + 1, state.doc.length), text: state.sliceDoc(line.from, line.to) + '\n' };
+      })
+    : ranges.filter((r) => !r.empty).map((r) => ({ from: r.from, to: r.to, text: state.sliceDoc(r.from, r.to) }));
+  post({ type: 'clipboard', text: parts.map((p) => p.text).join(empty ? '' : '\n') });
+  if (cut) view.dispatch({ changes: parts.map(({ from, to }) => ({ from, to })), userEvent: 'delete.cut' });
 }
 
 function handle(msg: ToEditor) {
@@ -288,7 +348,11 @@ function handle(msg: ToEditor) {
     case 'insert':
       return typeText(msg.text);
     case 'key':
-      return pressKey(msg.key);
+      return pressKey(msg.key, msg.select);
+    case 'select':
+      return selectUnit(msg.unit);
+    case 'copy':
+      return copy(msg.cut);
     case 'focus':
       return view.focus();
     case 'blur':
@@ -332,6 +396,16 @@ window.tide = {
     if (msg) handle(msg);
   },
 };
+
+pinchToZoom(view.scrollDOM, {
+  get: () => parseFloat(view.dom.style.fontSize) || 14,
+  preview: (size) => {
+    view.dom.style.fontSize = `${size}px`;
+    view.requestMeasure();
+  },
+  // The app saves it, which sends it back with the theme.
+  commit: (fontSize) => post({ type: 'zoom', fontSize }),
+});
 
 window.addEventListener('error', (e) => post({ type: 'error', message: String(e.message) }));
 // Don't lose the last keystrokes if the app is backgrounded mid-debounce.

@@ -1,13 +1,14 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react';
 import { AppState, StyleSheet, View } from 'react-native';
 import WebView, { WebViewMessageEvent } from 'react-native-webview';
+import * as Clipboard from 'expo-clipboard';
 
 import { Button } from '../../components/Button';
 import { Text } from '../../components/Text';
 import { breakpointsStore, fileBreakpoints, useBreakpoints } from '../../extensions/debugger/breakpoints';
 import { fileDiagnostics, useDiagnostics } from '../../extensions/diagnostics';
 import { useEditorTheme } from '../../extensions/themes';
-import { buffersStore, useBuffers, useSettings } from '../../state';
+import { buffersStore, settingsStore, useBuffers, useSettings } from '../../state';
 import { bufferKey } from '../../state/buffers';
 import { spacing } from '../../theme/tokens';
 import { CompletionResult, EditorFeatures, EditorRequest, HoverResult, languageFor, parseFromEditor, ToEditor } from './bridge';
@@ -192,6 +193,12 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
         return;
       case 'cursor':
         hostRef.current.cursor(msg.path, msg.offset);
+        return;
+      case 'clipboard':
+        Clipboard.setStringAsync(msg.text).catch(() => undefined);
+        return;
+      case 'zoom':
+        settingsStore.getState().setEditorFontSize(msg.fontSize);
         return;
       case 'breakpointsChanged':
         breakpointsStore.getState().set(project, msg.path, msg.lines);

@@ -3,7 +3,7 @@ import { Linking } from 'react-native';
 import WebView, { WebViewMessageEvent } from 'react-native-webview';
 
 import { localRunner } from '../../runtime';
-import { buffersStore, projectsStore, useSettings, workspace } from '../../state';
+import { buffersStore, projectsStore, settingsStore, useSettings, workspace } from '../../state';
 import { PROJECTS_DIR } from '../files/workspace';
 import { useTerminalTheme } from '../../extensions/themes';
 
@@ -127,6 +127,9 @@ export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(functi
         return;
       case 'shortcut':
         onShortcut(msg.id);
+        return;
+      case 'zoom':
+        settingsStore.getState().setTerminalFontSize(msg.fontSize);
         return;
     }
   }

@@ -4,7 +4,29 @@
 // so tests and settings screens share it.
 import type { Language } from '../editor/bridge';
 
-export type EditorAction = 'left' | 'right' | 'up' | 'down' | 'tab' | 'undo' | 'redo' | 'find' | 'complete';
+export type EditorAction =
+  | 'left'
+  | 'right'
+  | 'up'
+  | 'down'
+  | 'home'
+  | 'end'
+  | 'tab'
+  | 'undo'
+  | 'redo'
+  | 'find'
+  | 'complete'
+  | 'select-word'
+  | 'select-line'
+  | 'expand'
+  | 'select-all'
+  | 'copy'
+  | 'cut';
+
+// Keys the bars handle themselves rather than map to a message or bytes.
+export const TRACKPAD = 'trackpad';
+export const SELECT_MODE = 'select';
+export const PASTE = 'paste';
 
 export interface CatalogKey {
   id: string;
@@ -15,11 +37,22 @@ export interface CatalogKey {
 }
 
 export const EDITOR_KEYS: CatalogKey[] = [
+  { id: TRACKPAD, icon: 'move', a11y: 'Cursor trackpad' },
+  { id: SELECT_MODE, label: 'sel', a11y: 'Select mode' },
   { id: 'left', icon: 'arrow-left', a11y: 'Cursor left' },
   { id: 'up', icon: 'arrow-up', a11y: 'Cursor up' },
   { id: 'down', icon: 'arrow-down', a11y: 'Cursor down' },
   { id: 'right', icon: 'arrow-right', a11y: 'Cursor right' },
+  { id: 'home', label: '⇤', a11y: 'Start of line' },
+  { id: 'end', label: '⇥|', a11y: 'End of line' },
   { id: 'tab', label: '⇥', a11y: 'Tab' },
+  { id: 'select-word', label: 'word', a11y: 'Select word' },
+  { id: 'select-line', label: 'line', a11y: 'Select line' },
+  { id: 'expand', icon: 'maximize-2', a11y: 'Expand selection' },
+  { id: 'select-all', label: 'all', a11y: 'Select all' },
+  { id: 'copy', icon: 'copy', a11y: 'Copy' },
+  { id: 'cut', icon: 'scissors', a11y: 'Cut' },
+  { id: PASTE, icon: 'clipboard', a11y: 'Paste' },
   { id: 'undo', icon: 'corner-up-left', a11y: 'Undo' },
   { id: 'redo', icon: 'corner-up-right', a11y: 'Redo' },
   { id: 'find', icon: 'search', a11y: 'Find' },
@@ -28,7 +61,10 @@ export const EDITOR_KEYS: CatalogKey[] = [
 
 // Bytes a hardware keyboard would send for each key.
 const ESC = '\x1b';
+// Data is empty for keys the terminal bar handles itself.
 export const TERMINAL_KEYS: (CatalogKey & { data: string })[] = [
+  { id: TRACKPAD, icon: 'move', a11y: 'Cursor trackpad', data: '' },
+  { id: PASTE, icon: 'clipboard', a11y: 'Paste', data: '' },
   { id: 'esc', label: 'esc', a11y: 'Escape', data: ESC },
   { id: 'tab', label: '⇥', a11y: 'Tab', data: '\t' },
   { id: 'ctrl-c', label: '^C', a11y: 'Control C', data: '\x03' },
@@ -86,14 +122,16 @@ const SYMBOL_NAMES: Record<string, string> = {
 
 const chars = (s: string) => [...s].map(text);
 
-export const DEFAULT_EDITOR_KEYS = ['left', 'up', 'down', 'right', 'tab', ...chars('{}()[];:"\'=<>/\\'), 'undo', 'redo', 'find'];
-export const DEFAULT_TERMINAL_KEYS = ['esc', 'tab', 'ctrl-c', 'ctrl-l', 'left', 'up', 'down', 'right', ...chars('/-~.|>"\'*_')];
+const EDIT = ['undo', 'redo', 'find', 'expand', 'copy', PASTE];
+
+export const DEFAULT_EDITOR_KEYS = [TRACKPAD, SELECT_MODE, 'left', 'up', 'down', 'right', 'tab', ...chars('{}()[];:"\'=<>/\\'), ...EDIT];
+export const DEFAULT_TERMINAL_KEYS = [TRACKPAD, 'esc', 'tab', 'ctrl-c', 'ctrl-l', 'left', 'up', 'down', 'right', ...chars('/-~.|>"\'*_'), PASTE];
 
 // Starting points per language; users can change them in Settings.
 export const LANGUAGE_PRESETS: Partial<Record<Language, string[]>> = {
-  python: ['left', 'up', 'down', 'right', 'tab', ...chars(':()[]{}=_\'".#'), text('self.'), 'undo', 'redo', 'find'],
-  javascript: ['left', 'up', 'down', 'right', 'tab', ...chars('{}()[];=<>\'"`'), text('=>'), text('const '), 'undo', 'redo', 'find'],
-  html: ['left', 'up', 'down', 'right', 'tab', ...chars('<>/="\''), text('</'), 'undo', 'redo', 'find'],
+  python: [TRACKPAD, SELECT_MODE, 'left', 'up', 'down', 'right', 'tab', ...chars(':()[]{}=_\'".#'), text('self.'), ...EDIT],
+  javascript: [TRACKPAD, SELECT_MODE, 'left', 'up', 'down', 'right', 'tab', ...chars('{}()[];=<>\'"`'), text('=>'), text('const '), ...EDIT],
+  html: [TRACKPAD, SELECT_MODE, 'left', 'up', 'down', 'right', 'tab', ...chars('<>/="\''), text('</'), ...EDIT],
 };
 
 export interface KeyFace {
@@ -115,4 +153,6 @@ export function keyFace(id: string, bar: 'editor' | 'terminal'): KeyFace | null 
 }
 
 export const terminalData = (id: string): string | null =>
-  id.startsWith('text:') ? id.slice(5) : (TERMINAL_KEYS.find((k) => k.id === id)?.data ?? null);
+  id.startsWith('text:') ? id.slice(5) : (TERMINAL_KEYS.find((k) => k.id === id)?.data || null);
+
+export const ARROW_BYTES = { left: `${ESC}[D`, right: `${ESC}[C`, up: `${ESC}[A`, down: `${ESC}[B` } as const;

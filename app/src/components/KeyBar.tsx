@@ -1,5 +1,5 @@
 import Feather from '@expo/vector-icons/Feather';
-import { Fragment } from 'react';
+import { Fragment, ReactNode } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 
 import { borderWidth, fonts, fontSizes, radius, spacing } from '../theme/tokens';
@@ -9,29 +9,39 @@ import { makeStyles, useColors } from '../theme/theme';
 
 export const KEY_BAR_HEIGHT = 44;
 
-export type KeyItem = { a11y: string; onPress(): void } & ({ label: string } | { icon: IconName });
+// `active` marks a toggle that is on, such as select mode.
+export type KeyItem = { a11y: string; onPress(): void; active?: boolean } & ({ label: string } | { icon: IconName });
 
 interface KeyBarProps {
   // Groups are separated by a thin divider.
   groups: KeyItem[][];
+  // Fixed before the scrolling keys, e.g. the cursor trackpad.
+  leading?: ReactNode;
   onHide(): void;
   testID?: string;
 }
 
 // Accessory row that sits on top of the software keyboard. Native buttons never
 // take focus from the WebView, so the keyboard stays up while they are tapped.
-export function KeyBar({ groups, onHide, testID }: KeyBarProps) {
+export function KeyBar({ groups, leading, onHide, testID }: KeyBarProps) {
   const styles = useStyles();
   const colors = useColors();
   return (
     <View style={styles.bar} testID={testID}>
+      {leading}
       <ScrollView horizontal keyboardShouldPersistTaps="always" showsHorizontalScrollIndicator={false} contentContainerStyle={styles.keys}>
         {groups.map((group, g) => (
           <Fragment key={g}>
             {g > 0 && <View style={styles.divider} />}
             {group.map((k, i) => (
               // Users can add the same key twice, so the index keeps keys unique.
-              <Pressable key={`${i}-${k.a11y}`} accessibilityLabel={k.a11y} onPress={k.onPress} style={({ pressed }) => [styles.key, pressed && styles.pressed]}>
+              <Pressable
+                key={`${i}-${k.a11y}`}
+                accessibilityLabel={k.a11y}
+                accessibilityState={k.active === undefined ? undefined : { selected: k.active }}
+                onPress={k.onPress}
+                style={({ pressed }) => [styles.key, (pressed || k.active) && styles.pressed, k.active && styles.active]}
+              >
                 {'icon' in k ? (
                   <Feather name={k.icon} size={16} color={colors.foreground} />
                 ) : (
@@ -69,6 +79,7 @@ const useStyles = makeStyles((colors) => ({
     backgroundColor: colors.secondary,
   },
   pressed: { backgroundColor: colors.border },
+  active: { backgroundColor: colors.brandSoft },
   label: { fontFamily: fonts.mono.semibold, fontSize: fontSizes.md, color: colors.foreground },
   divider: { width: borderWidth, height: 20, backgroundColor: colors.border, marginHorizontal: spacing.xs },
   hide: {
