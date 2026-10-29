@@ -30,7 +30,13 @@ export interface ProjectsState {
 // and then reloads what it touched, so nothing here needs persisting.
 // Pending autosaves are flushed before a rename and dropped before a delete,
 // otherwise a late write would recreate the old file.
-export function createProjectsStore(workspace: Workspace, tabs: TabsStore, buffers: BuffersStore) {
+// Other per-project data (snapshots) that has to follow a rename or delete.
+export interface ProjectHooks {
+  renamed?(from: string, to: string): Promise<void>;
+  deleted?(project: string): Promise<void>;
+}
+
+export function createProjectsStore(workspace: Workspace, tabs: TabsStore, buffers: BuffersStore, hooks: ProjectHooks = {}) {
   return createStore<ProjectsState>()((set, get) => {
     const reloadTree = async (project: string) => {
       const tree = await workspace.readTree(project);
@@ -65,6 +71,7 @@ export function createProjectsStore(workspace: Workspace, tabs: TabsStore, buffe
         const project = await workspace.renameProject(name, newName);
         tabs.getState().renameProject(name, project);
         buffers.getState().renameProject(name, project);
+        await hooks.renamed?.(name, project).catch(() => undefined);
         set((s) => {
           const { [name]: tree, ...rest } = s.trees;
           return { trees: tree ? { ...rest, [project]: tree } : rest };
@@ -76,6 +83,7 @@ export function createProjectsStore(workspace: Workspace, tabs: TabsStore, buffe
         buffers.getState().removeProject(name);
         await workspace.deleteProject(name);
         tabs.getState().removeProject(name);
+        await hooks.deleted?.(name).catch(() => undefined);
         set((s) => {
           const { [name]: _removed, ...rest } = s.trees;
           return { trees: rest };

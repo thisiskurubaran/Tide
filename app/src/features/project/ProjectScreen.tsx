@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { Alert, Animated, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { IconButton } from '../../components/Button';
@@ -9,10 +9,12 @@ import { Text } from '../../components/Text';
 import { answerRequest, editorFeatures, findDefinition, saveWithHooks, useActiveExtensions, useExtensionHost } from '../../extensions/host';
 import { GIT_PRO_PANEL } from '../../extensions/gitPro';
 import type { ProjectContext } from '../../extensions/types';
-import { buffersStore, projectsStore, runnerStore, tabsStore, useBuffers, useProjects, useTabs, workspace } from '../../state';
+import { buffersStore, projectsStore, runnerStore, snapshots, tabsStore, useBuffers, useProjects, useTabs, workspace } from '../../state';
 import { bufferKey, isDirty } from '../../state/buffers';
 import { projectTabs } from '../../state/tabs';
 import { borderWidth, spacing } from '../../theme/tokens';
+import { exportProject } from '../backup/actions';
+import { SnapshotsSheet } from '../backup/SnapshotsSheet';
 import { FileTree } from '../files/FileTree';
 import { EditorHandle, EditorHost, EditorPane } from '../editor/EditorPane';
 import { languageFor } from '../editor/bridge';
@@ -33,6 +35,7 @@ import { makeStyles } from '../../theme/theme';
 // Extensions can contribute the same command or panel (Show problems); the first one wins.
 const uniqueById = <T extends { id: string }>(items: T[]) => items.filter((x, i) => items.findIndex((o) => o.id === x.id) === i);
 
+const SNAPSHOT_DELAY_MS = 3000;
 const DRAWER_MAX = 340;
 // iPad portrait and wider: the file tree stays open beside the editor.
 const WIDE = 768;
@@ -77,6 +80,7 @@ export function ProjectScreen({ project }: { project: string }) {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [sourceControl, setSourceControl] = useState(false);
   const [panel, setPanel] = useState<string | null>(null);
+  const [showSnapshots, setShowSnapshots] = useState(false);
   const progress = useRef(new Animated.Value(0)).current;
   const activePath = useRef(current);
   activePath.current = current;
@@ -85,6 +89,12 @@ export function ProjectScreen({ project }: { project: string }) {
   const features = useMemo(() => editorFeatures(extensions), [extensions]);
   // Git Pro's screen stands in for the Source Control sheet.
   const openSourceControl = () => (extensions.some((e) => e.id === 'git-pro') ? setPanel(GIT_PRO_PANEL) : setSourceControl(true));
+
+  useEffect(() => {
+    // A snapshot on opening, at most hourly; after a moment, so the editor opens first.
+    const timer = setTimeout(() => snapshots.maybeTake(project).catch((e) => console.warn('Snapshot failed', e)), SNAPSHOT_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [project]);
 
   useEffect(() => {
     projectsStore.getState().loadTree(project);
@@ -206,6 +216,18 @@ export function ProjectScreen({ project }: { project: string }) {
     { id: 'source-control', title: 'Source control', icon: 'git-branch', run: openSourceControl },
     { id: 'settings', title: 'Settings', icon: 'settings', hint: '⌘,', run: () => router.push('/settings') },
     { id: 'extensions', title: 'Extensions', icon: 'package', run: () => router.push('/extensions') },
+    {
+      id: 'export',
+      title: 'Export project as .zip',
+      icon: 'share',
+      run: () =>
+        buffersStore
+          .getState()
+          .flushProject(project)
+          .then(() => exportProject(project))
+          .catch((e: Error) => Alert.alert("Couldn't export", e.message)),
+    },
+    { id: 'snapshots', title: 'Snapshots', icon: 'clock', run: () => setShowSnapshots(true) },
     ...extensions.flatMap((ext) => ext.commands?.(ctx) ?? []),
   ]);
   const panels = uniqueById(extensions.flatMap((ext) => ext.panels ?? []));
@@ -348,6 +370,7 @@ export function ProjectScreen({ project }: { project: string }) {
       ))}
       <SearchPanel visible={searching} project={project} onOpen={openAt} onClose={() => setSearching(false)} />
       <ShortcutsSheet visible={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+      <SnapshotsSheet project={showSnapshots ? project : null} onClose={() => setShowSnapshots(false)} />
       <PromptSheet
         visible={goingToLine}
         title="Go to line"

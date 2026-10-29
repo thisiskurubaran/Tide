@@ -8,9 +8,12 @@ import { ActionSheet } from '../../components/ActionSheet';
 import { Button, IconButton } from '../../components/Button';
 import { PromptSheet } from '../../components/PromptSheet';
 import { Text } from '../../components/Text';
-import { projectsStore, tabsStore, useProjects } from '../../state';
+import { projectsStore, tabsStore, useProjects, workspace } from '../../state';
 import { borderWidth, fontSizes, radius, spacing } from '../../theme/tokens';
 import { localRunner } from '../../runtime';
+import { exportProject, pickZip } from '../backup/actions';
+import { SnapshotsSheet } from '../backup/SnapshotsSheet';
+import { writeEntries } from '../backup/zip';
 import { lastLines, runGit } from '../git/runGit';
 import { NewProjectSheet } from './NewProjectSheet';
 import { makeStyles, useColors } from '../../theme/theme';
@@ -30,6 +33,7 @@ export function ProjectsScreen() {
   const [creating, setCreating] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
+  const [snapshotsFor, setSnapshotsFor] = useState<string | null>(null);
 
   useEffect(() => {
     if (restoredLastProject) return;
@@ -103,6 +107,13 @@ export function ProjectsScreen() {
           setCreating(false);
           router.push(projectHref(project));
         }}
+        onImport={async (name) => {
+          const picked = await pickZip();
+          if (!picked) return;
+          const project = await projectsStore.getState().cloneProject(name || picked.name, (p) => writeEntries(workspace, p, picked.entries));
+          setCreating(false);
+          router.push(projectHref(project));
+        }}
       />
 
       <ActionSheet
@@ -112,11 +123,19 @@ export function ProjectsScreen() {
           menuFor
             ? [
                 { label: 'Rename', icon: 'edit-2', onPress: () => setRenaming(menuFor) },
+                {
+                  label: 'Export as .zip',
+                  icon: 'share',
+                  onPress: () => exportProject(menuFor).catch((e: Error) => Alert.alert("Couldn't export", e.message)),
+                },
+                { label: 'Snapshots', icon: 'clock', onPress: () => setSnapshotsFor(menuFor) },
                 { label: 'Delete', icon: 'trash-2', destructive: true, onPress: () => confirmDelete(menuFor) },
               ]
             : []
         }
       />
+
+      <SnapshotsSheet project={snapshotsFor} onClose={() => setSnapshotsFor(null)} />
 
       <PromptSheet
         visible={renaming !== null}

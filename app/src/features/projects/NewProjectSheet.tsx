@@ -13,12 +13,15 @@ interface NewProjectSheetProps {
   visible: boolean;
   onCreate(name: string, templateId: string): Promise<void>;
   onClone(name: string, url: string): Promise<void>;
+  // Asks for a .zip; the name defaults to the zip's.
+  onImport(name: string): Promise<void>;
   onClose(): void;
 }
 
 const CLONE = 'clone';
+const IMPORT = 'import';
 
-export function NewProjectSheet({ visible, onCreate, onClone, onClose }: NewProjectSheetProps) {
+export function NewProjectSheet({ visible, onCreate, onClone, onImport, onClose }: NewProjectSheetProps) {
   const styles = useStyles();
   const colors = useColors();
   const [name, setName] = useState('');
@@ -40,6 +43,7 @@ export function NewProjectSheet({ visible, onCreate, onClone, onClose }: NewProj
     setBusy(true);
     try {
       if (templateId === CLONE) await onClone(name.trim() || repoName(url), url.trim());
+      else if (templateId === IMPORT) await onImport(name.trim());
       else await onCreate(name, templateId);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -91,7 +95,11 @@ export function NewProjectSheet({ visible, onCreate, onClone, onClose }: NewProj
         {error && <Text variant="error">{error}</Text>}
       </View>
       <View style={styles.templates} accessibilityRole="radiogroup">
-        {[...templates, { id: CLONE, label: 'Clone from Git', description: 'Clone a repository over HTTPS. Private ones need a token in Settings, Git.' }].map((t) => {
+        {[
+          ...templates,
+          { id: CLONE, label: 'Clone from Git', description: 'Clone a repository over HTTPS. Private ones need a token in Settings, Git.' },
+          { id: IMPORT, label: 'Import a .zip', description: 'Pick a .zip, from Files or iCloud Drive; its files become the project.' },
+        ].map((t) => {
           const selected = t.id === templateId;
           return (
             <Pressable
@@ -111,7 +119,7 @@ export function NewProjectSheet({ visible, onCreate, onClone, onClose }: NewProj
       <View style={styles.actions}>
         <Button title="Cancel" variant="outline" onPress={onClose} />
         <Button
-          title={busy && templateId === CLONE ? 'Cloning...' : templateId === CLONE ? 'Clone' : 'Create'}
+          title={busy && templateId === CLONE ? 'Cloning...' : templateId === CLONE ? 'Clone' : templateId === IMPORT ? 'Choose .zip' : 'Create'}
           onPress={create}
           disabled={busy || (templateId === CLONE && !url.trim())}
           testID="create-project"
