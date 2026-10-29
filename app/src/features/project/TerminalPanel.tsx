@@ -16,6 +16,8 @@ import type { Shortcut } from './shortcuts';
 import { addTab, closeTab, cycleTab, initialTabs, MAX_TERMINALS } from './terminalTabs';
 import { TerminalHandle, TerminalPane } from '../terminal/TerminalPane';
 import { makeStyles, useColors } from '../../theme/theme';
+import { requirePro } from '../pro';
+import { FREE_LIMITS } from '../pro/plans';
 
 // The panel's handle drives whichever terminal is showing, and manages tabs.
 export interface TerminalPanelHandle extends TerminalHandle {
@@ -39,17 +41,19 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>
   const [tabs, setTabs] = useState(initialTabs);
   const localPorts = useLocalPorts(project);
   const panes = useRef(new Map<number, TerminalHandle>());
+  // More than the free number of terminals is Pro.
+  const newTerminal = () => (tabs.ids.length < FREE_LIMITS.terminals || requirePro('terminals')) && setTabs(addTab);
 
   useImperativeHandle(
     ref,
     () => ({
       input: (data) => panes.current.get(tabs.active)?.input(data),
       blur: () => panes.current.get(tabs.active)?.blur(),
-      newTerminal: () => setTabs(addTab),
+      newTerminal,
       closeTerminal: () => setTabs((t) => closeTab(t, t.active)),
       nextTerminal: () => setTabs((t) => cycleTab(t, 1)),
     }),
-    [tabs.active],
+    [tabs.active, tabs.ids.length],
   );
 
   // Every terminal stays mounted, so a server keeps running in one while you
@@ -144,7 +148,7 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>
               </Pressable>
             );
           })}
-          {tabs.ids.length < MAX_TERMINALS && <IconButton icon="plus" label="New terminal" onPress={() => setTabs(addTab)} testID="terminal-new" />}
+          {tabs.ids.length < MAX_TERMINALS && <IconButton icon="plus" label="New terminal" onPress={newTerminal} testID="terminal-new" />}
         </ScrollView>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.ports} style={styles.portsScroll}>
           {previews.map(({ port, url }) => (
@@ -165,7 +169,7 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>
         <Segmented
           testID="runner"
           value={mode}
-          onChange={setMode}
+          onChange={(m) => (m !== 'remote' || requirePro('remote')) && setMode(m)}
           options={[
             { value: 'local', label: 'Local' },
             { value: 'remote', label: 'Remote' },

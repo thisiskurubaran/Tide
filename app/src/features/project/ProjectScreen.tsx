@@ -48,6 +48,7 @@ import { PackagesSheet } from '../packages/PackagesSheet';
 import { isJsTestFile, isPyTestFile } from '../tests/results';
 import { TestsRequest, TestsSheet } from '../tests/TestsSheet';
 import { useReduceMotion } from '../../components/a11y';
+import { requirePro } from '../pro';
 
 // Extensions can contribute the same command or panel (Show problems); the first one wins.
 const uniqueById = <T extends { id: string }>(items: T[]) => items.filter((x, i) => items.findIndex((o) => o.id === x.id) === i);
@@ -169,6 +170,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
       setSplit(null);
       setFocusedPane('left');
     } else {
+      if (!requirePro('split-editor')) return;
       // Start with the same file, the way most editors split.
       setSplit({ path: tabs.active });
       setFocusedPane('right');
@@ -234,6 +236,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
 
   // Palette pull and push; failures open the sheet, which can re-grant access.
   const syncFolder = (sync: (project: string) => Promise<unknown>) =>
+    requirePro('linked-folders') &&
     sync(project).catch((e: Error) =>
       Alert.alert("Couldn't sync the folder", e.message, [
         { text: 'OK', style: 'cancel' },
@@ -280,17 +283,18 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     ...(current
       ? [
           ...(currentHasConflicts
-            ? [{ id: 'compare.merge', title: 'Resolve conflicts in the merge editor', icon: 'git-merge' as const, run: () => setCompare({ path: current, with: 'merge' }) }]
+            ? [{ id: 'compare.merge', title: 'Resolve conflicts in the merge editor', icon: 'git-merge' as const, run: () => requirePro('compare') && setCompare({ path: current, with: 'merge' }) }]
             : []),
           ...(dirty.has(current)
-            ? [{ id: 'compare.saved', title: 'Compare with saved', icon: 'file-text' as const, run: () => setCompare({ path: current, with: 'saved' }) }]
+            ? [{ id: 'compare.saved', title: 'Compare with saved', icon: 'file-text' as const, run: () => requirePro('compare') && setCompare({ path: current, with: 'saved' }) }]
             : []),
-          { id: 'compare.head', title: 'Compare with last commit', icon: 'git-commit' as const, run: () => setCompare({ path: current, with: 'head' }) },
+          { id: 'compare.head', title: 'Compare with last commit', icon: 'git-commit' as const, run: () => requirePro('compare') && setCompare({ path: current, with: 'head' }) },
           {
             id: 'compare.file',
             title: 'Compare with file…',
             icon: 'copy' as const,
             run: () => {
+              if (!requirePro('compare')) return;
               comparingWith.current = current;
               setPalette('files');
             },
@@ -335,10 +339,10 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     { id: 'keyboard-shortcuts', title: 'Keyboard shortcuts', icon: 'command', hint: '⇧⌘?', run: () => setShortcutsOpen(true) },
     { id: 'toggle-terminal', title: 'Toggle terminal', icon: 'terminal', hint: '⌘J', run: () => setTerminalHidden((h) => !h) },
     { id: 'local', title: 'Terminal: use Local', icon: 'smartphone', run: () => runnerStore.getState().setMode('local') },
-    { id: 'remote', title: 'Terminal: use Remote', icon: 'server', run: () => runnerStore.getState().setMode('remote') },
-    { id: 'tests', title: 'Run tests', icon: 'check-square', run: () => setTests({}) },
+    { id: 'remote', title: 'Terminal: use Remote', icon: 'server', run: () => requirePro('remote') && runnerStore.getState().setMode('remote') },
+    { id: 'tests', title: 'Run tests', icon: 'check-square', run: () => requirePro('tests') && setTests({}) },
     ...(current && (isJsTestFile(current) || isPyTestFile(current))
-      ? [{ id: 'tests.file', title: 'Run tests in this file', icon: 'check-square' as const, run: () => setTests({ files: [current], language: isPyTestFile(current) ? 'python' : 'js' }) }]
+      ? [{ id: 'tests.file', title: 'Run tests in this file', icon: 'check-square' as const, run: () => requirePro('tests') && setTests({ files: [current], language: isPyTestFile(current) ? 'python' : 'js' }) }]
       : []),
     { id: 'packages', title: 'Packages (npm, pip)', icon: 'box', run: () => setPackagesOpen(true) },
     { id: 'source-control', title: 'Source control', icon: 'git-branch', run: openSourceControl },

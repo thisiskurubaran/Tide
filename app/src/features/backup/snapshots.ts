@@ -21,6 +21,8 @@ export const KEEP = 10;
 const dirFor = (project: string) => joinPath(STATE_DIR, 'snapshots', project);
 
 export function createSnapshots(fs: FsAdapter, workspace: Workspace, now: () => number = Date.now) {
+  // How many to keep per project; Tide Pro raises it (setKeep).
+  let keep = KEEP;
   async function list(project: string): Promise<Snapshot[]> {
     const dir = dirFor(project);
     if ((await fs.stat(dir)) !== 'dir') return [];
@@ -42,11 +44,14 @@ export function createSnapshots(fs: FsAdapter, workspace: Workspace, now: () => 
     await fs.writeBase64(joinPath(dirFor(project), id), toBase64(zip));
     // Keep the newest few.
     const all = await list(project);
-    for (const old of all.slice(KEEP)) await fs.remove(joinPath(dirFor(project), old.id));
+    for (const old of all.slice(keep)) await fs.remove(joinPath(dirFor(project), old.id));
     return { id, time, reason, bytes: zip.length };
   }
 
   return {
+    setKeep(n: number) {
+      keep = n;
+    },
     list,
     take,
     // Takes an automatic snapshot if the newest one is older than the interval.

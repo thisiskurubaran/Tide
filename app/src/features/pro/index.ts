@@ -3,8 +3,8 @@ import { AppState } from 'react-native';
 import { useStore } from 'zustand';
 
 import { extensionsStore, purchases } from '../../extensions/state';
-import { storage } from '../../state';
-import type { ProFeature } from './plans';
+import { runnerStore, snapshots, storage } from '../../state';
+import { FREE_LIMITS, PRO_LIMITS, ProFeature } from './plans';
 import { createProStore, isPro, ProState } from './store';
 
 export const proStore = createProStore(storage, purchases);
@@ -12,8 +12,15 @@ export const useProState = <T>(selector: (s: ProState) => T) => useStore(proStor
 export const useIsPro = () => useProState((s) => isPro(s));
 export const currentlyPro = () => isPro(proStore.getState());
 
-// Pro includes every extension.
-const syncExtensions = () => extensionsStore.setState({ included: currentlyPro() });
+// Everything outside the screens that depends on Pro: extensions are
+// included, snapshots kept, and Remote mode falls back to Local when Pro
+// ends so the terminal keeps working.
+function syncExtensions() {
+  const pro = currentlyPro();
+  extensionsStore.setState({ included: pro });
+  snapshots.setKeep(pro ? PRO_LIMITS.snapshots : FREE_LIMITS.snapshots);
+  if (!pro && runnerStore.getState().mode === 'remote') runnerStore.getState().setMode('local');
+}
 proStore.subscribe(syncExtensions);
 
 // Subscriptions renew and lapse while the app is closed: check on launch and

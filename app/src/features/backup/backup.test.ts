@@ -88,6 +88,16 @@ describe('snapshots', () => {
     expect(await workspace.readFile('p', 'src/a.js')).toBe('changed\n');
   });
 
+  it('keeps fewer when the limit is lowered (free accounts)', async () => {
+    const { snapshots, tick } = await setup();
+    snapshots.setKeep(3);
+    for (let i = 0; i < 5; i++) {
+      tick(1000);
+      await snapshots.take('p', 'manual');
+    }
+    expect(await snapshots.list('p')).toHaveLength(3);
+  });
+
   it('keeps the newest few and follows renamed projects', async () => {
     const { snapshots, tick } = await setup();
     for (let i = 0; i < KEEP + 3; i++) {
