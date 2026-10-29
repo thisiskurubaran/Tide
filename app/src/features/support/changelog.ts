@@ -7,6 +7,15 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '1.0.1',
+    items: [
+      'cd works with folder names that have spaces, and Tab completion escapes them',
+      'The new project sheet scrolls when the keyboard is open and stays below the status bar',
+      'Tour buttons fit on every iPhone, including with larger text sizes',
+      'Buttons grow with larger text sizes instead of cutting off their labels',
+    ],
+  },
+  {
     version: '1.0.0',
     items: [
       'Open folders from Files and iCloud Drive, and sync changes back',

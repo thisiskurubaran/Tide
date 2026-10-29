@@ -1,6 +1,6 @@
 {
   "name": "tide",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "main": "expo-router/entry",
   "dependencies": {
     "@codemirror/merge": "^6.12.3",
