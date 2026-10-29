@@ -10,7 +10,7 @@ const out = path.join(root, 'assets', 'icons');
 
 // Colors match docs/brand.md and src/theme/tokens.ts.
 // The light tile is a gradient, drawn with the `tile-gradient` defs every svg() includes.
-const light = { tile: 'url(#tile-gradient)', body: '#ffffff', accent: '#a9bdff' };
+const light = { tile: 'url(#tile-gradient)', body: '#ffffff', accent: '#d4ddff' };
 const tileGradient = ['#3b5bdb', '#0e1a4d'];
 // The wave on transparent dark icons, where there is no blue tile behind it.
 const brandBlue = '#7c9bff';
@@ -89,9 +89,10 @@ function opaquePng(image) {
 
 const tile = (c) => `<rect width="32" height="32" rx="8" fill="${c.tile}"/>` + symbol(c.body, c.accent);
 
-// Android adaptive icons are 108dp with the visible part in the middle 72dp.
+// Android adaptive icons are 108dp with the visible part in the middle 72dp. The tile is drawn at
+// 81dp so the symbol matches its size on iOS and still fits the 66dp safe circle.
 const ANDROID = 108;
-const ANDROID_INSET = (108 - 72) / 2;
+const ANDROID_INSET = (108 - 81) / 2;
 
 const outputs = {
   // iOS masks the corners itself, so the tile color runs to the edges.
