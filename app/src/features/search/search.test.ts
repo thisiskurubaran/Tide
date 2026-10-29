@@ -1,7 +1,7 @@
 import { createMemoryFs } from '../files/memoryFs';
 import { createWorkspace } from '../files/workspace';
 import { fuzzyFilter, fuzzyScore } from './fuzzy';
-import { searchProject } from './search';
+import { buildMatcher, pathFilter, planReplace, replaceInText, SearchError, searchProject } from './search';
 
 async function project() {
   const workspace = createWorkspace(createMemoryFs());
@@ -19,8 +19,8 @@ describe('searchProject', () => {
     const result = await searchProject(await project(), 'p', 'port');
     expect(result.files.map((f) => f.path)).toEqual(['src/app.js']);
     expect(result.files[0].matches).toEqual([
-      { line: 1, column: 6, text: 'const Port = 1;' },
-      { line: 2, column: 7, text: 'listen(port)' },
+      { line: 1, column: 6, length: 4, text: 'const Port = 1;' },
+      { line: 2, column: 7, length: 4, text: 'listen(port)' },
     ]);
     expect(result.total).toBe(2);
   });
@@ -33,7 +33,7 @@ describe('searchProject', () => {
     expect(m.text.slice(m.column, m.column + 6)).toBe('needle');
     await workspace.createFile('p', '', 'indent.js', '      call(port)');
     const hit = (await searchProject(workspace, 'p', 'port')).files.find((f) => f.path === 'indent.js')!.matches[0];
-    expect(hit).toEqual({ line: 1, column: 5, text: 'call(port)' });
+    expect(hit).toEqual({ line: 1, column: 5, length: 4, text: 'call(port)' });
   });
 
   it('can match case', async () => {
@@ -43,6 +43,54 @@ describe('searchProject', () => {
 
   it('returns nothing for an empty query', async () => {
     expect((await searchProject(await project(), 'p', '')).files).toEqual([]);
+  });
+});
+
+describe('search options', () => {
+  it('matches whole words and regular expressions', async () => {
+    const workspace = await project();
+    await workspace.createFile('p', '', 'w.js', 'export const portal = 1;\nconst port2 = port;\n');
+    const words = await searchProject(workspace, 'p', 'port', { wholeWord: true, include: 'w.js' });
+    expect(words.files[0].matches).toEqual([{ line: 2, column: 14, length: 4, text: 'const port2 = port;' }]);
+    const re = await searchProject(workspace, 'p', 'port\\d', { regex: true, include: 'w.js' });
+    expect(re.files[0].matches[0]).toMatchObject({ line: 2, column: 6, length: 5 });
+  });
+
+  it('reports a bad regular expression', () => {
+    expect(() => buildMatcher('(', { regex: true })).toThrow(SearchError);
+  });
+
+  it('filters paths with include and exclude globs', () => {
+    const keep = pathFilter('src/**, *.md', 'test, *.spec.ts');
+    expect(['src/a.ts', 'src/deep/b.ts', 'README.md', 'docs/x.md', 'lib/c.ts', 'src/a.spec.ts', 'test/t.md'].filter(keep)).toEqual([
+      'src/a.ts',
+      'src/deep/b.ts',
+      'README.md',
+      'docs/x.md',
+    ]);
+    expect(['a.js', 'b/c.js'].filter(pathFilter('', ''))).toEqual(['a.js', 'b/c.js']);
+    expect(['src/a/b.ts', 'src/b.ts'].filter(pathFilter('src/*.ts'))).toEqual(['src/b.ts']);
+  });
+});
+
+describe('replace', () => {
+  it('replaces literally, with $ kept as text', () => {
+    expect(replaceInText('a.b a.b', buildMatcher('a.b'), '$1x', false)).toEqual({ text: '$1x $1x', count: 2 });
+  });
+
+  it('expands groups in regex mode, keeping anchors and word boundaries', () => {
+    const m = buildMatcher('^(\\w+) = (?<v>\\d+)$', { regex: true });
+    expect(replaceInText('port = 80', m, '$<v> is $1 ($&) $$', true)).toEqual({ text: '80 is port (port = 80) $', count: 1 });
+    expect(replaceInText('foo food', buildMatcher('foo', { wholeWord: true }), 'bar', false)).toEqual({ text: 'bar food', count: 1 });
+  });
+
+  it('plans changes per file without writing', async () => {
+    const workspace = await project();
+    const plan = await planReplace(workspace, 'p', 'port', 'PORT', {});
+    expect(plan.map((f) => [f.path, f.count])).toEqual([['src/app.js', 2]]);
+    expect(plan[0].after).toBe('const PORT = 1;\nlisten(PORT)\n');
+    expect(await workspace.readFile('p', 'src/app.js')).toContain('Port');
+    expect(await planReplace(workspace, 'p', 'port', 'x', {}, ['README.md'])).toEqual([]);
   });
 });
 
