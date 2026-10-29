@@ -19,6 +19,20 @@ describe('settings store', () => {
     expect(restarted.getState().editorFontSize).toBe(18);
   });
 
+  it('keeps crash reports off until turned on, including for settings saved before the option existed', async () => {
+    const storage = createFsStorage(createMemoryFs());
+    await storage.setItem('settings', JSON.stringify({ state: { theme: 'light', editorFontSize: 15, terminalFontSize: 13 }, version: 1 }));
+    const settings = createSettingsStore(storage);
+    await flush();
+    expect(settings.getState().theme).toBe('light');
+    expect(settings.getState().crashReports).toBe(false);
+    settings.getState().setCrashReports(true);
+    await flush();
+    const restarted = createSettingsStore(storage);
+    await flush();
+    expect(restarted.getState().crashReports).toBe(true);
+  });
+
   it('keeps font sizes in range', () => {
     const settings = createSettingsStore(createFsStorage(createMemoryFs()));
     settings.getState().setTerminalFontSize(100);

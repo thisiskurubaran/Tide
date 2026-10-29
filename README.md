@@ -25,6 +25,7 @@ app/                             Expo app (dev client, prebuild, New Architectur
   web/terminal                   xterm.js terminal bundle (Vite, single HTML file)
   nodejs-assets/nodejs-project   Supervisor inside nodejs-mobile: runs each script in a worker thread; npm, pip and git built-ins
   src/features/git               Git settings, Source Control sheet, running git from the UI
+  src/features/privacy           Opt-in crash reports (Sentry) and the scrubbing applied to them
   modules/python-runtime         Expo module: Chaquopy on Android, CPython on iOS; python/tide_runner.py runs scripts
 server/                          Remote mode server: one Docker container per project
 shared/protocol.ts               Runner message types, imported as @shared/protocol
@@ -81,7 +82,17 @@ On an iPad, or any screen at least 768 points wide, the file tree stays open on 
 
 ## Settings
 
-Settings (the gear on the projects list) has the theme (System, Light or Dark, all from the FuseOps tokens), the editor and terminal font sizes, and the Remote server.
+Settings (the gear on the projects list) has the theme (System, Light or Dark, all from the FuseOps tokens), the editor and terminal font sizes, Git, the Remote server and, in builds set up for it, crash reports.
+
+## Crash reports
+
+Crash reports go to Sentry and are off until the user turns on Settings, Privacy, Send crash reports. A build only offers the setting when `EXPO_PUBLIC_SENTRY_DSN` is set at build time (for a dev client, when Metro starts):
+
+```sh
+EXPO_PUBLIC_SENTRY_DSN=https://<key>@<org>.ingest.sentry.io/<project> npx expo start --dev-client
+```
+
+Without it, Sentry is never started. When it is on, reports carry no breadcrumbs, user data, request data, screenshots or view hierarchy, and any path under Documents (which would name a project or file) is replaced with `<documents>`. Native crash reports also include the random installation ID the Sentry SDK generates. Source maps are not uploaded, so JS stack traces from release builds are minified.
 
 ## Remote mode
 
