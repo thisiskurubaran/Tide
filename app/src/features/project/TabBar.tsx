@@ -3,6 +3,7 @@ import { Pressable, ScrollView, View } from 'react-native';
 
 import { Text } from '../../components/Text';
 import { borderWidth, radius, spacing } from '../../theme/tokens';
+import { FileIcon } from '../../extensions/themes';
 import { basename } from '../files/fs';
 import { makeStyles, useColors } from '../../theme/theme';
 
@@ -32,6 +33,7 @@ export function TabBar({ open, active, dirty, onSelect, onClose }: TabBarProps) 
             accessibilityHint={path}
             style={[styles.tab, selected && styles.selected]}
           >
+            <FileIcon name={basename(path)} fallback={null} />
             <Text variant="label" style={{ color: selected ? colors.foreground : colors.mutedForeground }} numberOfLines={1}>
               {basename(path)}
             </Text>

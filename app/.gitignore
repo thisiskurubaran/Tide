@@ -48,3 +48,4 @@ modules/python-runtime/ios/Python.xcframework/
 
 # Vite output; the app uses the generated .ts files instead
 web/*/dist/
+__pycache__/

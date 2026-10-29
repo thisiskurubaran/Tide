@@ -18,4 +18,9 @@ describe('shortcutFor', () => {
     expect(key('f', { meta: true })).toBeNull();
     expect(key('l', { meta: true, alt: true })).toBeNull();
   });
+
+  it('maps Shift+Option+F to format by physical key', () => {
+    expect(shortcutFor({ key: 'Ï', code: 'KeyF', metaKey: false, shiftKey: true, altKey: true })).toBe('format');
+    expect(shortcutFor({ key: 'ƒ', code: 'KeyF', metaKey: false, shiftKey: false, altKey: true })).toBeNull();
+  });
 });

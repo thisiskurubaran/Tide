@@ -7,6 +7,41 @@ export type Language = 'javascript' | 'typescript' | 'jsx' | 'tsx' | 'python' | 
 
 export type EditorKey = 'left' | 'right' | 'up' | 'down' | 'tab';
 
+// Editor behavior that paid extensions switch on. The code is always in the
+// bundle; these flags only enable it.
+export interface EditorFeatures {
+  // Completions, hover and go to definition answered by the app (IntelliSense Pro).
+  language: boolean;
+  // Gutter breakpoints and the paused-line highlight (Debugger).
+  breakpoints: boolean;
+  // Accept current / incoming / both on merge conflict markers (Git Pro).
+  conflicts: boolean;
+}
+
+export const NO_FEATURES: EditorFeatures = { language: false, breakpoints: false, conflicts: false };
+
+export interface EditorDiagnostic {
+  from: number;
+  to: number;
+  severity: 'error' | 'warning' | 'info';
+  message: string;
+  source: string;
+}
+
+export interface CompletionItem {
+  label: string;
+  // CodeMirror completion type, used for the icon: function, variable, class, keyword...
+  type?: string;
+  detail?: string;
+}
+
+export type CompletionResult = { from: number; items: CompletionItem[] };
+export type HoverResult = { text: string; from: number; to: number };
+
+export type EditorRequest =
+  | { id: number; method: 'completion'; path: string; offset: number; explicit: boolean }
+  | { id: number; method: 'hover'; path: string; offset: number };
+
 export type ToEditor =
   | { type: 'open'; path: string; content: string; language: Language }
   | { type: 'setTheme'; theme: EditorTheme; dark: boolean; fontSize: number }
@@ -14,12 +49,25 @@ export type ToEditor =
   | { type: 'redo' }
   | { type: 'find' }
   // 1-based; ignored unless `path` is the open file.
-  | { type: 'goto'; path: string; line: number }
+  | { type: 'goto'; path: string; line: number; column?: number }
   | { type: 'insert'; text: string }
   | { type: 'key'; key: EditorKey }
   | { type: 'focus' }
   // Keyboard.dismiss() only blurs RN text inputs, so the WebView is asked directly.
-  | { type: 'blur' };
+  | { type: 'blur' }
+  | { type: 'features'; features: EditorFeatures }
+  // Text changed outside the editor (format, git discard, the shell). Applied
+  // as an edit, so undo history and the cursor survive.
+  // `base` is the text the change was made from; if the editor has moved on, it is skipped.
+  | { type: 'setContent'; path: string; content: string; base?: string }
+  | { type: 'diagnostics'; path: string; items: EditorDiagnostic[] }
+  | { type: 'response'; id: number; result: CompletionResult | HoverResult | null }
+  // 1-based line numbers.
+  | { type: 'breakpoints'; path: string; lines: number[] }
+  // Where the debugger is paused, or null when it isn't.
+  | { type: 'execLine'; path: string | null; line: number }
+  // Opens the completion list (the accessory bar has no Ctrl-Space).
+  | { type: 'complete' };
 
 export type FromEditor =
   | { type: 'ready' }
@@ -29,7 +77,14 @@ export type FromEditor =
   | { type: 'save'; path: string }
   | { type: 'focus'; focused: boolean }
   | { type: 'shortcut'; id: Shortcut }
-  | { type: 'error'; message: string };
+  | { type: 'error'; message: string }
+  | ({ type: 'request' } & EditorRequest)
+  // F12, or Cmd/Ctrl-click on a symbol.
+  | { type: 'definition'; path: string; offset: number }
+  // The cursor moved; commands like rename act on it.
+  | { type: 'cursor'; path: string; offset: number }
+  // Breakpoints in a file after a gutter tap, or after edits moved them. 1-based.
+  | { type: 'breakpointsChanged'; path: string; lines: number[] };
 
 const EXTENSIONS: Record<string, Language> = {
   js: 'javascript',
@@ -56,8 +111,37 @@ export function languageFor(path: string): Language {
   return EXTENSIONS[name.slice(dot + 1).toLowerCase()] ?? 'plain';
 }
 
-const TO_EDITOR = new Set<ToEditor['type']>(['open', 'setTheme', 'undo', 'redo', 'find', 'goto', 'insert', 'key', 'focus', 'blur']);
-const FROM_EDITOR = new Set<FromEditor['type']>(['ready', 'change', 'save', 'focus', 'shortcut', 'error']);
+const TO_EDITOR = new Set<ToEditor['type']>([
+  'open',
+  'setTheme',
+  'undo',
+  'redo',
+  'find',
+  'goto',
+  'insert',
+  'key',
+  'focus',
+  'blur',
+  'features',
+  'setContent',
+  'diagnostics',
+  'response',
+  'breakpoints',
+  'execLine',
+  'complete',
+]);
+const FROM_EDITOR = new Set<FromEditor['type']>([
+  'ready',
+  'change',
+  'save',
+  'focus',
+  'shortcut',
+  'error',
+  'request',
+  'definition',
+  'cursor',
+  'breakpointsChanged',
+]);
 
 function parse<T extends { type: string }>(raw: string, types: Set<string>): T | null {
   try {

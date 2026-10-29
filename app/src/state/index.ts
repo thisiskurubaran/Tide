@@ -10,7 +10,7 @@ import { createFsStorage } from './storage';
 import { createTabsStore, TabsState } from './tabs';
 
 const fs = createExpoFs();
-const storage = createFsStorage(fs);
+export const storage = createFsStorage(fs);
 
 export const workspace = createWorkspace(fs);
 export const tabsStore = createTabsStore(storage);
