@@ -52,6 +52,13 @@ const IOS_PHASE_SCRIPT = [
   'install_python "$XCFW"',
   'mkdir -p "$CODESIGNING_FOLDER_PATH/python/tide"',
   'cp "$PROJECT_DIR/../modules/python-runtime/python/"*.py "$CODESIGNING_FOLDER_PATH/python/tide/"',
+  // Size: Tide never runs Python with -O, so the optimized .pyc copies are never read.
+  // There is no Tk on iOS, Tide has its own pip, and CPython's test modules are for its own suite.
+  'LIB="$CODESIGNING_FOLDER_PATH/python/lib"',
+  'find "$LIB" -name "*.opt-1.pyc" -delete -o -name "*.opt-2.pyc" -delete',
+  'rm -rf "$LIB"/python3.*/tkinter "$LIB"/python3.*/turtledemo "$LIB"/python3.*/ensurepip',
+  'rm -rf "$CODESIGNING_FOLDER_PATH"/Frameworks/_test*.framework "$CODESIGNING_FOLDER_PATH"/Frameworks/_xxtestfuzz.framework "$CODESIGNING_FOLDER_PATH"/Frameworks/_ctypes_test.framework',
+  'rm -f "$LIB"/python3.*/lib-dynload/_test*.fwork "$LIB"/python3.*/lib-dynload/_xxtestfuzz.*.fwork "$LIB"/python3.*/lib-dynload/_ctypes_test.*.fwork',
 ].join('\\n');
 
 // The XCframework only holds libpython. The stdlib and the extension modules
