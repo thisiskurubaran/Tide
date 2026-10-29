@@ -42,6 +42,12 @@ export type SupervisorEvent =
   | { type: 'ready'; node: string }
   | { type: 'pong'; node: string; platform: string; arch: string };
 
+// nodejs-mobile passes each channel message through a concurrent dispatch queue
+// in both directions, so two messages sent back to back can arrive swapped (a
+// run overtook the init that sets the root). Each side numbers what it sends,
+// from 0, and the receiver delivers them in that order.
+export type Envelope<T> = { n: number; m: T };
+
 // Remote file sync (WebSocket /sessions/:id/sync), both directions. Paths are
 // relative to the project root; contents are base64 so binary files survive.
 export type SyncFile = { type: 'file'; path: string; data: string };

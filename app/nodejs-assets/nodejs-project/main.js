@@ -1,13 +1,18 @@
 // Entry point inside nodejs-mobile. Messages are JSON strings in both
-// directions; the shapes are in shared/protocol.ts.
+// directions, wrapped in a numbered Envelope; the shapes are in shared/protocol.ts.
 'use strict';
 
 const path = require('path');
 const rnBridge = require('rn-bridge');
+const { inOrder } = require('./inorder');
 const { createSupervisor } = require('./supervisor');
 
+let sent = 0;
+/** @param {object} msg */
+const send = (msg) => rnBridge.channel.send(JSON.stringify({ n: sent++, m: msg }));
+
 const supervisor = createSupervisor({
-  send: (msg) => rnBridge.channel.send(JSON.stringify(msg)),
+  send,
   builtins: {
     npm: path.join(__dirname, 'npm', 'cli.js'),
     pip: path.join(__dirname, 'pip', 'cli.js'),
@@ -15,14 +20,16 @@ const supervisor = createSupervisor({
   },
 });
 
+const receive = inOrder((msg) => supervisor.handle(msg));
+
 rnBridge.channel.on('message', (raw) => {
-  let msg;
+  let env;
   try {
-    msg = JSON.parse(raw);
+    env = JSON.parse(raw);
   } catch {
     return;
   }
-  supervisor.handle(msg);
+  if (env && typeof env.n === 'number') receive(env.n, env.m);
 });
 
-rnBridge.channel.send(JSON.stringify({ type: 'ready', node: process.version }));
+send({ type: 'ready', node: process.version });
