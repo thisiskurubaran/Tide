@@ -262,6 +262,11 @@ export function createWorkspace(fs: FsAdapter) {
       return fs.readFile(abs(project, path));
     },
 
+    async fileSize(project: string, path: string): Promise<number> {
+      await requireKind(abs(project, path), 'file');
+      return fs.size(abs(project, path));
+    },
+
     async writeFile(project: string, path: string, content: string): Promise<void> {
       await requireKind(abs(project, path), 'file');
       await fs.writeFile(abs(project, path), content);

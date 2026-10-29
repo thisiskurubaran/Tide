@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { AppState, StyleSheet, View } from 'react-native';
 import WebView, { WebViewMessageEvent } from 'react-native-webview';
 import * as Clipboard from 'expo-clipboard';
@@ -8,10 +8,11 @@ import { Text } from '../../components/Text';
 import { breakpointsStore, fileBreakpoints, useBreakpoints } from '../../extensions/debugger/breakpoints';
 import { fileDiagnostics, useDiagnostics } from '../../extensions/diagnostics';
 import { useEditorTheme } from '../../extensions/themes';
-import { buffersStore, settingsStore, useBuffers, useSettings } from '../../state';
+import { buffersStore, settingsStore, useBuffers, useSettings, workspace } from '../../state';
 import { bufferKey } from '../../state/buffers';
 import { spacing } from '../../theme/tokens';
-import { CompletionResult, EditorFeatures, EditorRequest, HoverResult, languageFor, parseFromEditor, ToEditor } from './bridge';
+import { CompletionResult, EditorFeatures, EditorRequest, HoverResult, languageFor, NO_FEATURES, parseFromEditor, ToEditor } from './bridge';
+import { classify, formatBytes, TOO_LARGE_BYTES } from './largeFiles';
 import type { Shortcut } from '../project/shortcuts';
 import editorHtml from './editorHtml.generated';
 import { makeStyles, useColorScheme } from '../../theme/theme';
@@ -64,6 +65,11 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
   const paused = useBreakpoints((s) => (s.paused?.project === project ? s.paused : null));
   const hostRef = useRef(host);
   hostRef.current = host;
+  // Large files open as plain text with the heavy extras off; huge and
+  // binary ones don't open, and say why instead.
+  const [large, setLarge] = useState<string | null>(null);
+  const [refused, setRefused] = useState<{ path: string; message: string } | null>(null);
+  const isLarge = large !== null && large === path;
 
   const send = useCallback((msg: ToEditor) => {
     if (!ready.current) return;
@@ -92,12 +98,16 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
   );
   useEffect(sendTheme, [sendTheme]);
 
-  const sendFeatures = useCallback(() => send({ type: 'features', features }), [send, features]);
+  const sendFeatures = useCallback(() => send({ type: 'features', features: isLarge ? NO_FEATURES : features }), [send, features, isLarge]);
   useEffect(sendFeatures, [sendFeatures]);
 
   const sendOptions = useCallback(
-    () => send({ type: 'options', options: { wordWrap, folding, indentGuides, minimap } }),
-    [send, wordWrap, folding, indentGuides, minimap],
+    () =>
+      send({
+        type: 'options',
+        options: isLarge ? { wordWrap: false, folding: false, indentGuides: false, minimap: false } : { wordWrap, folding, indentGuides, minimap },
+      }),
+    [send, wordWrap, folding, indentGuides, minimap, isLarge],
   );
   useEffect(sendOptions, [sendOptions]);
 
@@ -122,11 +132,30 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
   const openCurrent = useCallback(async () => {
     const target = pathRef.current;
     if (!ready.current || !target) return;
+    if (!buffersStore.getState().buffers[bufferKey(project, target)]) {
+      const bytes = await workspace.fileSize(project, target);
+      if (bytes > TOO_LARGE_BYTES) {
+        if (pathRef.current === target) setRefused({ path: target, message: `This file is ${formatBytes(bytes)}, too big to edit here.` });
+        return;
+      }
+    }
     const buffer = await buffersStore.getState().load(project, target);
     // The user may have switched tabs while the file was loading.
     if (pathRef.current !== target) return;
+    const kind = classify(buffer.content);
+    if (kind === 'binary') {
+      setRefused({ path: target, message: "This looks like a binary file, so it can't be edited as text." });
+      return;
+    }
+    setRefused(null);
+    setLarge(kind === 'large' ? target : null);
+    if (kind === 'large') {
+      // Off before the text arrives, so the editor never highlights it.
+      send({ type: 'options', options: { wordWrap: false, folding: false, indentGuides: false, minimap: false } });
+      send({ type: 'features', features: NO_FEATURES });
+    }
     editorContent.current = buffer.content;
-    send({ type: 'open', path: target, content: buffer.content, language: languageFor(target) });
+    send({ type: 'open', path: target, content: buffer.content, language: kind === 'large' ? 'plain' : languageFor(target) });
     opened.current = target;
     const reveal = pendingReveal.current;
     if (reveal?.path === target) {
@@ -248,6 +277,20 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
         setSupportMultipleWindows={false}
         textZoom={100}
       />
+      {isLarge && (
+        <View style={styles.banner} pointerEvents="none">
+          <Text variant="muted" style={styles.bannerText}>
+            Large file: highlighting, folding and the minimap are off
+          </Text>
+        </View>
+      )}
+      {path && refused?.path === path && (
+        <View style={styles.empty} testID="editor-refused">
+          <Text variant="muted" style={styles.refused}>
+            {refused.message}
+          </Text>
+        </View>
+      )}
       {!path && (
         <View style={styles.empty}>
           <Text variant="muted">No file open.</Text>
@@ -261,6 +304,9 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
 const useStyles = makeStyles((colors) => ({
   container: { flex: 1, backgroundColor: colors.background },
   webview: { flex: 1, backgroundColor: colors.background },
+  banner: { position: 'absolute', right: spacing.sm, bottom: spacing.sm, paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: 6, backgroundColor: colors.secondary, opacity: 0.9 },
+  bannerText: { fontSize: 11 },
+  refused: { textAlign: 'center', paddingHorizontal: spacing.lg },
   empty: {
     ...StyleSheet.absoluteFill,
     alignItems: 'center',

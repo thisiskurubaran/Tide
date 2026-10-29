@@ -1,6 +1,6 @@
 import Feather from '@expo/vector-icons/Feather';
-import { useState } from 'react';
-import { Alert, Pressable, ScrollView, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { Alert, FlatList, Pressable, View } from 'react-native';
 
 import { Action, ActionSheet } from '../../components/ActionSheet';
 import { IconButton } from '../../components/Button';
@@ -11,6 +11,7 @@ import { projectsStore } from '../../state';
 import { shareFile } from '../external/share';
 import { radius, spacing } from '../../theme/tokens';
 import { basename } from './fs';
+import { TreeRow, visibleRows } from './flatten';
 import type { TreeNode } from './workspace';
 import { makeStyles, useColors } from '../../theme/theme';
 
@@ -74,39 +75,40 @@ export function FileTree({ project, nodes, activePath, onOpenFile }: FileTreePro
     ];
   }
 
-  function renderNode(node: TreeNode, depth: number) {
+  const rows = useMemo(() => visibleRows(nodes, expanded), [nodes, expanded]);
+
+  function renderRow({ item }: { item: TreeRow }) {
+    if (item.kind === 'unlisted')
+      return (
+        <Text variant="muted" style={[styles.unlisted, { paddingLeft: spacing.sm + item.depth * INDENT }]}>
+          Contents not listed
+        </Text>
+      );
+    const { node, depth } = item;
     const isDir = node.kind === 'dir';
     const open = expanded.has(node.path);
     const active = node.path === activePath;
     return (
-      <View key={node.path}>
-        <Pressable
-          testID={`tree-${node.path}`}
-          onPress={() => (isDir ? toggle(node.path) : onOpenFile(node.path))}
-          onLongPress={() => setMenuFor(node)}
-          style={({ pressed }) => [
-            styles.row,
-            { paddingLeft: spacing.sm + depth * INDENT },
-            (active || pressed) && { backgroundColor: active ? colors.brandSoft : colors.secondary },
-          ]}
-        >
-          {isDir ? (
-            <Feather name={open ? 'chevron-down' : 'chevron-right'} size={16} color={colors.mutedForeground} />
-          ) : (
-            <FileIcon name={node.name} fallback={<Feather name="file-text" size={16} color={active ? colors.brand : colors.mutedForeground} />} />
-          )}
-          {isDir && <Feather name="folder" size={16} color={colors.brand} />}
-          <Text variant="label" numberOfLines={1} style={styles.name}>
-            {node.name}
-          </Text>
-        </Pressable>
-        {isDir && open && node.unlisted && (
-          <Text variant="muted" style={[styles.unlisted, { paddingLeft: spacing.sm + (depth + 1) * INDENT }]}>
-            Contents not listed
-          </Text>
+      <Pressable
+        testID={`tree-${node.path}`}
+        onPress={() => (isDir ? toggle(node.path) : onOpenFile(node.path))}
+        onLongPress={() => setMenuFor(node)}
+        style={({ pressed }) => [
+          styles.row,
+          { paddingLeft: spacing.sm + depth * INDENT },
+          (active || pressed) && { backgroundColor: active ? colors.brandSoft : colors.secondary },
+        ]}
+      >
+        {isDir ? (
+          <Feather name={open ? 'chevron-down' : 'chevron-right'} size={16} color={colors.mutedForeground} />
+        ) : (
+          <FileIcon name={node.name} fallback={<Feather name="file-text" size={16} color={active ? colors.brand : colors.mutedForeground} />} />
         )}
-        {isDir && open && node.children?.map((child) => renderNode(child, depth + 1))}
-      </View>
+        {isDir && <Feather name="folder" size={16} color={colors.brand} />}
+        <Text variant="label" numberOfLines={1} style={styles.name}>
+          {node.name}
+        </Text>
+      </Pressable>
     );
   }
 
@@ -126,10 +128,18 @@ export function FileTree({ project, nodes, activePath, onOpenFile }: FileTreePro
         <IconButton icon="folder-plus" label="New folder" onPress={() => setPrompt({ kind: 'new-folder', parent: '' })} testID="tree-new-folder" />
         <IconButton icon="refresh-cw" label="Refresh" onPress={() => store.loadTree(project)} />
       </View>
-      <ScrollView contentContainerStyle={styles.list}>
-        {nodes.map((n) => renderNode(n, 0))}
-        {nodes.length === 0 && <Text variant="muted" style={styles.empty}>This project is empty.</Text>}
-      </ScrollView>
+      {/* Virtualized: a big project can have thousands of rows open. */}
+      <FlatList
+        data={rows}
+        keyExtractor={(row) => (row.kind === 'node' ? row.node.path : `${row.path}\u0000unlisted`)}
+        renderItem={renderRow}
+        extraData={activePath}
+        contentContainerStyle={styles.list}
+        initialNumToRender={40}
+        maxToRenderPerBatch={40}
+        windowSize={11}
+        ListEmptyComponent={<Text variant="muted" style={styles.empty}>This project is empty.</Text>}
+      />
 
       <ActionSheet title={menuFor?.path ?? null} actions={menuFor ? actionsFor(menuFor) : []} onClose={() => setMenuFor(null)} />
 

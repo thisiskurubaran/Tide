@@ -13,6 +13,8 @@ export interface FsAdapter {
   // Creates missing parents, like mkdir -p.
   mkdir(path: string): Promise<void>;
   readFile(path: string): Promise<string>;
+  // In bytes, so huge files can be turned away before reading them.
+  size(path: string): Promise<number>;
   // Creates missing parents.
   writeFile(path: string, content: string): Promise<void>;
   // Renames within the same parent directory.

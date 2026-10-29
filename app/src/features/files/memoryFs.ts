@@ -44,6 +44,12 @@ export function createMemoryFs(): FsAdapter & { files: Map<string, string>; dirs
       if (content === undefined) throw new Error(`ENOENT: ${path}`);
       return content;
     },
+    async size(path) {
+      const content = files.get(path);
+      if (content === undefined) throw new Error(`ENOENT: ${path}`);
+      const b = binary.get(path);
+      return b ? Buffer.from(b, 'base64').length : Buffer.byteLength(content, 'utf8');
+    },
     async writeFile(path, content) {
       if (dirs.has(path)) throw new Error(`EISDIR: ${path}`);
       mkdirp(dirname(path));

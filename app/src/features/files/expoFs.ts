@@ -24,6 +24,9 @@ export function createExpoFs(root: Directory = Paths.document): FsAdapter {
     async readFile(path) {
       return file(path).text();
     },
+    async size(path) {
+      return file(path).size ?? 0;
+    },
     async writeFile(path, content) {
       const parent = dirname(path);
       if (parent) dir(parent).create({ intermediates: true, idempotent: true });
