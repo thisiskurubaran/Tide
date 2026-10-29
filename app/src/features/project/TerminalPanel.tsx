@@ -153,7 +153,7 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>
               testID={`preview-${port}`}
               accessibilityRole="button"
               accessibilityLabel={`Open preview of port ${port}`}
-              onPress={() => router.push({ pathname: '/preview', params: { url, port: String(port) } })}
+              onPress={() => router.push({ pathname: '/preview', params: { url, port: String(port), project } })}
               style={({ pressed }) => [styles.port, pressed && styles.portPressed]}
             >
               <Text variant="label" style={styles.portText}>
