@@ -64,6 +64,18 @@ npm install
 npm run ios       # or: npm run android
 ```
 
+### From Xcode
+
+Generate the native project once (and again after changing `app.json`, a config plugin or a native dependency), then open the workspace, not `Tide.xcodeproj`: the project alone does not include the CocoaPods targets.
+
+```bash
+cd app
+npx expo prebuild --clean --platform ios
+open ios/Tide.xcworkspace
+```
+
+Signing uses the team in `app.json` (`ios.appleTeamId`). The Debug configuration is a development client: start Metro first with `npx expo start --dev-client`, then run. For a build with the JavaScript bundled in, edit the scheme and set Run to the Release configuration.
+
 ## Terminal
 
 The terminal has two modes, switched in its header. Local mode is a small built-in shell, not a real one (iOS can't start processes). It has `ls cd pwd cat echo touch mkdir rm mv cp clear help`, plus `node <file>`, `python <file>` and `run`, which starts the entry in the project's `tide.json`, and the `npm`, `pip` and `git` described below. Anything else needs Remote mode.
@@ -204,11 +216,11 @@ Install Maestro (`brew install mobile-dev-inc/tap/maestro`). It needs Java; Home
 export JAVA_HOME=/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home
 ```
 
-Build the Release app for the simulator. Build for arm64 only: CPython's install step can't handle the two-architecture simulator slice a Release build uses by default.
+Build the Release app for the simulator:
 
 ```bash
 cd app/ios
-xcodebuild -workspace Tide.xcworkspace -scheme Tide -configuration Release -sdk iphonesimulator ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build
+xcodebuild -workspace Tide.xcworkspace -scheme Tide -configuration Release -sdk iphonesimulator build
 xcrun simctl install booted ~/Library/Developer/Xcode/DerivedData/Tide-*/Build/Products/Release-iphonesimulator/Tide.app
 ```
 

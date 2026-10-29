@@ -49,7 +49,14 @@ const IOS_PHASE_SCRIPT = [
   'set -e',
   'XCFW=../modules/python-runtime/ios/Python.xcframework',
   'source "$PROJECT_DIR/$XCFW/build/utils.sh"',
+  // install_python copies lib-$ARCHS, which only exists for one architecture. A Release
+  // build for the simulator has two (arm64 x86_64), so run it with the first and copy
+  // the other slices' lib folders (they only hold per-architecture sysconfig data).
+  'ALL_ARCHS="$ARCHS"',
+  'ARCHS="${ALL_ARCHS%% *}"',
   'install_python "$XCFW"',
+  'case "$ALL_ARCHS" in *" "*) for A in $ALL_ARCHS; do rsync -au "$PROJECT_DIR/$XCFW/ios-arm64_x86_64-simulator/lib-$A/" "$CODESIGNING_FOLDER_PATH/python/lib/" --exclude "libpython*.dylib"; done ;; esac',
+  'ARCHS="$ALL_ARCHS"',
   'mkdir -p "$CODESIGNING_FOLDER_PATH/python/tide"',
   // Packages too: Format & Lint's pyflakes is a folder.
   'rsync -a --exclude __pycache__ --exclude ".*" "$PROJECT_DIR/../modules/python-runtime/python/" "$CODESIGNING_FOLDER_PATH/python/tide/"',
