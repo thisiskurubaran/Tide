@@ -74,7 +74,7 @@ function ReferencesPanel({ ctx, visible, onClose }: PanelProps) {
       </Text>
       <ScrollView style={styles.list}>
         {references.map((r, i) => (
-          <Pressable
+          <Pressable accessibilityRole="button"
             key={`${r.path}:${r.line}:${r.column}:${i}`}
             testID={`reference-${i}`}
             onPress={() => {

@@ -132,7 +132,7 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>
                   {i + 1}
                 </Text>
                 {on && tabs.ids.length > 1 && (
-                  <Pressable
+                  <Pressable accessibilityRole="button"
                     hitSlop={spacing.sm}
                     accessibilityLabel={`Close terminal ${i + 1}`}
                     testID={`terminal-close-${i + 1}`}

@@ -5,9 +5,22 @@ import { makeStyles } from '../theme/theme';
 
 type Variant = 'body' | 'label' | 'title' | 'heading' | 'muted' | 'mono' | 'error';
 
+// Titles and headings are headers to screen readers, so they can jump between
+// them, and stop growing at 1.6x so bars with buttons keep fitting. Other text
+// follows the system text size without a limit.
+const HEADERS = new Set<Variant>(['title', 'heading']);
+
 export function Text({ variant = 'body', style, ...props }: TextProps & { variant?: Variant }) {
   const styles = useStyles();
-  return <RNText {...props} style={[styles[variant], style]} />;
+  const header = HEADERS.has(variant);
+  return (
+    <RNText
+      accessibilityRole={header ? 'header' : undefined}
+      maxFontSizeMultiplier={header ? 1.6 : undefined}
+      {...props}
+      style={[styles[variant], style]}
+    />
+  );
 }
 
 const useStyles = makeStyles((colors) => ({

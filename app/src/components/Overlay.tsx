@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { makeStyles } from '../theme/theme';
 import { borderWidth, radius, spacing } from '../theme/tokens';
+import { useModalAnimation } from './a11y';
 
 interface OverlayProps {
   visible: boolean;
@@ -16,11 +17,14 @@ interface OverlayProps {
 export function Overlay({ visible, onClose, children }: OverlayProps) {
   const styles = useStyles();
   const insets = useSafeAreaInsets();
+  const animation = useModalAnimation('fade');
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} supportedOrientations={['portrait', 'landscape']}>
+    <Modal visible={visible} transparent animationType={animation} onRequestClose={onClose} supportedOrientations={['portrait', 'landscape']}>
       <View style={[styles.fill, { paddingTop: insets.top + spacing.sm }]}>
-        <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
-        <View style={styles.panel}>{children}</View>
+        <Pressable accessibilityRole="button" style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
+        <View style={styles.panel} accessibilityViewIsModal onAccessibilityEscape={onClose}>
+          {children}
+        </View>
       </View>
     </Modal>
   );

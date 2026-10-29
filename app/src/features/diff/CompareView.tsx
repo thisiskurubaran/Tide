@@ -15,6 +15,7 @@ import { languageFor } from '../editor/bridge';
 import { DiffLayout, parseFromDiff, ToDiff } from './bridge';
 import diffHtml from './diffHtml.generated';
 import { CompareRequest, Comparison, loadComparison } from './sources';
+import { useModalAnimation } from '../../components/a11y';
 
 const WIDE = 768;
 
@@ -25,6 +26,7 @@ export function CompareView({ project, request, onClose }: { project: string; re
   const styles = useStyles();
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const animation = useModalAnimation();
   const { width } = useWindowDimensions();
   const scheme = useColorScheme();
   const theme = useEditorTheme(scheme);
@@ -102,8 +104,8 @@ export function CompareView({ project, request, onClose }: { project: string; re
   }
 
   return (
-    <Modal visible={request !== null} animationType="slide" onRequestClose={close} supportedOrientations={['portrait', 'landscape']}>
-      <View style={[styles.screen, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+    <Modal visible={request !== null} animationType={animation} onRequestClose={close} supportedOrientations={['portrait', 'landscape']}>
+      <View style={[styles.screen, { paddingTop: insets.top, paddingBottom: insets.bottom }]} onAccessibilityEscape={close}>
         <View style={styles.header}>
           <IconButton icon="x" label="Close" onPress={close} testID="compare-close" />
           <View style={styles.title}>

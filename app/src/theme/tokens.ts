@@ -58,6 +58,35 @@ export const palette: Record<ColorScheme, Colors> = {
   },
 };
 
+// For Increase Contrast (system or Settings > Appearance > Contrast): text
+// reaches 7:1 (WCAG AAA) against the background, borders 3:1.
+export const highContrast: Record<ColorScheme, Colors> = {
+  dark: {
+    ...palette.dark,
+    background: '#000000',
+    card: '#0e1110',
+    secondary: '#1f2422',
+    mutedForeground: '#d0d6d3',
+    border: '#6b7471',
+    brand: '#a9bdff',
+    success: '#62e3b5',
+    warning: '#ffcd70',
+    destructive: '#ff9d95',
+  },
+  light: {
+    ...palette.light,
+    background: '#ffffff',
+    foreground: '#000000',
+    secondary: '#ececea',
+    mutedForeground: '#363c3a',
+    border: '#858b89',
+    brand: '#1638a8',
+    success: '#08573d',
+    warning: '#6e4100',
+    destructive: '#9c241b',
+  },
+};
+
 export const colors = palette.dark;
 
 // Hues FuseOps doesn't define, needed for syntax and ANSI magenta/cyan.

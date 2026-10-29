@@ -92,7 +92,7 @@ export function OpenIncomingScreen() {
               <View style={styles.list}>
                 <Text variant="label">Add to a project</Text>
                 {projects.map((p) => (
-                  <Pressable
+                  <Pressable accessibilityRole="button"
                     key={p}
                     testID={`incoming-to-${p}`}
                     disabled={busy}

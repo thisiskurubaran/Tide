@@ -37,7 +37,7 @@ export function TabBar({ open, active, dirty, onSelect, onClose }: TabBarProps) 
             <Text variant="label" style={{ color: selected ? colors.foreground : colors.mutedForeground }} numberOfLines={1}>
               {basename(path)}
             </Text>
-            <Pressable hitSlop={spacing.sm} onPress={() => onClose(path)} accessibilityLabel={`Close ${basename(path)}`}>
+            <Pressable accessibilityRole="button" hitSlop={spacing.sm} onPress={() => onClose(path)} accessibilityLabel={`Close ${basename(path)}`}>
               {dirty.has(path) ? (
                 <View style={styles.dirty} accessibilityLabel="Unsaved changes" testID={`dirty-${path}`} />
               ) : (

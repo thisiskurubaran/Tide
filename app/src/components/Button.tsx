@@ -29,6 +29,7 @@ export function Button({ title, onPress, variant = 'primary', icon, disabled, te
       onPress={onPress}
       disabled={disabled}
       accessibilityRole="button"
+      accessibilityState={{ disabled: !!disabled }}
       style={({ pressed }) => [
         styles.button,
         primary ? styles.primary : styles.outline,
@@ -46,20 +47,23 @@ interface IconButtonProps {
   label: string;
   onPress(): void;
   color?: string;
+  disabled?: boolean;
   testID?: string;
 }
 
-export function IconButton({ icon, label, onPress, color, testID }: IconButtonProps) {
+export function IconButton({ icon, label, onPress, color, disabled, testID }: IconButtonProps) {
   const styles = useStyles();
   const colors = useColors();
   return (
     <Pressable
       testID={testID}
       onPress={onPress}
+      disabled={disabled}
       accessibilityRole="button"
       accessibilityLabel={label}
+      accessibilityState={{ disabled: !!disabled }}
       hitSlop={spacing.sm}
-      style={({ pressed }) => [styles.icon, pressed && { backgroundColor: colors.secondary }]}
+      style={({ pressed }) => [styles.icon, pressed && { backgroundColor: colors.secondary }, disabled && styles.dimmed]}
     >
       <View>
         <Feather name={icon} size={18} color={color ?? colors.mutedForeground} />

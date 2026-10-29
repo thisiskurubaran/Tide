@@ -39,10 +39,10 @@ export function DebugScreen() {
     <View style={styles.container}>
       <Text style={styles.title}>Tide runtime spike</Text>
       <View style={styles.buttons}>
-        <Pressable style={styles.button} onPress={runNode} testID="run-node">
+        <Pressable accessibilityRole="button" style={styles.button} onPress={runNode} testID="run-node">
           <Text style={styles.buttonText}>Run Node</Text>
         </Pressable>
-        <Pressable style={styles.button} onPress={runPython} testID="run-python">
+        <Pressable accessibilityRole="button" style={styles.button} onPress={runPython} testID="run-python">
           <Text style={styles.buttonText}>Run Python</Text>
         </Pressable>
       </View>

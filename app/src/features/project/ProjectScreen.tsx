@@ -47,6 +47,7 @@ import type { CompareRequest } from '../diff/sources';
 import { PackagesSheet } from '../packages/PackagesSheet';
 import { isJsTestFile, isPyTestFile } from '../tests/results';
 import { TestsRequest, TestsSheet } from '../tests/TestsSheet';
+import { useReduceMotion } from '../../components/a11y';
 
 // Extensions can contribute the same command or panel (Show problems); the first one wins.
 const uniqueById = <T extends { id: string }>(items: T[]) => items.filter((x, i) => items.findIndex((o) => o.id === x.id) === i);
@@ -101,6 +102,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
   const [panel, setPanel] = useState<string | null>(null);
   const [showSnapshots, setShowSnapshots] = useState(false);
   const [showLinked, setShowLinked] = useState(false);
+  const reduceMotion = useReduceMotion();
   const [compare, setCompare] = useState<CompareRequest | null>(null);
   const [packagesOpen, setPackagesOpen] = useState(false);
   const [tests, setTests] = useState<TestsRequest | null>(null);
@@ -135,8 +137,8 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
   }, [project]);
 
   useEffect(() => {
-    Animated.timing(progress, { toValue: drawerOpen ? 1 : 0, duration: 200, useNativeDriver: true }).start();
-  }, [drawerOpen, progress]);
+    Animated.timing(progress, { toValue: drawerOpen ? 1 : 0, duration: reduceMotion ? 0 : 200, useNativeDriver: true }).start();
+  }, [drawerOpen, progress, reduceMotion]);
 
   const openFile = (path: string) => {
     if (rightFocused) {
@@ -496,7 +498,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
             pointerEvents={drawerOpen ? 'auto' : 'none'}
             style={[StyleSheet.absoluteFill, styles.backdrop, { opacity: progress.interpolate({ inputRange: [0, 1], outputRange: [0, 0.6] }) }]}
           >
-            <Pressable style={StyleSheet.absoluteFill} onPress={() => setDrawerOpen(false)} accessibilityLabel="Close files" />
+            <Pressable accessibilityRole="button" style={StyleSheet.absoluteFill} onPress={() => setDrawerOpen(false)} accessibilityLabel="Close files" />
           </Animated.View>
           <Animated.View
             pointerEvents={drawerOpen ? 'auto' : 'none'}

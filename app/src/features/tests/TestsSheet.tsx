@@ -13,6 +13,8 @@ import { makeStyles, useColors } from '../../theme/theme';
 import { borderWidth, fonts, fontSizes, spacing } from '../../theme/tokens';
 import { summarize, TestResult } from './results';
 import { FileRun, findTestFiles, runTests, TestLanguage } from './runTests';
+import { useModalAnimation } from '../../components/a11y';
+import { announce } from '../../components/a11y';
 
 export interface TestsRequest {
   // Only these files; otherwise every test file found.
@@ -34,6 +36,7 @@ export function TestsSheet({ project, request, onClose, onOpen, onTerminal }: Te
   const styles = useStyles();
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const animation = useModalAnimation();
   const mode = useRunner((s) => s.mode);
   const [available, setAvailable] = useState<Record<TestLanguage, string[]> | null>(null);
   const [language, setLanguage] = useState<TestLanguage>('js');
@@ -94,7 +97,10 @@ export function TestsSheet({ project, request, onClose, onOpen, onTerminal }: Te
   const all = runs.flatMap((r) => r.results);
   const counts = summarize(all);
   useEffect(() => {
-    if (!running && elapsed !== null) haptic(counts.fail ? 'error' : 'success');
+    if (!running && elapsed !== null) {
+      haptic(counts.fail ? 'error' : 'success');
+      announce(`Tests finished: ${counts.pass} passed${counts.fail ? `, ${counts.fail} failed` : ''}`);
+    }
   }, [running, elapsed]);
 
   const sections = runs
@@ -104,7 +110,7 @@ export function TestsSheet({ project, request, onClose, onOpen, onTerminal }: Te
 
   const icon = (t: TestResult) =>
     t.status === 'pass' ? (
-      <Feather name="check-circle" size={16} color="#3fb950" />
+      <Feather name="check-circle" size={16} color={colors.success} />
     ) : t.status === 'fail' ? (
       <Feather name="x-circle" size={16} color={colors.destructive} />
     ) : (
@@ -115,8 +121,8 @@ export function TestsSheet({ project, request, onClose, onOpen, onTerminal }: Te
   const nothing = available && !available.js.length && !available.python.length;
 
   return (
-    <Modal visible={request !== null} animationType="slide" onRequestClose={onClose} supportedOrientations={['portrait', 'landscape']}>
-      <View style={[styles.screen, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+    <Modal visible={request !== null} animationType={animation} onRequestClose={onClose} supportedOrientations={['portrait', 'landscape']}>
+      <View style={[styles.screen, { paddingTop: insets.top, paddingBottom: insets.bottom }]} onAccessibilityEscape={onClose}>
         <View style={styles.header}>
           <IconButton icon="x" label="Close" onPress={onClose} testID="tests-close" />
           <Text variant="title" style={styles.flex}>

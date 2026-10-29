@@ -8,7 +8,7 @@ import { IconButton } from '../../components/Button';
 import { Segmented } from '../../components/Segmented';
 import { Text } from '../../components/Text';
 import { settingsStore, useSettings } from '../../state';
-import { EditorOptionKey, FONT_SIZE_MAX, FONT_SIZE_MIN, ThemeSetting } from '../../state/settings';
+import { ContrastSetting, EditorOptionKey, FONT_SIZE_MAX, FONT_SIZE_MIN, ThemeSetting } from '../../state/settings';
 import { makeStyles, useColors } from '../../theme/theme';
 import { borderWidth, radius, spacing } from '../../theme/tokens';
 import { useExtensions } from '../../extensions/state';
@@ -28,6 +28,7 @@ export function SettingsScreen() {
   const terminalFontSize = useSettings((s) => s.terminalFontSize);
   const crashReports = useSettings((s) => s.crashReports);
   const haptics = useSettings((s) => s.haptics);
+  const contrast = useSettings((s) => s.contrast);
   const editorOptions: Record<EditorOptionKey, boolean> = {
     wordWrap: useSettings((s) => s.wordWrap),
     folding: useSettings((s) => s.folding),
@@ -60,6 +61,18 @@ export function SettingsScreen() {
                 { value: 'system', label: 'System' },
                 { value: 'light', label: 'Light' },
                 { value: 'dark', label: 'Dark' },
+              ]}
+            />
+          </Row>
+          <Row label="Contrast">
+            <Segmented<ContrastSetting>
+              testID="contrast"
+              value={contrast}
+              onChange={(c) => settings.setContrast(c)}
+              options={[
+                { value: 'system', label: 'System' },
+                { value: 'standard', label: 'Standard' },
+                { value: 'high', label: 'High' },
               ]}
             />
           </Row>

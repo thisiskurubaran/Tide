@@ -95,6 +95,12 @@ export function FileTree({ project, nodes, activePath, onOpenFile }: FileTreePro
         testID={`tree-${node.path}`}
         onPress={() => (isDir ? toggle(node.path) : onOpenFile(node.path))}
         onLongPress={() => setMenuFor(node)}
+        accessibilityRole="button"
+        accessibilityLabel={`${node.name}, ${isDir ? 'folder' : 'file'}`}
+        accessibilityState={{ expanded: isDir ? open : undefined, selected: active }}
+        // Long press opens the menu; screen readers get it as an action.
+        accessibilityActions={[{ name: 'longpress', label: 'More actions' }]}
+        onAccessibilityAction={(e) => e.nativeEvent.actionName === 'longpress' && setMenuFor(node)}
         style={({ pressed }) => [
           styles.row,
           { paddingLeft: spacing.sm + depth * INDENT },

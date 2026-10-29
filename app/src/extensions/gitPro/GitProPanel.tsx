@@ -192,7 +192,7 @@ function Changes({ git, act, busy, setDetail, ctx, status }: Shared & { status: 
     );
 
   const row = (c: FileChange, side: 'staged' | 'unstaged') => (
-    <Pressable
+    <Pressable accessibilityRole="button"
       key={`${side}-${c.path}`}
       testID={`gp-${side}-${c.path}`}
       onPress={() => (c.code === 'UU' ? ctx.openFile(c.path, 1) : setDetail({ kind: 'file', path: c.path, staged: side === 'staged' }))}
@@ -373,7 +373,7 @@ function BranchList({ git, act, busy, status }: Shared & { status: Status }) {
       {branches.local.map((b) => {
         const current = b === branches.current;
         return (
-          <Pressable
+          <Pressable accessibilityRole="button"
             key={b}
             testID={`gp-branch-${b}`}
             onPress={() => !current && checkout(b)}
@@ -394,7 +394,7 @@ function BranchList({ git, act, busy, status }: Shared & { status: Status }) {
       })}
       {branches.remote.length > 0 && <Text variant="label">Remote</Text>}
       {branches.remote.map((b) => (
-        <Pressable key={b} testID={`gp-remote-${b}`} onPress={() => checkout(b)} style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.secondary }]}>
+        <Pressable accessibilityRole="button" key={b} testID={`gp-remote-${b}`} onPress={() => checkout(b)} style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.secondary }]}>
           <Feather name="cloud" size={16} color={colors.mutedForeground} />
           <Text style={styles.flex} numberOfLines={1}>
             {b}
@@ -429,7 +429,7 @@ function History({ git, setDetail }: Shared) {
   return (
     <View>
       {log.map((c) => (
-        <Pressable
+        <Pressable accessibilityRole="button"
           key={c.oid}
           testID={`gp-commit-${c.oid.slice(0, 7)}`}
           onPress={() => setDetail({ kind: 'commit', commit: c })}
@@ -466,7 +466,7 @@ function CommitDetail({ git, setDetail, commit }: Shared & { commit: CommitInfo 
       </Text>
       {!files && <Text variant="muted">Loading...</Text>}
       {files?.map((f) => (
-        <Pressable
+        <Pressable accessibilityRole="button"
           key={f.path}
           testID={`gp-commit-file-${f.path}`}
           onPress={() => setDetail({ kind: 'commitFile', commit, path: f.path })}

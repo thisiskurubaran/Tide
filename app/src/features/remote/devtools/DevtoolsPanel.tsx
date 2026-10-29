@@ -25,7 +25,7 @@ export function DevtoolsPanel({ state, onEval, onClear }: DevtoolsPanelProps) {
   const [open, setOpen] = useState<string | null>(null);
 
   const levelColor = (e: ConsoleEntry) =>
-    e.level === 'error' ? colors.destructive : e.level === 'warn' ? '#d9a33f' : e.kind === 'input' ? colors.brand : e.kind === 'result' ? colors.mutedForeground : colors.foreground;
+    e.level === 'error' ? colors.destructive : e.level === 'warn' ? colors.warning : e.kind === 'input' ? colors.brand : e.kind === 'result' ? colors.mutedForeground : colors.foreground;
 
   const renderEntry = ({ item }: { item: ConsoleEntry }) => (
     <View style={styles.entry}>

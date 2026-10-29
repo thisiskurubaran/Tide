@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { borderWidth, radius, spacing } from '../theme/tokens';
 import { makeStyles } from '../theme/theme';
+import { useModalAnimation } from './a11y';
 
 interface SheetProps {
   visible: boolean;
@@ -15,11 +16,15 @@ interface SheetProps {
 export function Sheet({ visible, onClose, children }: SheetProps) {
   const styles = useStyles();
   const insets = useSafeAreaInsets();
+  const animation = useModalAnimation('fade');
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType={animation} onRequestClose={onClose}>
       <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
-        <View style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]}>{children}</View>
+        <Pressable accessibilityRole="button" style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
+        {/* Screen readers stay inside the sheet; the escape gesture closes it. */}
+        <View style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]} accessibilityViewIsModal onAccessibilityEscape={onClose}>
+          {children}
+        </View>
       </KeyboardAvoidingView>
     </Modal>
   );

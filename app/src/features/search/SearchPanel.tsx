@@ -142,7 +142,7 @@ export function SearchPanel({ visible, project, onOpen, onClose }: SearchPanelPr
         <Toggle testID="search-case" label="Match case" text="Aa" on={caseSensitive} onChange={setCaseSensitive} />
         <Toggle testID="search-word" label="Match whole word" text="ab|" on={wholeWord} onChange={setWholeWord} />
         <Toggle testID="search-regex" label="Use regular expression" text=".*" on={regex} onChange={setRegex} />
-        <Pressable testID="search-filters" accessibilityLabel="Files to include or exclude" onPress={() => setFiltering((f) => !f)} hitSlop={spacing.xs}>
+        <Pressable accessibilityRole="button" testID="search-filters" accessibilityLabel="Files to include or exclude" onPress={() => setFiltering((f) => !f)} hitSlop={spacing.xs}>
           <Feather name="filter" size={16} color={filtering || include || exclude ? colors.brand : colors.mutedForeground} />
         </Pressable>
       </View>
@@ -211,7 +211,7 @@ export function SearchPanel({ visible, project, onOpen, onClose }: SearchPanelPr
               {section.path}
             </Text>
             {replacing && (
-              <Pressable
+              <Pressable accessibilityRole="button"
                 testID={`replace-file-${section.path}`}
                 accessibilityLabel={`Replace in ${section.path}`}
                 onPress={() => replace([section.path])}
@@ -224,7 +224,7 @@ export function SearchPanel({ visible, project, onOpen, onClose }: SearchPanelPr
           </View>
         )}
         renderItem={({ item, section }) => (
-          <Pressable
+          <Pressable accessibilityRole="button"
             testID={`search-hit-${section.path}:${item.line}`}
             onPress={() => {
               onClose();

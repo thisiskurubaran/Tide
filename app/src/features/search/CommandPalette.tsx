@@ -82,7 +82,7 @@ export function CommandPalette({ mode, project, commands, onOpenFile, onClose }:
         keyExtractor={(item) => (item.kind === 'file' ? `f:${item.path}` : `c:${item.command.id}`)}
         ListEmptyComponent={<Text variant="muted" style={styles.empty}>{query.startsWith('>') ? 'No matching commands' : 'No matching files'}</Text>}
         renderItem={({ item, index }) => (
-          <Pressable
+          <Pressable accessibilityRole="button"
             testID={item.kind === 'file' ? `palette-file-${item.path}` : `palette-command-${item.command.id}`}
             onPress={() => choose(item)}
             style={({ pressed }) => [styles.row, (pressed || index === 0) && styles.rowActive]}

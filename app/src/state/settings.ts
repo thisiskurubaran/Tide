@@ -19,13 +19,18 @@ export interface SettingsState {
   indentGuides: boolean;
   minimap: boolean;
   haptics: boolean;
+  // "system" follows the device's Increase Contrast setting.
+  contrast: ContrastSetting;
   setTheme(theme: ThemeSetting): void;
   setEditorFontSize(size: number): void;
   setTerminalFontSize(size: number): void;
   setCrashReports(on: boolean): void;
   setEditorOption(key: EditorOptionKey, on: boolean): void;
   setHaptics(on: boolean): void;
+  setContrast(contrast: ContrastSetting): void;
 }
+
+export type ContrastSetting = 'system' | 'standard' | 'high';
 
 export type EditorOptionKey = 'wordWrap' | 'folding' | 'indentGuides' | 'minimap';
 
@@ -42,18 +47,20 @@ export function createSettingsStore(storage: StateStorage) {
         indentGuides: true,
         minimap: false,
         haptics: true,
+        contrast: 'system',
         setTheme: (theme) => set({ theme }),
         setEditorFontSize: (size) => set({ editorFontSize: clampFontSize(size) }),
         setTerminalFontSize: (size) => set({ terminalFontSize: clampFontSize(size) }),
         setCrashReports: (crashReports) => set({ crashReports }),
         setEditorOption: (key, on) => set({ [key]: on }),
         setHaptics: (haptics) => set({ haptics }),
+        setContrast: (contrast) => set({ contrast }),
       }),
       {
         name: 'settings',
         version: 1,
         storage: createJSONStorage(() => storage),
-        partialize: ({ theme, editorFontSize, terminalFontSize, crashReports, wordWrap, folding, indentGuides, minimap, haptics }) => ({
+        partialize: ({ theme, editorFontSize, terminalFontSize, crashReports, wordWrap, folding, indentGuides, minimap, haptics, contrast }) => ({
           theme,
           editorFontSize,
           terminalFontSize,
@@ -63,6 +70,7 @@ export function createSettingsStore(storage: StateStorage) {
           indentGuides,
           minimap,
           haptics,
+          contrast,
         }),
       },
     ),

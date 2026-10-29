@@ -35,7 +35,7 @@ export function ProblemsPanel({ ctx, visible, onClose }: PanelProps) {
           <View key={path} style={styles.file}>
             <Text variant="label">{path}</Text>
             {fileDiagnostics(state, ctx.project, path).map((d, i) => (
-              <Pressable
+              <Pressable accessibilityRole="button"
                 key={`${d.source}-${d.from}-${i}`}
                 testID={`problem-${path}-${d.line}`}
                 onPress={() => {

@@ -26,6 +26,8 @@ import {
   searchPip,
 } from './packages';
 import { runTool, tidyOutput } from './run';
+import { useModalAnimation } from '../../components/a11y';
+import { announce } from '../../components/a11y';
 
 const SEARCH_DELAY_MS = 350;
 
@@ -41,6 +43,7 @@ export function PackagesSheet({ project, visible, onClose, onTerminal }: Package
   const styles = useStyles();
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const animation = useModalAnimation();
   const mode = useRunner((s) => s.mode);
   const [ecosystems, setEcosystems] = useState<Ecosystem[]>(['npm']);
   const [eco, setEco] = useState<Ecosystem>('npm');
@@ -121,6 +124,7 @@ export function PackagesSheet({ project, visible, onClose, onTerminal }: Package
     setBusy(null);
     setFailed(code !== 0);
     haptic(code === 0 ? 'success' : 'error');
+    announce(code === 0 ? 'Packages updated' : `${eco} failed: ${tidyOutput(text).split('\n').pop()}`);
     if (code === 0) setQuery('');
     await projectsStore.getState().loadTree(project);
     await load();
@@ -189,8 +193,8 @@ export function PackagesSheet({ project, visible, onClose, onTerminal }: Package
   };
 
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose} supportedOrientations={['portrait', 'landscape']}>
-      <View style={[styles.screen, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+    <Modal visible={visible} animationType={animation} onRequestClose={onClose} supportedOrientations={['portrait', 'landscape']}>
+      <View style={[styles.screen, { paddingTop: insets.top, paddingBottom: insets.bottom }]} onAccessibilityEscape={onClose}>
         <View style={styles.header}>
           <IconButton icon="x" label="Close" onPress={onClose} testID="packages-close" />
           <Text variant="title" style={styles.flex}>

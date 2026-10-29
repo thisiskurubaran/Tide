@@ -9,6 +9,7 @@ import { Text } from '../../components/Text';
 import { makeStyles, useColors } from '../../theme/theme';
 import { borderWidth, radius, spacing } from '../../theme/tokens';
 import { STEPS } from './steps';
+import { useModalAnimation } from '../../components/a11y';
 
 interface OnboardingProps {
   visible: boolean;
@@ -20,6 +21,7 @@ export function Onboarding({ visible, onDone }: OnboardingProps) {
   const styles = useStyles();
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const animation = useModalAnimation('fade');
   const [index, setIndex] = useState(0);
   useEffect(() => {
     if (visible) setIndex(0);
@@ -28,7 +30,7 @@ export function Onboarding({ visible, onDone }: OnboardingProps) {
   const last = index === STEPS.length - 1;
 
   return (
-    <Modal visible={visible} animationType="fade" onRequestClose={() => onDone(false)} supportedOrientations={['portrait', 'landscape']}>
+    <Modal visible={visible} animationType={animation} onRequestClose={() => onDone(false)} supportedOrientations={['portrait', 'landscape']}>
       <View style={[styles.screen, { paddingTop: insets.top + spacing.md, paddingBottom: insets.bottom + spacing.md }]}>
         <View style={styles.top}>
           {!last && (

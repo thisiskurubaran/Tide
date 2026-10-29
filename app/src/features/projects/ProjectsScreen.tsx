@@ -95,6 +95,11 @@ export function ProjectsScreen() {
             testID={`project-${item}`}
             onPress={() => router.push(projectHref(item))}
             onLongPress={() => setMenuFor(item)}
+            accessibilityRole="button"
+            accessibilityLabel={links[item] ? `${item}, linked to ${links[item].name}` : item}
+            accessibilityHint="Opens the project"
+            accessibilityActions={[{ name: 'longpress', label: 'More actions' }]}
+            onAccessibilityAction={(e) => e.nativeEvent.actionName === 'longpress' && setMenuFor(item)}
             style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.secondary }]}
           >
             <Feather name="folder" size={18} color={colors.brand} />

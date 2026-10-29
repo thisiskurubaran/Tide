@@ -101,7 +101,7 @@ function VariableRow({ variable, depth }: { variable: DebugVariable; depth: numb
   };
   return (
     <View>
-      <Pressable onPress={toggle} style={[styles.variable, { paddingLeft: spacing.xs + depth * spacing.md }]} testID={`var-${variable.name}`}>
+      <Pressable accessibilityRole="button" onPress={toggle} style={[styles.variable, { paddingLeft: spacing.xs + depth * spacing.md }]} testID={`var-${variable.name}`}>
         <Feather name={variable.ref ? (open ? 'chevron-down' : 'chevron-right') : 'minus'} size={12} color={variable.ref ? colors.mutedForeground : 'transparent'} />
         <Text variant="mono" style={styles.varName}>
           {variable.name}
@@ -165,7 +165,7 @@ function DebugPanel({ ctx, visible, onClose }: PanelProps) {
                 <VariableRow key={`${v.name}-${i}`} variable={v} depth={0} />
               ))}
               {!variables[scope.ref] && (
-                <Pressable onPress={() => debug.loadVariables(scope.ref)}>
+                <Pressable accessibilityRole="button" onPress={() => debug.loadVariables(scope.ref)}>
                   <Text variant="muted">Show</Text>
                 </Pressable>
               )}
@@ -179,7 +179,7 @@ function DebugPanel({ ctx, visible, onClose }: PanelProps) {
           {frames.map((f, i) => {
             const inProject = f.file?.startsWith(prefix);
             return (
-              <Pressable
+              <Pressable accessibilityRole="button"
                 key={i}
                 testID={`frame-${i}`}
                 onPress={() => {

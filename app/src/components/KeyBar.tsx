@@ -36,7 +36,7 @@ export function KeyBar({ groups, leading, onHide, testID }: KeyBarProps) {
             {g > 0 && <View style={styles.divider} />}
             {group.map((k, i) => (
               // Users can add the same key twice, so the index keeps keys unique.
-              <Pressable
+              <Pressable accessibilityRole="button"
                 key={`${i}-${k.a11y}`}
                 accessibilityLabel={k.a11y}
                 accessibilityState={k.active === undefined ? undefined : { selected: k.active }}
@@ -56,7 +56,7 @@ export function KeyBar({ groups, leading, onHide, testID }: KeyBarProps) {
           </Fragment>
         ))}
       </ScrollView>
-      <Pressable accessibilityLabel="Hide keyboard" onPress={onHide} style={({ pressed }) => [styles.hide, pressed && styles.pressed]}>
+      <Pressable accessibilityRole="button" accessibilityLabel="Hide keyboard" onPress={onHide} style={({ pressed }) => [styles.hide, pressed && styles.pressed]}>
         <Feather name="chevron-down" size={18} color={colors.mutedForeground} />
       </Pressable>
     </View>
