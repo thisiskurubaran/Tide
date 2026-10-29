@@ -58,7 +58,7 @@ export function SettingsScreen() {
       </View>
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.lg }]}>
         <Section title="Tide Pro">
-          <LinkRow label={pro ? 'Tide Pro' : 'Get Tide Pro'} detail={proDetail ?? 'Remote mode, linked folders, every extension and more'} onPress={() => router.push('/pro')} testID="settings-pro" />
+          <LinkRow label={pro ? 'Tide Pro' : 'Get Tide Pro'} detail={proDetail ?? 'Linked folders, compare and merge, every extension and more'} onPress={() => router.push('/pro')} testID="settings-pro" />
           {iconsSupported() && (
             <Row label="App icon">
               <Segmented<'standard' | 'pro'>

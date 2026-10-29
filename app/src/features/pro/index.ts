@@ -3,7 +3,7 @@ import { AppState } from 'react-native';
 import { useStore } from 'zustand';
 
 import { extensionsStore, purchases } from '../../extensions/state';
-import { runnerStore, snapshots, storage } from '../../state';
+import { snapshots, storage } from '../../state';
 import { FREE_LIMITS, PRO_LIMITS, ProFeature } from './plans';
 import { createProStore, isPro, ProState } from './store';
 import { setProIcon, usingProIcon } from './appIcon';
@@ -14,13 +14,11 @@ export const useIsPro = () => useProState((s) => isPro(s));
 export const currentlyPro = () => isPro(proStore.getState());
 
 // Everything outside the screens that depends on Pro: extensions are
-// included, snapshots kept, and Remote mode falls back to Local when Pro
-// ends so the terminal keeps working.
+// included and snapshots kept.
 function syncExtensions() {
   const pro = currentlyPro();
   extensionsStore.setState({ included: pro });
   snapshots.setKeep(pro ? PRO_LIMITS.snapshots : FREE_LIMITS.snapshots);
-  if (!pro && runnerStore.getState().mode === 'remote') runnerStore.getState().setMode('local');
   // The Pro icon goes back to the standard one when Pro ends.
   if (!pro && usingProIcon()) setProIcon(false).catch(() => undefined);
 }

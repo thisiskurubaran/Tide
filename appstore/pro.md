@@ -21,9 +21,11 @@ The product IDs and fallback prices live in `features/pro/plans.ts` and
 `extensions/manifests.ts`; `app/storekit/Tide.storekit` mirrors them and a
 test keeps the two in step.
 
-Pro unlocks Remote mode, linked folders, compare and merge, the test
+Pro unlocks linked folders, compare and merge, the test
 runner, preview dev tools, the split editor on iPad, up to 6 terminals
-(free: 2), 10 snapshots per project (free: 3) and every extension.
+(free: 2), 10 snapshots per project (free: 3), every extension and the
+Pro app icon. Remote mode is free at launch: it needs a server the user
+hosts, so it can't be sold as part of Pro until Tide hosts one.
 
 Family Sharing, decided: subscriptions off (each person subscribes),
 Lifetime on (shared with up to five family members), extensions off.
@@ -88,8 +90,7 @@ Worth checking each release:
   "Subscribe" once the trial has been used
 - Buying unlocks Pro straight away; Settings shows the plan and renewal date
 - Cancel in Settings > Apple ID > Subscriptions: Pro stays until the
-  period ends, then the features ask for Pro again and Remote mode
-  falls back to Local
+  period ends, then the features ask for Pro again
 - Restore purchases on a second device, and after deleting the app
 - Lifetime with a second Family Sharing member
 - Extensions bought alone keep working without Pro; with Pro, all of them
@@ -100,8 +101,7 @@ Worth checking each release:
 Paste into App Review Information > Notes (adjust as needed):
 
 > Tide is a code editor with a terminal. Tide Pro (monthly or yearly
-> subscription, or lifetime purchase) unlocks Remote mode, linked
-> folders, compare and merge, the test runner, preview dev tools, the
+> subscription, or lifetime purchase) unlocks linked folders, compare and merge, the test runner, preview dev tools, the
 > split editor on iPad, more terminals and snapshots, and every
 > extension. The paywall opens from Settings > Tide Pro, or from any Pro
 > feature, e.g. Command palette > Run tests.
@@ -110,5 +110,5 @@ Paste into App Review Information > Notes (adjust as needed):
 > Their code ships inside the app binary and a purchase only unlocks it;
 > nothing executable is downloaded (Guideline 2.5.2).
 >
-> Remote mode connects to a server the user hosts. Everything else works
+> Remote mode (free) connects to a server the user hosts. Everything else works
 > without an account or a network connection.

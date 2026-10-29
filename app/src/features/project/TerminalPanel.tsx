@@ -169,7 +169,7 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>
         <Segmented
           testID="runner"
           value={mode}
-          onChange={(m) => (m !== 'remote' || requirePro('remote')) && setMode(m)}
+          onChange={setMode}
           options={[
             { value: 'local', label: 'Local' },
             { value: 'remote', label: 'Remote' },

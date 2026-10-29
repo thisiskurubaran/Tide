@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 jest.mock('@expo/vector-icons/Feather', () => 'Feather');
 jest.mock('react-native-safe-area-context', () => require('react-native-safe-area-context/jest/mock').default);
 jest.mock('../../components/haptics', () => ({ haptic: () => undefined }));
-jest.mock('expo-router', () => ({ router: { back: jest.fn(), push: jest.fn() }, useLocalSearchParams: () => ({ feature: 'remote' }) }));
+jest.mock('expo-router', () => ({ router: { back: jest.fn(), push: jest.fn() }, useLocalSearchParams: () => ({ feature: 'tests' }) }));
 jest.mock('../../state', () => {
   const { createStore, useStore } = jest.requireActual('zustand');
   const settings = createStore(() => ({ theme: 'dark', contrast: 'standard' }));

@@ -44,7 +44,7 @@ export function ExtensionsScreen() {
           <Pressable onPress={() => router.push('/pro')} style={styles.pro} accessibilityRole="button" testID="extensions-pro">
             <Feather name="star" size={18} color={colors.brand} />
             <Text style={styles.flex}>
-              <Text variant="label">Tide Pro</Text> includes every extension, plus Remote mode, linked folders and more.
+              <Text variant="label">Tide Pro</Text> includes every extension, plus linked folders, compare and merge, the test runner and more.
             </Text>
             <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
           </Pressable>

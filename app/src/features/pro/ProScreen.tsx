@@ -16,7 +16,7 @@ import { PlanId, PLANS, PRO_FEATURES, ProFeature } from './plans';
 import { isPro, proStatus } from './store';
 import { offerProIcon } from './appIcon';
 
-const FEATURE_ORDER: ProFeature[] = ['remote', 'linked-folders', 'compare', 'tests', 'devtools', 'extensions', 'split-editor', 'terminals', 'snapshots', 'app-icon'];
+const FEATURE_ORDER: ProFeature[] = ['linked-folders', 'compare', 'tests', 'devtools', 'extensions', 'split-editor', 'terminals', 'snapshots', 'app-icon'];
 
 // The Tide Pro paywall: what Pro adds, the three plans, and Apple's
 // required terms and links. Opened from Settings, the Extensions screen and

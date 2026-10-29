@@ -339,7 +339,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     { id: 'keyboard-shortcuts', title: 'Keyboard shortcuts', icon: 'command', hint: '⇧⌘?', run: () => setShortcutsOpen(true) },
     { id: 'toggle-terminal', title: 'Toggle terminal', icon: 'terminal', hint: '⌘J', run: () => setTerminalHidden((h) => !h) },
     { id: 'local', title: 'Terminal: use Local', icon: 'smartphone', run: () => runnerStore.getState().setMode('local') },
-    { id: 'remote', title: 'Terminal: use Remote', icon: 'server', run: () => requirePro('remote') && runnerStore.getState().setMode('remote') },
+    { id: 'remote', title: 'Terminal: use Remote', icon: 'server', run: () => runnerStore.getState().setMode('remote') },
     { id: 'tests', title: 'Run tests', icon: 'check-square', run: () => requirePro('tests') && setTests({}) },
     ...(current && (isJsTestFile(current) || isPyTestFile(current))
       ? [{ id: 'tests.file', title: 'Run tests in this file', icon: 'check-square' as const, run: () => requirePro('tests') && setTests({ files: [current], language: isPyTestFile(current) ? 'python' : 'js' }) }]
