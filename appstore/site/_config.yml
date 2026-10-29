@@ -2,6 +2,10 @@
 # each with its privacy policy and support page. See README.md.
 title: Kurubaran Anandhan
 description: Privacy policies and support for my apps
+# The same Markdown setup GitHub Pages uses, so local builds match it.
+markdown: kramdown
+kramdown:
+  input: GFM
 # Folders starting with "_" (like _template) and these files aren't published.
 exclude:
   - README.md

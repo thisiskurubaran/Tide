@@ -1,14 +1,18 @@
 <!doctype html>
-{%- assign app = site.data.apps | where: "slug", page.app | first -%}
+{%- comment -%}
+  The app this page belongs to, from its `app:` front matter. Only looked up
+  when the page names one: on GitHub Pages (Jekyll 3), `where` with a blank
+  value returns every app, which put Tide in the header of the home page.
+{%- endcomment -%}
+{%- assign app = nil -%}
+{%- if page.app -%}{%- assign app = site.data.apps | where: "slug", page.app | first -%}{%- endif -%}
 <html lang="en"{% if app %} style="--accent: {{ app.accent }}; --accent-dark: {{ app.accent_dark | default: app.accent }};"{% endif %}>
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% if page.title %}{{ page.title }} · {% endif %}{{ site.title }}</title>
     <meta name="description" content="{{ page.description | default: app.tagline | default: site.description }}">
-    {%- if app and app.icon %}
-    <link rel="icon" href="{{ app.icon }}" type="image/svg+xml">
-    {%- endif %}
+    <link rel="icon" href="{% if app and app.icon %}{{ app.icon }}{% else %}/icon.svg{% endif %}" type="image/svg+xml">
     <style>
       :root {
         color-scheme: light dark;
@@ -78,6 +82,8 @@
       .app h2 { margin: 0 0 2px; font-size: 19px; }
       .app h2::before { display: none; }
       .app p { margin: 0 0 10px; color: var(--muted); font-size: 15px; }
+      .app .platforms { margin: 0 0 6px; font-size: 13.5px; }
+      @media (max-width: 480px) { .app { flex-direction: column; gap: 12px; } .app img, .app .mark { width: 48px; height: 48px; border-radius: 11px; } }
       .links { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; }
       .button { display: inline-block; padding: 7px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--soft); color: var(--fg); text-decoration: none; font-size: 14.5px; font-weight: 550; }
       .button:hover { border-color: var(--link); }
@@ -103,7 +109,7 @@
           <a href="{{ support }}"{% if page.url == support %} aria-current="page"{% endif %}>Support</a>
         </nav>
         {%- else %}
-        <span class="brand">{{ site.title }}</span>
+        <a class="brand" href="/"><img src="/icon.svg" alt=""><span>{{ site.title }}</span></a>
         {%- endif %}
       </header>
       <main>

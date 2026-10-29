@@ -1,8 +1,8 @@
-# One entry per app. The pages of an app set `app: <slug>` in their front
+# One entry per app, in the order the home page lists them. The pages of an app set `app: <slug>` in their front
 # matter to get its name, icon and color in the header.
 - slug: tide
   name: Tide
-  tagline: A code editor with a terminal for iPhone and iPad. JavaScript and Python run on the device, offline.
+  tagline: A code editor with a terminal. JavaScript and Python run on the device, offline.
   platforms: iPhone and iPad
   # Flat brand colors (no gradients): links and highlights in light and dark mode.
   accent: "#1d4ed8"

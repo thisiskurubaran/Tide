@@ -14,6 +14,7 @@ Privacy policies and support for my apps.
     {% if app.icon %}<img src="{{ app.icon }}" alt="">{% else %}<span class="mark">{{ app.name | slice: 0 }}</span>{% endif %}
     <div>
       <h2><a href="/{{ app.slug }}/" style="color: inherit; text-decoration: none">{{ app.name }}</a></h2>
+      <p class="platforms">{{ app.platforms }}</p>
       <p>{{ app.tagline }}</p>
       <p class="links">
         <a class="button" href="/{{ app.slug }}/privacy/">Privacy Policy</a>

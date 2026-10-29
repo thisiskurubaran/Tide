@@ -7,7 +7,9 @@ Pages. Each app has its own directory:
 _config.yml            site settings
 _data/apps.yml         every app: name, tagline, platforms, colors, icon
 _layouts/default.html  the layout every page uses (light and dark, no gradients)
+icon.svg               the site's own icon, for the home page and 404
 index.md               https://thisiskurubaran.github.io/  (the apps, as cards)
+404.md                 shown for any address that doesn't exist
 tide/
   icon.svg             the app's icon, shown in the header and on cards
   index.md             /tide/
