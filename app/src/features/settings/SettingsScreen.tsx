@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { IconButton } from '../../components/Button';
 import { Segmented } from '../../components/Segmented';
+import type { KeymapSetting } from '../editor/bridge';
 import { Text } from '../../components/Text';
 import { settingsStore, useSettings } from '../../state';
 import { ContrastSetting, EditorOptionKey, FONT_SIZE_MAX, FONT_SIZE_MIN, ThemeSetting } from '../../state/settings';
@@ -32,6 +33,7 @@ export function SettingsScreen() {
   const crashReports = useSettings((s) => s.crashReports);
   const haptics = useSettings((s) => s.haptics);
   const contrast = useSettings((s) => s.contrast);
+  const keymap = useSettings((s) => s.keymap);
   const pro = useIsPro();
   const proDetail = useProState((s) => proStatus(s));
   const [icon, setIcon] = useState<'standard' | 'pro'>(() => (usingProIcon() ? 'pro' : 'standard'));
@@ -131,6 +133,18 @@ export function SettingsScreen() {
               />
             </Row>
           ))}
+          <Row label="Key bindings">
+            <Segmented<KeymapSetting>
+              testID="editor-keymap"
+              value={keymap}
+              onChange={(k) => settings.setKeymap(k)}
+              options={[
+                { value: 'standard', label: 'Standard' },
+                { value: 'vim', label: 'Vim' },
+                { value: 'emacs', label: 'Emacs' },
+              ]}
+            />
+          </Row>
         </Section>
 
         <Section title="Keyboard">

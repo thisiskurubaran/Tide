@@ -20,12 +20,15 @@ export interface EditorFeatures {
   conflicts: boolean;
 }
 
+export type KeymapSetting = 'standard' | 'vim' | 'emacs';
+
 // View options from Settings, free for everyone.
 export interface EditorOptions {
   wordWrap: boolean;
   folding: boolean;
   indentGuides: boolean;
   minimap: boolean;
+  keymap: KeymapSetting;
 }
 
 export const NO_FEATURES: EditorFeatures = { language: false, breakpoints: false, conflicts: false };

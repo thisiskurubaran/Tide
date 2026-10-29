@@ -80,7 +80,7 @@ const optionsConf = new Compartment();
 let themeExtension: Extension = [];
 let theme: EditorTheme | null = null;
 let features: EditorFeatures = NO_FEATURES;
-let options: EditorOptions = { wordWrap: true, folding: true, indentGuides: true, minimap: false };
+let options: EditorOptions = { wordWrap: true, folding: true, indentGuides: true, minimap: false, keymap: 'standard' };
 const optionExtension = () => optionsExtension(options, theme);
 
 let currentPath: string | null = null;

@@ -53,4 +53,16 @@ describe('settings store', () => {
     await flush();
     expect(restarted.getState()).toMatchObject({ wordWrap: false, minimap: true });
   });
+
+  it('keeps the editor key bindings', async () => {
+    const storage = createFsStorage(createMemoryFs());
+    const settings = createSettingsStore(storage);
+    await flush();
+    expect(settings.getState().keymap).toBe('standard');
+    settings.getState().setKeymap('vim');
+    await flush();
+    const restarted = createSettingsStore(storage);
+    await flush();
+    expect(restarted.getState().keymap).toBe('vim');
+  });
 });

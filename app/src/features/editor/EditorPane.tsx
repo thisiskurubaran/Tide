@@ -59,6 +59,7 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
   const folding = useSettings((s) => s.folding);
   const indentGuides = useSettings((s) => s.indentGuides);
   const minimap = useSettings((s) => s.minimap);
+  const keymap = useSettings((s) => s.keymap);
   const bufferContent = useBuffers((s) => (path ? s.buffers[bufferKey(project, path)]?.content : undefined));
   const diagnostics = useDiagnostics((s) => (path ? fileDiagnostics(s, project, path) : null));
   const breakpoints = useBreakpoints((s) => (path ? fileBreakpoints(s, project, path) : null));
@@ -105,9 +106,9 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
     () =>
       send({
         type: 'options',
-        options: isLarge ? { wordWrap: false, folding: false, indentGuides: false, minimap: false } : { wordWrap, folding, indentGuides, minimap },
+        options: isLarge ? { wordWrap: false, folding: false, indentGuides: false, minimap: false, keymap } : { wordWrap, folding, indentGuides, minimap, keymap },
       }),
-    [send, wordWrap, folding, indentGuides, minimap, isLarge],
+    [send, wordWrap, folding, indentGuides, minimap, keymap, isLarge],
   );
   useEffect(sendOptions, [sendOptions]);
 
@@ -151,7 +152,7 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
     setLarge(kind === 'large' ? target : null);
     if (kind === 'large') {
       // Off before the text arrives, so the editor never highlights it.
-      send({ type: 'options', options: { wordWrap: false, folding: false, indentGuides: false, minimap: false } });
+      send({ type: 'options', options: { wordWrap: false, folding: false, indentGuides: false, minimap: false, keymap } });
       send({ type: 'features', features: NO_FEATURES });
     }
     editorContent.current = buffer.content;

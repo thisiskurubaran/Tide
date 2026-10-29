@@ -34,6 +34,7 @@ jest.mock('../../state', () => {
     theme: 'dark',
     editorFontSize: 14,
     wordWrap: true,
+    keymap: 'standard',
     folding: true,
     indentGuides: true,
     minimap: false,
@@ -80,7 +81,7 @@ it('opens normal files with their language', async () => {
 it('opens large files as plain text with the extras off', async () => {
   await openFile('big.ts');
   expect(mockSent.find((m) => m.type === 'open')?.language).toBe('plain');
-  expect(mockSent.filter((m) => m.type === 'options').pop()?.options).toEqual({ wordWrap: false, folding: false, indentGuides: false, minimap: false });
+  expect(mockSent.filter((m) => m.type === 'options').pop()?.options).toEqual({ wordWrap: false, folding: false, indentGuides: false, minimap: false, keymap: 'standard' });
   expect(mockSent.filter((m) => m.type === 'features').pop()?.features).toEqual(NO_FEATURES);
   expect(screen.getByText(/Large file/)).toBeTruthy();
 });

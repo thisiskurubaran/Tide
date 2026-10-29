@@ -1,6 +1,8 @@
 import { createStore } from 'zustand';
 import { createJSONStorage, persist, StateStorage } from 'zustand/middleware';
 
+import type { KeymapSetting } from '../features/editor/bridge';
+
 export type ThemeSetting = 'system' | 'light' | 'dark';
 
 export const FONT_SIZE_MIN = 10;
@@ -18,6 +20,8 @@ export interface SettingsState {
   folding: boolean;
   indentGuides: boolean;
   minimap: boolean;
+  // Vim or Emacs key bindings in the editor, mostly for hardware keyboards.
+  keymap: KeymapSetting;
   haptics: boolean;
   // "system" follows the device's Increase Contrast setting.
   contrast: ContrastSetting;
@@ -26,6 +30,7 @@ export interface SettingsState {
   setTerminalFontSize(size: number): void;
   setCrashReports(on: boolean): void;
   setEditorOption(key: EditorOptionKey, on: boolean): void;
+  setKeymap(keymap: KeymapSetting): void;
   setHaptics(on: boolean): void;
   setContrast(contrast: ContrastSetting): void;
 }
@@ -46,6 +51,7 @@ export function createSettingsStore(storage: StateStorage) {
         folding: true,
         indentGuides: true,
         minimap: false,
+        keymap: 'standard',
         haptics: true,
         contrast: 'system',
         setTheme: (theme) => set({ theme }),
@@ -53,6 +59,7 @@ export function createSettingsStore(storage: StateStorage) {
         setTerminalFontSize: (size) => set({ terminalFontSize: clampFontSize(size) }),
         setCrashReports: (crashReports) => set({ crashReports }),
         setEditorOption: (key, on) => set({ [key]: on }),
+        setKeymap: (keymap) => set({ keymap }),
         setHaptics: (haptics) => set({ haptics }),
         setContrast: (contrast) => set({ contrast }),
       }),
@@ -60,7 +67,7 @@ export function createSettingsStore(storage: StateStorage) {
         name: 'settings',
         version: 1,
         storage: createJSONStorage(() => storage),
-        partialize: ({ theme, editorFontSize, terminalFontSize, crashReports, wordWrap, folding, indentGuides, minimap, haptics, contrast }) => ({
+        partialize: ({ theme, editorFontSize, terminalFontSize, crashReports, wordWrap, folding, indentGuides, minimap, keymap, haptics, contrast }) => ({
           theme,
           editorFontSize,
           terminalFontSize,
@@ -69,6 +76,7 @@ export function createSettingsStore(storage: StateStorage) {
           folding,
           indentGuides,
           minimap,
+          keymap,
           haptics,
           contrast,
         }),
