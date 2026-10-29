@@ -1,7 +1,7 @@
 import Feather from '@expo/vector-icons/Feather';
 import { router } from 'expo-router';
-import { ReactNode } from 'react';
-import { Pressable, ScrollView, Switch, View } from 'react-native';
+import { ReactNode, useState } from 'react';
+import { Alert, Pressable, ScrollView, Switch, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { IconButton } from '../../components/Button';
@@ -15,6 +15,9 @@ import { useExtensions } from '../../extensions/state';
 import { useGitSettings } from '../git/settings';
 import { crashReportsAvailable } from '../privacy/crashReports';
 import { useRemoteSettings } from '../remote/settings';
+import { appVersion, contactSupport, rateApp } from '../support/actions';
+import { CHANGELOG, Release } from '../support/changelog';
+import { WhatsNewSheet } from '../support/WhatsNewSheet';
 
 export function SettingsScreen() {
   const styles = useStyles();
@@ -35,6 +38,8 @@ export function SettingsScreen() {
   const git = useGitSettings((s) => s.settings);
   const owned = useExtensions((s) => s.owned.length);
   const settings = settingsStore.getState();
+  const [whatsNew, setWhatsNew] = useState<Release[] | null>(null);
+  const support = (kind: 'bug' | 'feature') => contactSupport(kind).catch((e: Error) => Alert.alert("Couldn't open mail", e.message));
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
@@ -123,6 +128,13 @@ export function SettingsScreen() {
           />
         </Section>
 
+        <Section title="Help & feedback">
+          <LinkRow label="Report a problem" detail="Mail with device details and recent logs" onPress={() => support('bug')} testID="settings-report" />
+          <LinkRow label="Suggest a feature" onPress={() => support('feature')} testID="settings-feature" />
+          <LinkRow label="Rate Tide" onPress={() => rateApp().catch(() => undefined)} testID="settings-rate" />
+          <LinkRow label="What's new" detail={`Version ${appVersion()}`} onPress={() => setWhatsNew(CHANGELOG)} testID="settings-whats-new" />
+        </Section>
+
         {crashReportsAvailable && (
           <Section title="Privacy">
             <Row label="Send crash reports">
@@ -139,6 +151,7 @@ export function SettingsScreen() {
           </Section>
         )}
       </ScrollView>
+      <WhatsNewSheet releases={whatsNew} onClose={() => setWhatsNew(null)} />
     </View>
   );
 }

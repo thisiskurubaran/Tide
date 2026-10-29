@@ -22,6 +22,7 @@ import { lastLines, runGit } from '../git/runGit';
 import { NewProjectSheet } from './NewProjectSheet';
 import { makeStyles, useColors } from '../../theme/theme';
 import { haptic } from '../../components/haptics';
+import { WhatsNewOnUpdate } from '../support/WhatsNew';
 
 const mark = require('../../../assets/icons/splash.png');
 
@@ -159,6 +160,7 @@ export function ProjectsScreen() {
       />
 
       <SnapshotsSheet project={snapshotsFor} onClose={() => setSnapshotsFor(null)} />
+      <WhatsNewOnUpdate />
 
       <PromptSheet
         visible={renaming !== null}

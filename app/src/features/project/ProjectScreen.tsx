@@ -37,6 +37,7 @@ import { TabBar } from './TabBar';
 import { TerminalPanel, TerminalPanelHandle } from './TerminalPanel';
 import { makeStyles } from '../../theme/theme';
 import { haptic } from '../../components/haptics';
+import { countRun } from '../support/actions';
 
 // Extensions can contribute the same command or panel (Show problems); the first one wins.
 const uniqueById = <T extends { id: string }>(items: T[]) => items.filter((x, i) => items.findIndex((o) => o.id === x.id) === i);
@@ -157,6 +158,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     const line = runLine(runnerStore.getState().mode, config);
     if (!line) return;
     haptic('press');
+    countRun();
     await buffersStore.getState().flushProject(project);
     setTerminalHidden(false);
     terminal.current?.input(line);

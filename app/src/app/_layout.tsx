@@ -13,7 +13,11 @@ import { startCrashReports } from '../features/privacy/crashReports';
 import { remoteSettingsStore } from '../features/remote/settings';
 import { projectsStore, runnerStore, settingsStore, tabsStore, useSettings } from '../state';
 import { useColors } from '../theme/theme';
+import { captureConsole } from '../features/support/logs';
+import { supportStore } from '../features/support/store';
 
+// Before anything else logs, so bug reports include start-up warnings.
+captureConsole();
 SplashScreen.preventAutoHideAsync();
 
 type Persisted = { persist: { hasHydrated(): boolean; onFinishHydration(fn: () => void): () => void } };
@@ -47,6 +51,7 @@ export default function RootLayout() {
       hydrated(breakpointsStore),
       hydrated(keyBarStore),
       hydrated(linkedStore),
+      hydrated(supportStore),
       projectsStore.getState().refresh(),
       remoteSettingsStore.getState().load().catch(() => undefined),
       gitSettingsStore.getState().load().catch(() => undefined),

@@ -110,6 +110,12 @@ EXPO_PUBLIC_SENTRY_DSN=https://<key>@<org>.ingest.sentry.io/<project> npx expo s
 
 Without it, Sentry is never started. When it is on, reports carry no breadcrumbs, user data, request data, screenshots or view hierarchy, and any path under Documents (which would name a project or file) is replaced with `<documents>`. Native crash reports also include the random installation ID the Sentry SDK generates. Source maps are not uploaded, so JS stack traces from release builds are minified.
 
+## Help and feedback
+
+Settings, Help & feedback offers Report a problem, Suggest a feature, Rate Tide and What's new. Reports open a mail draft addressed to `EXPO_PUBLIC_SUPPORT_EMAIL`, set at build time like the DSN, with device details and the session's recent warnings and errors attached as a text file. The user sees the whole draft before sending, and sandbox paths are shortened to `~`. Without the address, or without mail on the device, the report goes to the share sheet instead.
+
+The rating prompt is asked for at most once per version, after 5 runs and 3 days of use. Add each release's notes to `src/features/support/changelog.ts`; What's new shows them once after an update.
+
 The iOS privacy manifest is set in `app.json` (`ios.privacyManifests`) and declares crash data and the required-reason APIs the app and its Node and Python runtimes use (user defaults, file timestamps, boot time and disk space). `ios.config.usesNonExemptEncryption` is false: the app only uses standard encryption.
 
 ## Remote mode
