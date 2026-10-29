@@ -8,6 +8,7 @@ import { LineEditor } from './lineEditor';
 import { displayPath, PathError, resolvePath } from './paths';
 import type { ShellFs } from './shellFs';
 import { ParseError, tokenize } from './tokenize';
+import { DEFAULT_CONFIG, parseTasks } from '../../project/tasks';
 
 export interface ShellOptions {
   project: string;
@@ -43,7 +44,7 @@ const COMMAND_HELP: [string, string][] = [
   ['cp [-r] <src...> <dest>', 'copy files, or folders with -r'],
   ['node <file> [args]', 'run a JavaScript file'],
   ['python <file> [args]', 'run a Python file'],
-  ['run', 'run the project (uses tide.json)'],
+  ['run [name]', 'run the project, or a named configuration (uses tide.json)'],
   ['npm install [pkg...]', 'install pure-JS packages into node_modules'],
   ['pip install <pkg...>', 'install pure-Python packages into .pylibs'],
   ['git <command>', 'clone, status, add, commit, log, push, pull (git help)'],
@@ -354,10 +355,13 @@ export class Shell {
       pip3: (args) => this.startRun('node', 'tide:pip', args, this.cwd),
       git: (args) => this.startRun('node', 'tide:git', args, this.cwd, this.opts.toolEnv?.()),
       run: async (args) => {
-        if (args.length) throw new CommandError('run takes no arguments; it uses tide.json');
-        const config = await fs.readRunConfig();
-        if (!config) throw new CommandError('no run config; add a tide.json with "runtime" and "entry"');
-        await this.startRun(config.runtime, resolvePath('', config.entry), [], '');
+        const raw = await fs.readRunConfig();
+        const { configs } = parseTasks(raw ? JSON.stringify(raw) : null);
+        if (!configs.length) throw new CommandError('no run config; add a tide.json with "runtime" and "entry"');
+        const name = args.join(' ') || DEFAULT_CONFIG;
+        const config = configs.find((c) => c.name.toLowerCase() === name.toLowerCase());
+        if (!config) throw new CommandError(`no configuration named "${name}"; tide.json has ${configs.map((c) => c.name).join(', ')}`);
+        await this.startRun(config.runtime, resolvePath('', config.entry), config.args, '');
       },
     };
   }

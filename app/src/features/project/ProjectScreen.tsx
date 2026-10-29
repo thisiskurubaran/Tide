@@ -10,7 +10,7 @@ import { Text } from '../../components/Text';
 import { answerRequest, editorFeatures, findDefinition, saveWithHooks, useActiveExtensions, useExtensionHost } from '../../extensions/host';
 import { GIT_PRO_PANEL } from '../../extensions/gitPro';
 import type { ProjectContext } from '../../extensions/types';
-import { buffersStore, projectsStore, runnerStore, snapshots, tabsStore, useBuffers, useProjects, useTabs, workspace } from '../../state';
+import { buffersStore, projectsStore, runnerStore, snapshots, tabsStore, useBuffers, useProjects, useRunner, useTabs, workspace } from '../../state';
 import { bufferKey, isDirty } from '../../state/buffers';
 import { projectTabs } from '../../state/tabs';
 import { borderWidth, spacing } from '../../theme/tokens';
@@ -29,7 +29,8 @@ import { SourceControlSheet } from '../git/SourceControlSheet';
 import { Command, CommandPalette } from '../search/CommandPalette';
 import { SearchPanel } from '../search/SearchPanel';
 import { projectLink, ProjectLinkOptions } from '../launch/links';
-import { runLine } from './run';
+import { configLine, DEFAULT_CONFIG, NamedConfig, taskLine, Task } from './tasks';
+import { useProjectTasks } from './useProjectTasks';
 import type { Shortcut } from './shortcuts';
 import { ShortcutsSheet } from './ShortcutsSheet';
 import { SplitDivider } from './SplitDivider';
@@ -46,6 +47,7 @@ const uniqueById = <T extends { id: string }>(items: T[]) => items.filter((x, i)
 
 const SNAPSHOT_DELAY_MS = 3000;
 const LAUNCH_RUN_DELAY_MS = 1000;
+const NEW_TERMINAL_DELAY_MS = 800;
 const DRAWER_MAX = 340;
 // iPad portrait and wider: the file tree stays open beside the editor.
 const WIDE = 768;
@@ -159,10 +161,12 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     }
   }
 
-  async function runProject() {
-    const config = await workspace.readFile(project, 'tide.json').catch(() => null);
-    const line = runLine(runnerStore.getState().mode, config);
-    if (!line) return;
+  async function runProject(config = selectedConfig) {
+    if (!config) {
+      Alert.alert('Nothing to run', projectTasks.error ?? 'Add a tide.json with "runtime" and "entry" to say how to run this project.');
+      return;
+    }
+    const line = configLine(config, runnerStore.getState().mode);
     haptic('press');
     countRun();
     await buffersStore.getState().flushProject(project);
@@ -177,6 +181,26 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
 
   const save = (path: string) => saveWithHooks(extensions, ctx, path);
 
+  const projectTasks = useProjectTasks(project);
+  const chosenConfig = useRunner((s) => s.configs[project] ?? DEFAULT_CONFIG);
+  const selectedConfig: NamedConfig | undefined = projectTasks.configs.find((c) => c.name === chosenConfig) ?? projectTasks.configs[0];
+
+  const latestRun = useRef(() => runProject());
+  latestRun.current = () => runProject();
+
+  async function runTask(task: Task) {
+    const line = taskLine(task, runnerStore.getState().mode);
+    if (!line) return;
+    haptic('press');
+    await buffersStore.getState().flushProject(project);
+    setTerminalHidden(false);
+    if (task.newTerminal) {
+      terminal.current?.newTerminal();
+      // The new terminal needs a moment before it takes input.
+      setTimeout(() => terminal.current?.input(`${line}\r`), NEW_TERMINAL_DELAY_MS);
+    } else terminal.current?.input(`${line}\r`);
+  }
+
   // A link can open a file (at a line) and run the project. The terminal
   // needs a moment after mounting before it takes input.
   useEffect(() => {
@@ -186,7 +210,8 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
       else openFile(launch.file);
     }
     if (!launch.run) return;
-    const timer = setTimeout(() => runProject().catch((e) => console.warn('Run failed', e)), LAUNCH_RUN_DELAY_MS);
+    // Through a ref: by then tide.json has been read, which this render hadn't.
+    const timer = setTimeout(() => latestRun.current().catch((e) => console.warn('Run failed', e)), LAUNCH_RUN_DELAY_MS);
     return () => clearTimeout(timer);
     // Once per opening; the screen is keyed by project.
   }, []);
@@ -243,7 +268,24 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     { id: 'files', title: 'Show or hide files', icon: 'sidebar', hint: '⌘B', run: () => (wide ? setSidebarHidden((h) => !h) : setDrawerOpen((o) => !o)) },
     { id: 'next-tab', title: 'Next file', icon: 'chevron-right', hint: '⇧⌘]', run: () => switchTab(1) },
     { id: 'prev-tab', title: 'Previous file', icon: 'chevron-left', hint: '⇧⌘[', run: () => switchTab(-1) },
-    { id: 'run', title: 'Run project', icon: 'play', hint: '⌘R', run: () => runProject() },
+    {
+      id: 'run',
+      title: selectedConfig && projectTasks.configs.length > 1 ? `Run project (${selectedConfig.name})` : 'Run project',
+      icon: 'play',
+      hint: '⌘R',
+      run: () => runProject(),
+    },
+    ...projectTasks.configs.map((c) => ({
+      id: `run-config:${c.name}`,
+      title: `Run configuration: ${c.name}`,
+      icon: 'play-circle' as const,
+      // Picking one also makes it what ⌘R runs.
+      run: () => {
+        runnerStore.getState().setConfig(project, c.name);
+        runProject(c);
+      },
+    })),
+    ...projectTasks.tasks.map((t) => ({ id: `task:${t.name}`, title: `Task: ${t.name}`, icon: 'zap' as const, run: () => runTask(t) })),
     {
       id: 'new-terminal',
       title: 'New terminal',

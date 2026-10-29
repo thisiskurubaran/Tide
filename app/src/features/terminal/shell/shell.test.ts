@@ -247,6 +247,19 @@ describe('shell', () => {
     expect(runner.requests[0]).toMatchObject({ runtime: 'node', entry: 'projects/demo/index.js', cwd: 'projects/demo' });
   });
 
+  it('run takes a configuration name from tide.json', async () => {
+    const { run, runner, workspace } = await setup();
+    await workspace.writeFile(
+      'demo',
+      'tide.json',
+      JSON.stringify({ runtime: 'node', entry: 'index.js', configurations: [{ name: 'Server', entry: 'index.js', args: ['--port', '3000'] }] }),
+    );
+    await run('run server');
+    expect(runner.requests[0]).toMatchObject({ entry: 'projects/demo/index.js', args: ['--port', '3000'] });
+    runner.listener?.({ type: 'exit', id: 'r1', code: 0 });
+    expect(await run('run nope')).toContain('no configuration named "nope"; tide.json has Default, Server');
+  });
+
   it('shell writes replace an open editor buffer', async () => {
     const { run, buffers } = await setup();
     await buffers.getState().load('demo', 'index.js');

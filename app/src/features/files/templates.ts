@@ -4,6 +4,10 @@ import type { Runtime } from '@shared/protocol';
 export interface RunConfig {
   runtime: Runtime;
   entry: string;
+  args?: string[];
+  // More ways to run the project, picked in the palette; see project/tasks.ts.
+  configurations?: (Partial<RunConfig> & { name: string })[];
+  tasks?: unknown[];
 }
 
 export interface Template {

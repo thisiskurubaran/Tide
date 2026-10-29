@@ -18,7 +18,7 @@ jest.mock('../../state', () => {
   const tabsStore = createTabsStore(storage);
   const projectsStore = createStore(() => ({ trees: {}, loadTree: async () => undefined }));
   const settings = createStore(() => ({ theme: 'dark' }));
-  const runnerStore = createStore(() => ({ mode: 'local', setMode: () => undefined }));
+  const runnerStore = createStore(() => ({ mode: 'local', configs: {}, setMode: () => undefined, setConfig: () => undefined }));
   return {
     storage,
     workspace,
@@ -122,4 +122,20 @@ it('previews Markdown on request and notebooks from the start', async () => {
 
   await act(async () => tabsStore.getState().openTab('docs', 'analysis.ipynb'));
   expect(screen.getByText('preview:analysis.ipynb')).toBeTruthy();
+});
+
+it('offers tide.json configurations and tasks in the palette', async () => {
+  const { workspace } = jest.requireMock('../../state');
+  await workspace.createEmptyProject('tasks');
+  await workspace.createFile(
+    'tasks',
+    '',
+    'tide.json',
+    JSON.stringify({ runtime: 'node', entry: 'index.js', configurations: [{ name: 'Server', entry: 'server.js' }], tasks: [{ name: 'Test', command: 'node --test' }] }),
+  );
+  await render(<ProjectScreen project="tasks" />);
+  await act(async () => new Promise((r) => setTimeout(r, 0)));
+  const ids = mockCommands.map((c) => c.id);
+  expect(ids).toEqual(expect.arrayContaining(['run-config:Default', 'run-config:Server', 'task:Test']));
+  expect(mockCommands.find((c) => c.id === 'run')).toMatchObject({ title: 'Run project (Default)' });
 });
