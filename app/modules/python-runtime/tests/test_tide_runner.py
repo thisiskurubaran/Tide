@@ -146,6 +146,22 @@ class RunnerTest(unittest.TestCase):
         self.assertEqual(self.h.text("r1"), "1\n")
         self.assertEqual(self.h.text("r2"), "2\n")
 
+    def test_reports_listening_ports(self):
+        import json
+
+        self.h.file("server.py", "import socket\ns = socket.socket()\ns.bind(('127.0.0.1', 0))\ns.listen()\nprint(s.getsockname()[1])\ns.close()\n")
+        self.assertEqual(self.h.run("r1", "server.py"), (0, False))
+        ports = [json.loads(t) for i, k, t in self.h.output if k == "port"]
+        self.assertEqual(ports, [{"port": int(self.h.text("r1")), "open": True}])
+
+    def test_reports_ports_from_server_threads(self):
+        import json
+
+        code = "import socket, threading\ndef serve():\n    s = socket.socket()\n    s.bind(('127.0.0.1', 0))\n    s.listen()\n    s.close()\nt = threading.Thread(target=serve)\nt.start()\nt.join()\n"
+        self.h.file("threaded.py", code)
+        self.assertEqual(self.h.run("r2", "threaded.py"), (0, False))
+        self.assertEqual(len([t for i, k, t in self.h.output if k == "port" and i == "r2"]), 1)
+
     def test_restores_interpreter_state(self):
         before = (sys.stdout, sys.stderr, sys.stdin, list(sys.argv), list(sys.path), os.getcwd())
         self.h.file("main.py", "import os, sys\nsys.path.append('/x')\nos.chdir('/')\n")

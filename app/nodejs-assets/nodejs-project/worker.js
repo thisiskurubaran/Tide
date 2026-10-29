@@ -34,6 +34,20 @@ port.on('message', (msg) => {
 });
 port.unref();
 
+// Tell the app when the script starts or stops listening on a port, so the
+// terminal can offer a preview of it. http.Server and others extend net.Server.
+const net = require('net');
+const listen = net.Server.prototype.listen;
+net.Server.prototype.listen = function (/** @type {any[]} */ ...args) {
+  this.once('listening', () => {
+    const address = this.address();
+    if (!address || typeof address !== 'object') return;
+    port.postMessage({ listening: address.port });
+    this.once('close', () => port.postMessage({ closed: address.port }));
+  });
+  return listen.apply(this, /** @type {any} */ (args));
+};
+
 // Look like `node <entry> <args>`: argv[1] is the script and require.main is it.
 process.argv = [process.argv[0], workerData.entry, ...process.argv.slice(2)];
 /** @type {any} */ (Module).runMain();

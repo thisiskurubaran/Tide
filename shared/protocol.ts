@@ -66,12 +66,15 @@ export type DebugEvent =
   | { event: 'variables'; req: number; variables: DebugVariable[] }
   | { event: 'evaluated'; req: number; result?: DebugVariable; error?: string };
 
+// Local runs only: a program started or stopped listening on a port.
+export type PortMsg = { type: 'port'; id: string; port: number; open: boolean };
+
 export type DebugCommandMsg = { type: 'debug'; id: string; command: DebugCommand };
 export type DebugEventMsg = { type: 'debug'; id: string; event: DebugEvent };
 
 export type ClientMessage = RunRequest | StdinMsg | KillMsg | ResizeMsg | PtyData | DebugCommandMsg;
 
-export type RunnerMessage = OutputMsg | ExitMsg | PtyData | DebugEventMsg;
+export type RunnerMessage = OutputMsg | ExitMsg | PtyData | DebugEventMsg | PortMsg;
 
 // Local Node supervisor only (the nodejs-mobile channel), next to the runner messages above.
 // `root` is the absolute path that RunRequest `entry` and `cwd` are relative to.

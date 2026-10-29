@@ -117,6 +117,10 @@ function createSupervisor({ send, builtins = {} }) {
     worker.stderr.setEncoding('utf8');
     worker.stdout.on('data', (data) => send({ type: 'stdout', id: req.id, data }));
     worker.stderr.on('data', (data) => send({ type: 'stderr', id: req.id, data }));
+    worker.on('message', (/** @type {any} */ m) => {
+      if (m && typeof m.listening === 'number') send({ type: 'port', id: req.id, port: m.listening, open: true });
+      else if (m && typeof m.closed === 'number') send({ type: 'port', id: req.id, port: m.closed, open: false });
+    });
     worker.on('error', (err) => {
       // Uncaught exceptions arrive here instead of on stderr.
       let text = err && err.stack ? err.stack : String(err);

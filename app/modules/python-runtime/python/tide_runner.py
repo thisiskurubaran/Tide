@@ -7,6 +7,7 @@ import json
 import os
 import queue
 import runpy
+import socket
 import sys
 import threading
 import traceback
@@ -28,6 +29,35 @@ class _Run:
         self.ident = threading.get_ident()
         self.killed = False
         self.debugger = None
+        self.emit = None
+        self.run_id = None
+
+
+# Which run the current thread belongs to, for reporting listening ports.
+_current = threading.local()
+_socket_listen = socket.socket.listen
+
+
+def _listen(self, *args):
+    result = _socket_listen(self, *args)
+    run = getattr(_current, "run", None)
+    if run is None:
+        # A server thread the script started: with one run going, it is that one's.
+        with _lock:
+            active = list(_runs.values())
+        run = active[0] if len(active) == 1 else None
+    if run is not None and run.emit is not None:
+        try:
+            port = self.getsockname()[1]
+        except OSError:
+            port = None
+        if isinstance(port, int):
+            # The terminal offers a preview of the port (see pythonRunner.ts).
+            run.emit(run.run_id, "port", json.dumps({"port": port, "open": True}))
+    return result
+
+
+socket.socket.listen = _listen
 
 
 class _Output(io.TextIOBase):
@@ -149,6 +179,9 @@ def run(emit, run_id, entry, cwd, args, extra_paths=(), purge_root=None):
     """
     entry = os.path.abspath(entry)
     state = _Run()
+    state.emit = emit
+    state.run_id = run_id
+    _current.run = state
     if args and args[0] == _DEBUG_ARG:
         from tide_debugger import Debugger
 
@@ -181,6 +214,7 @@ def run(emit, run_id, entry, cwd, args, extra_paths=(), purge_root=None):
         _print_error(e, entry, err, _project_dir(entry, purge_root))
         code = 1
     finally:
+        _current.run = None
         with _lock:
             _runs.pop(run_id, None)
         sys.stdout, sys.stderr, sys.stdin, sys.argv, sys.path[:], cwd_before = saved

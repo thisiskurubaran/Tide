@@ -2,8 +2,9 @@ import type { DebugEvent, RunnerMessage } from '@shared/protocol';
 
 import type { Runner } from '../runner';
 
-// 'debug' carries a JSON DebugEvent from tide_runner's debugger.
-type Output = { id: string; kind: 'stdout' | 'stderr' | 'debug'; data: string };
+// 'debug' carries a JSON DebugEvent from tide_runner's debugger; 'port' a
+// JSON {port, open} when the script starts listening.
+type Output = { id: string; kind: 'stdout' | 'stderr' | 'debug' | 'port'; data: string };
 
 // Debugger commands share the stdin channel (see tide_runner.feed), so the
 // native modules need no new function.
@@ -34,6 +35,7 @@ export function createPythonRunner(host: PythonHost, root: () => string): Runner
       const listener = listeners.get(e.id);
       if (!listener) return;
       if (e.kind === 'debug') listener({ type: 'debug', id: e.id, event: JSON.parse(e.data) as DebugEvent });
+      else if (e.kind === 'port') listener({ type: 'port', id: e.id, ...(JSON.parse(e.data) as { port: number; open: boolean }) });
       else listener({ type: e.kind, id: e.id, data: e.data });
     });
     host.addListener('onExit', (e: Exit) => {

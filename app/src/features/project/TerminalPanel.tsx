@@ -6,6 +6,7 @@ import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Button, IconButton } from '../../components/Button';
 import { Segmented } from '../../components/Segmented';
 import { Text } from '../../components/Text';
+import { useLocalPorts } from '../../runtime/ports';
 import { useRunner } from '../../state';
 import { borderWidth, radius, spacing } from '../../theme/tokens';
 import { connectSocket, nativeSocket, previewUrl } from '../remote/api';
@@ -36,6 +37,7 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>
   const setMode = useRunner((s) => s.setMode);
   const { status, ports, retry } = useRemoteSession(project, mode === 'remote');
   const [tabs, setTabs] = useState(initialTabs);
+  const localPorts = useLocalPorts(project);
   const panes = useRef(new Map<number, TerminalHandle>());
 
   useImperativeHandle(
@@ -102,6 +104,12 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>
   }
 
   const ready = mode === 'remote' && status.state === 'ready' ? status : null;
+  // Servers started on the device are reached directly; the container's go through the server's preview proxy.
+  const previews = ready
+    ? ports.map((port) => ({ port, url: previewUrl(ready.settings, ready.session, port) }))
+    : mode === 'local'
+      ? localPorts.map((port) => ({ port, url: `http://127.0.0.1:${port}/` }))
+      : [];
 
   return (
     <View style={styles.panel}>
@@ -139,21 +147,20 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>
           {tabs.ids.length < MAX_TERMINALS && <IconButton icon="plus" label="New terminal" onPress={() => setTabs(addTab)} testID="terminal-new" />}
         </ScrollView>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.ports} style={styles.portsScroll}>
-          {ready &&
-            ports.map((port) => (
-              <Pressable
-                key={port}
-                testID={`preview-${port}`}
-                accessibilityRole="button"
-                accessibilityLabel={`Open preview of port ${port}`}
-                onPress={() => router.push({ pathname: '/preview', params: { url: previewUrl(ready.settings, ready.session, port), port: String(port) } })}
-                style={({ pressed }) => [styles.port, pressed && styles.portPressed]}
-              >
-                <Text variant="label" style={styles.portText}>
-                  :{port}
-                </Text>
-              </Pressable>
-            ))}
+          {previews.map(({ port, url }) => (
+            <Pressable
+              key={port}
+              testID={`preview-${port}`}
+              accessibilityRole="button"
+              accessibilityLabel={`Open preview of port ${port}`}
+              onPress={() => router.push({ pathname: '/preview', params: { url, port: String(port) } })}
+              style={({ pressed }) => [styles.port, pressed && styles.portPressed]}
+            >
+              <Text variant="label" style={styles.portText}>
+                :{port}
+              </Text>
+            </Pressable>
+          ))}
         </ScrollView>
         <Segmented
           testID="runner"

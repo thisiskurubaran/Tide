@@ -56,7 +56,12 @@
       "config": {
         "usesNonExemptEncryption": false
       },
-      "appleTeamId": "9CYJBSWY2X"
+      "appleTeamId": "9CYJBSWY2X",
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        }
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -98,7 +103,8 @@
       ],
       "expo-router",
       "expo-secure-store",
-      "expo-iap"
+      "expo-iap",
+      "./plugins/withLocalPreview.js"
     ]
   }
 }

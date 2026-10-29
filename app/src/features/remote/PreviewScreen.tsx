@@ -9,7 +9,8 @@ import { Text } from '../../components/Text';
 import { borderWidth, spacing } from '../../theme/tokens';
 import { makeStyles } from '../../theme/theme';
 
-// Shows a port from the container through the server's preview proxy.
+// Shows a port in the in-app browser: one on the device, or one in the
+// container through the server's preview proxy.
 export function PreviewScreen() {
   const styles = useStyles();
   const insets = useSafeAreaInsets();
