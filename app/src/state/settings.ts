@@ -13,11 +13,19 @@ export interface SettingsState {
   terminalFontSize: number;
   // Off by default. Has no effect in builds without a Sentry DSN.
   crashReports: boolean;
+  // Editor view options. Wrapping is on because phone screens are narrow.
+  wordWrap: boolean;
+  folding: boolean;
+  indentGuides: boolean;
+  minimap: boolean;
   setTheme(theme: ThemeSetting): void;
   setEditorFontSize(size: number): void;
   setTerminalFontSize(size: number): void;
   setCrashReports(on: boolean): void;
+  setEditorOption(key: EditorOptionKey, on: boolean): void;
 }
+
+export type EditorOptionKey = 'wordWrap' | 'folding' | 'indentGuides' | 'minimap';
 
 export function createSettingsStore(storage: StateStorage) {
   return createStore<SettingsState>()(
@@ -27,16 +35,30 @@ export function createSettingsStore(storage: StateStorage) {
         editorFontSize: 14,
         terminalFontSize: 13,
         crashReports: false,
+        wordWrap: true,
+        folding: true,
+        indentGuides: true,
+        minimap: false,
         setTheme: (theme) => set({ theme }),
         setEditorFontSize: (size) => set({ editorFontSize: clampFontSize(size) }),
         setTerminalFontSize: (size) => set({ terminalFontSize: clampFontSize(size) }),
         setCrashReports: (crashReports) => set({ crashReports }),
+        setEditorOption: (key, on) => set({ [key]: on }),
       }),
       {
         name: 'settings',
         version: 1,
         storage: createJSONStorage(() => storage),
-        partialize: ({ theme, editorFontSize, terminalFontSize, crashReports }) => ({ theme, editorFontSize, terminalFontSize, crashReports }),
+        partialize: ({ theme, editorFontSize, terminalFontSize, crashReports, wordWrap, folding, indentGuides, minimap }) => ({
+          theme,
+          editorFontSize,
+          terminalFontSize,
+          crashReports,
+          wordWrap,
+          folding,
+          indentGuides,
+          minimap,
+        }),
       },
     ),
   );

@@ -19,7 +19,8 @@ import {
 } from '@codemirror/view';
 
 import fontRegular from '../../assets/fonts/JetBrainsMono-Regular.ttf';
-import { EditorFeatures, EditorKey, FromEditor, Language, NO_FEATURES, parseToEditor, ToEditor } from '../../src/features/editor/bridge';
+import { EditorFeatures, EditorKey, EditorOptions, FromEditor, Language, NO_FEATURES, parseToEditor, ToEditor } from '../../src/features/editor/bridge';
+import type { EditorTheme } from '../../src/theme/editor';
 import { shortcutFor } from '../../src/features/project/shortcuts';
 import {
   breakpointLines,
@@ -31,6 +32,7 @@ import {
   minimalChange,
   setBreakpoints,
 } from './features';
+import { optionsExtension } from './options';
 import { buildTheme, FONT_FAMILY } from './theme';
 
 const CHANGE_DEBOUNCE_MS = 150;
@@ -79,8 +81,12 @@ function languageExtension(lang: Language): Extension {
 const languageConf = new Compartment();
 const themeConf = new Compartment();
 const featureConf = new Compartment();
+const optionsConf = new Compartment();
 let themeExtension: Extension = [];
+let theme: EditorTheme | null = null;
 let features: EditorFeatures = NO_FEATURES;
+let options: EditorOptions = { wordWrap: true, folding: true, indentGuides: true, minimap: false };
+const optionExtension = () => optionsExtension(options, theme);
 
 let currentPath: string | null = null;
 let pendingChange: ReturnType<typeof setTimeout> | null = null;
@@ -134,6 +140,7 @@ function baseExtensions(lang: Language): Extension[] {
     // Before lineNumbers so the breakpoint gutter sits on the outside.
     featureConf.of(featureExtension()),
     lineNumbers(),
+    optionsConf.of(optionExtension()),
     highlightActiveLine(),
     highlightActiveLineGutter(),
     history(),
@@ -192,7 +199,9 @@ function open(path: string, content: string, lang: Language) {
   if (cached && cached.doc.toString() === content) {
     view.setState(cached);
     // The theme and features may have changed while this file was in the background.
-    view.dispatch({ effects: [themeConf.reconfigure(themeExtension), featureConf.reconfigure(featureExtension())] });
+    view.dispatch({
+      effects: [themeConf.reconfigure(themeExtension), featureConf.reconfigure(featureExtension()), optionsConf.reconfigure(optionExtension())],
+    });
   } else {
     view.setState(EditorState.create({ doc: content, extensions: baseExtensions(lang) }));
     view.scrollDOM.scrollTop = 0;
@@ -255,10 +264,12 @@ function handle(msg: ToEditor) {
     case 'open':
       return open(msg.path, msg.content, msg.language);
     case 'setTheme':
+      theme = msg.theme;
       themeExtension = buildTheme(msg.theme, msg.dark);
       document.body.style.backgroundColor = msg.theme.background;
       view.dom.style.fontSize = `${msg.fontSize}px`;
-      view.dispatch({ effects: themeConf.reconfigure(themeExtension) });
+      // Indent guides take their colors from the theme.
+      view.dispatch({ effects: [themeConf.reconfigure(themeExtension), optionsConf.reconfigure(optionExtension())] });
       return view.requestMeasure();
     case 'undo':
       return undo(view);
@@ -276,6 +287,10 @@ function handle(msg: ToEditor) {
       return view.focus();
     case 'blur':
       return view.contentDOM.blur();
+    case 'options':
+      options = msg.options;
+      view.dispatch({ effects: optionsConf.reconfigure(optionExtension()) });
+      return view.requestMeasure();
     case 'features':
       features = msg.features;
       view.dispatch({ effects: featureConf.reconfigure(featureExtension()) });

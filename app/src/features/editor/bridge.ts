@@ -18,6 +18,14 @@ export interface EditorFeatures {
   conflicts: boolean;
 }
 
+// View options from Settings, free for everyone.
+export interface EditorOptions {
+  wordWrap: boolean;
+  folding: boolean;
+  indentGuides: boolean;
+  minimap: boolean;
+}
+
 export const NO_FEATURES: EditorFeatures = { language: false, breakpoints: false, conflicts: false };
 
 export interface EditorDiagnostic {
@@ -56,6 +64,7 @@ export type ToEditor =
   // Keyboard.dismiss() only blurs RN text inputs, so the WebView is asked directly.
   | { type: 'blur' }
   | { type: 'features'; features: EditorFeatures }
+  | { type: 'options'; options: EditorOptions }
   // Text changed outside the editor (format, git discard, the shell). Applied
   // as an edit, so undo history and the cursor survive.
   // `base` is the text the change was made from; if the editor has moved on, it is skipped.
@@ -123,6 +132,7 @@ const TO_EDITOR = new Set<ToEditor['type']>([
   'focus',
   'blur',
   'features',
+  'options',
   'setContent',
   'diagnostics',
   'response',

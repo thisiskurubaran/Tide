@@ -53,6 +53,10 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
   const scheme = useColorScheme();
   const theme = useEditorTheme(scheme);
   const fontSize = useSettings((s) => s.editorFontSize);
+  const wordWrap = useSettings((s) => s.wordWrap);
+  const folding = useSettings((s) => s.folding);
+  const indentGuides = useSettings((s) => s.indentGuides);
+  const minimap = useSettings((s) => s.minimap);
   const bufferContent = useBuffers((s) => (path ? s.buffers[bufferKey(project, path)]?.content : undefined));
   const diagnostics = useDiagnostics((s) => (path ? fileDiagnostics(s, project, path) : null));
   const breakpoints = useBreakpoints((s) => (path ? fileBreakpoints(s, project, path) : null));
@@ -89,6 +93,12 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
 
   const sendFeatures = useCallback(() => send({ type: 'features', features }), [send, features]);
   useEffect(sendFeatures, [sendFeatures]);
+
+  const sendOptions = useCallback(
+    () => send({ type: 'options', options: { wordWrap, folding, indentGuides, minimap } }),
+    [send, wordWrap, folding, indentGuides, minimap],
+  );
+  useEffect(sendOptions, [sendOptions]);
 
   // Per-file state the editor shows. It caches it per path, so only changes are sent.
   const sendMarks = useCallback(() => {
@@ -157,6 +167,7 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
       case 'ready':
         ready.current = true;
         sendTheme();
+        sendOptions();
         sendFeatures();
         openCurrent().then(() => {
           sendMarks();

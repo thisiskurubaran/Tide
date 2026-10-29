@@ -41,6 +41,8 @@
     "@codemirror/view": "^6.43.15",
     "@eslint/js": "^9.39.5",
     "@lezer/highlight": "^1.2.5",
+    "@replit/codemirror-indentation-markers": "^6.5.3",
+    "@replit/codemirror-minimap": "^0.5.2",
     "@resvg/resvg-js": "^2.6.2",
     "@testing-library/react-native": "^14.1.0",
     "@types/jest": "^30.0.0",

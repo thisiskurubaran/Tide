@@ -40,4 +40,17 @@ describe('settings store', () => {
     settings.getState().setTerminalFontSize(2);
     expect(settings.getState().terminalFontSize).toBe(10);
   });
+
+  it('defaults editor options for a phone and remembers changes', async () => {
+    const storage = createFsStorage(createMemoryFs());
+    const settings = createSettingsStore(storage);
+    await flush();
+    expect(settings.getState()).toMatchObject({ wordWrap: true, folding: true, indentGuides: true, minimap: false });
+    settings.getState().setEditorOption('minimap', true);
+    settings.getState().setEditorOption('wordWrap', false);
+    await flush();
+    const restarted = createSettingsStore(storage);
+    await flush();
+    expect(restarted.getState()).toMatchObject({ wordWrap: false, minimap: true });
+  });
 });

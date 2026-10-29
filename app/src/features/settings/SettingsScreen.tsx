@@ -8,7 +8,7 @@ import { IconButton } from '../../components/Button';
 import { Segmented } from '../../components/Segmented';
 import { Text } from '../../components/Text';
 import { settingsStore, useSettings } from '../../state';
-import { FONT_SIZE_MAX, FONT_SIZE_MIN, ThemeSetting } from '../../state/settings';
+import { EditorOptionKey, FONT_SIZE_MAX, FONT_SIZE_MIN, ThemeSetting } from '../../state/settings';
 import { makeStyles, useColors } from '../../theme/theme';
 import { borderWidth, radius, spacing } from '../../theme/tokens';
 import { useExtensions } from '../../extensions/state';
@@ -23,6 +23,12 @@ export function SettingsScreen() {
   const editorFontSize = useSettings((s) => s.editorFontSize);
   const terminalFontSize = useSettings((s) => s.terminalFontSize);
   const crashReports = useSettings((s) => s.crashReports);
+  const editorOptions: Record<EditorOptionKey, boolean> = {
+    wordWrap: useSettings((s) => s.wordWrap),
+    folding: useSettings((s) => s.folding),
+    indentGuides: useSettings((s) => s.indentGuides),
+    minimap: useSettings((s) => s.minimap),
+  };
   const colors = useColors();
   const remote = useRemoteSettings((s) => s.settings);
   const git = useGitSettings((s) => s.settings);
@@ -55,6 +61,26 @@ export function SettingsScreen() {
           <Row label="Terminal font size">
             <Stepper testID="terminal-font" value={terminalFontSize} onChange={(n) => settings.setTerminalFontSize(n)} />
           </Row>
+        </Section>
+
+        <Section title="Editor">
+          {(
+            [
+              ['wordWrap', 'Word wrap'],
+              ['folding', 'Code folding'],
+              ['indentGuides', 'Indent guides'],
+              ['minimap', 'Minimap'],
+            ] as [EditorOptionKey, string][]
+          ).map(([key, label]) => (
+            <Row key={key} label={label}>
+              <Switch
+                testID={`editor-${key}`}
+                value={editorOptions[key]}
+                onValueChange={(on) => settings.setEditorOption(key, on)}
+                trackColor={{ true: colors.brand, false: colors.secondary }}
+              />
+            </Row>
+          ))}
         </Section>
 
         <Section title="Extensions">
