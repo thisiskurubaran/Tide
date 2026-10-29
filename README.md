@@ -217,7 +217,7 @@ npm run build:web
 
 ## Icons
 
-App icons and splash images are generated from `app/assets/brand/tide-mark.svg`. After changing the mark:
+App icons and splash images are generated from `app/assets/brand/tide-mark.svg`, including the Tide Pro alternate icon (midnight tile, gold wave, PRO badge in Instrument Sans), which Pro members can pick in Settings, App icon. After changing the mark:
 
 ```bash
 cd app

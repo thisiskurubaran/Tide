@@ -165,7 +165,24 @@
       "expo-router",
       "expo-secure-store",
       "expo-iap",
-      "./plugins/withLocalPreview.js"
+      "./plugins/withLocalPreview.js",
+      [
+        "expo-alternate-app-icons",
+        [
+          {
+            "name": "Pro",
+            "ios": {
+              "light": "./assets/icons/ios-pro.png",
+              "dark": "./assets/icons/ios-pro-dark.png",
+              "tinted": "./assets/icons/ios-pro-tinted.png"
+            },
+            "android": {
+              "foregroundImage": "./assets/icons/android-pro-foreground.png",
+              "backgroundColor": "#0b1022"
+            }
+          }
+        ]
+      ]
     ]
   }
 }

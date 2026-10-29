@@ -6,6 +6,7 @@ import { extensionsStore, purchases } from '../../extensions/state';
 import { runnerStore, snapshots, storage } from '../../state';
 import { FREE_LIMITS, PRO_LIMITS, ProFeature } from './plans';
 import { createProStore, isPro, ProState } from './store';
+import { setProIcon, usingProIcon } from './appIcon';
 
 export const proStore = createProStore(storage, purchases);
 export const useProState = <T>(selector: (s: ProState) => T) => useStore(proStore, selector);
@@ -20,6 +21,8 @@ function syncExtensions() {
   extensionsStore.setState({ included: pro });
   snapshots.setKeep(pro ? PRO_LIMITS.snapshots : FREE_LIMITS.snapshots);
   if (!pro && runnerStore.getState().mode === 'remote') runnerStore.getState().setMode('local');
+  // The Pro icon goes back to the standard one when Pro ends.
+  if (!pro && usingProIcon()) setProIcon(false).catch(() => undefined);
 }
 proStore.subscribe(syncExtensions);
 

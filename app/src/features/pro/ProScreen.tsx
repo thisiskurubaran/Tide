@@ -14,8 +14,9 @@ import { proStore, useProState } from './index';
 import { PRIVACY_URL, renewalTerms, TERMS_URL } from './legal';
 import { PlanId, PLANS, PRO_FEATURES, ProFeature } from './plans';
 import { isPro, proStatus } from './store';
+import { offerProIcon } from './appIcon';
 
-const FEATURE_ORDER: ProFeature[] = ['remote', 'linked-folders', 'compare', 'tests', 'devtools', 'extensions', 'split-editor', 'terminals', 'snapshots'];
+const FEATURE_ORDER: ProFeature[] = ['remote', 'linked-folders', 'compare', 'tests', 'devtools', 'extensions', 'split-editor', 'terminals', 'snapshots', 'app-icon'];
 
 // The Tide Pro paywall: what Pro adds, the three plans, and Apple's
 // required terms and links. Opened from Settings, the Extensions screen and
@@ -48,6 +49,7 @@ export function ProScreen() {
       haptic('success');
       announce('Tide Pro is on. Thank you!');
       router.back();
+      offerProIcon();
     }
   }
 

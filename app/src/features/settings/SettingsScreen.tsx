@@ -19,7 +19,8 @@ import { appVersion, contactSupport, rateApp } from '../support/actions';
 import { CHANGELOG, Release } from '../support/changelog';
 import { WhatsNewSheet } from '../support/WhatsNewSheet';
 import { Onboarding } from '../onboarding/Onboarding';
-import { useIsPro, useProState } from '../pro';
+import { requirePro, useIsPro, useProState } from '../pro';
+import { iconsSupported, setProIcon, usingProIcon } from '../pro/appIcon';
 import { proStatus } from '../pro/store';
 
 export function SettingsScreen() {
@@ -33,6 +34,7 @@ export function SettingsScreen() {
   const contrast = useSettings((s) => s.contrast);
   const pro = useIsPro();
   const proDetail = useProState((s) => proStatus(s));
+  const [icon, setIcon] = useState<'standard' | 'pro'>(() => (usingProIcon() ? 'pro' : 'standard'));
   const editorOptions: Record<EditorOptionKey, boolean> = {
     wordWrap: useSettings((s) => s.wordWrap),
     folding: useSettings((s) => s.folding),
@@ -57,6 +59,25 @@ export function SettingsScreen() {
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.lg }]}>
         <Section title="Tide Pro">
           <LinkRow label={pro ? 'Tide Pro' : 'Get Tide Pro'} detail={proDetail ?? 'Remote mode, linked folders, every extension and more'} onPress={() => router.push('/pro')} testID="settings-pro" />
+          {iconsSupported() && (
+            <Row label="App icon">
+              <Segmented<'standard' | 'pro'>
+                testID="app-icon"
+                value={icon}
+                onChange={(next) => {
+                  if (next === 'pro' && !requirePro('app-icon')) return;
+                  setProIcon(next === 'pro').then(
+                    () => setIcon(usingProIcon() ? 'pro' : 'standard'),
+                    () => undefined,
+                  );
+                }}
+                options={[
+                  { value: 'standard', label: 'Standard' },
+                  { value: 'pro', label: 'Pro' },
+                ]}
+              />
+            </Row>
+          )}
         </Section>
 
         <Section title="Appearance">

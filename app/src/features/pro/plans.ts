@@ -33,7 +33,7 @@ export const SUBSCRIPTION_IDS = PLANS.filter((p) => p.kind === 'subs').map((p) =
 export const FREE_LIMITS = { snapshots: 3, terminals: 2 } as const;
 export const PRO_LIMITS = { snapshots: 10, terminals: 6 } as const;
 
-export type ProFeature = 'remote' | 'linked-folders' | 'compare' | 'tests' | 'devtools' | 'split-editor' | 'snapshots' | 'terminals' | 'extensions';
+export type ProFeature = 'remote' | 'linked-folders' | 'compare' | 'tests' | 'devtools' | 'split-editor' | 'snapshots' | 'terminals' | 'extensions' | 'app-icon';
 
 export const PRO_FEATURES: Record<ProFeature, { icon: IconName; title: string; description: string }> = {
   remote: { icon: 'server', title: 'Remote mode', description: 'A full Linux terminal on a Tide server you host: any language, any package, native builds.' },
@@ -45,5 +45,6 @@ export const PRO_FEATURES: Record<ProFeature, { icon: IconName; title: string; d
   snapshots: { icon: 'clock', title: 'More snapshots', description: `Keep ${PRO_LIMITS.snapshots} snapshots per project instead of ${FREE_LIMITS.snapshots}.` },
   terminals: { icon: 'terminal', title: 'Up to 6 terminals', description: 'Run a server in one and work in the others.' },
   extensions: { icon: 'package', title: 'Every extension included', description: 'Themes, Format & Lint, Git Pro, IntelliSense and the Debugger.' },
+  'app-icon': { icon: 'star', title: 'Pro app icon', description: 'A midnight Tide icon with a gold PRO badge.' },
 };
 
