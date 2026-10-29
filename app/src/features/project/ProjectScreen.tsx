@@ -44,6 +44,7 @@ import { previewKind } from '../preview/render';
 import { hasConflicts } from '../diff/conflicts';
 import { CompareView } from '../diff/CompareView';
 import type { CompareRequest } from '../diff/sources';
+import { PackagesSheet } from '../packages/PackagesSheet';
 
 // Extensions can contribute the same command or panel (Show problems); the first one wins.
 const uniqueById = <T extends { id: string }>(items: T[]) => items.filter((x, i) => items.findIndex((o) => o.id === x.id) === i);
@@ -99,6 +100,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
   const [showSnapshots, setShowSnapshots] = useState(false);
   const [showLinked, setShowLinked] = useState(false);
   const [compare, setCompare] = useState<CompareRequest | null>(null);
+  const [packagesOpen, setPackagesOpen] = useState(false);
   // "Compare with file…" uses the file picker; the next pick is the other file.
   const comparingWith = useRef<string | null>(null);
   const currentHasConflicts = useBuffers((s) => (current ? hasConflicts(s.buffers[bufferKey(project, current)]?.content ?? '') : false));
@@ -329,6 +331,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     { id: 'toggle-terminal', title: 'Toggle terminal', icon: 'terminal', hint: '⌘J', run: () => setTerminalHidden((h) => !h) },
     { id: 'local', title: 'Terminal: use Local', icon: 'smartphone', run: () => runnerStore.getState().setMode('local') },
     { id: 'remote', title: 'Terminal: use Remote', icon: 'server', run: () => runnerStore.getState().setMode('remote') },
+    { id: 'packages', title: 'Packages (npm, pip)', icon: 'box', run: () => setPackagesOpen(true) },
     { id: 'source-control', title: 'Source control', icon: 'git-branch', run: openSourceControl },
     { id: 'settings', title: 'Settings', icon: 'settings', hint: '⌘,', run: () => router.push('/settings') },
     { id: 'extensions', title: 'Extensions', icon: 'package', run: () => router.push('/extensions') },
@@ -523,6 +526,15 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
         }}
       />
       <CompareView project={project} request={compare} onClose={() => setCompare(null)} />
+      <PackagesSheet
+        project={project}
+        visible={packagesOpen}
+        onClose={() => setPackagesOpen(false)}
+        onTerminal={(line) => {
+          setTerminalHidden(false);
+          terminal.current?.input(`${line}\r`);
+        }}
+      />
       <SourceControlSheet visible={sourceControl} project={project} onClose={() => setSourceControl(false)} />
       {panels.map(({ id, component: Panel }) => (
         <Panel key={id} ctx={ctx} visible={panel === id} onClose={() => setPanel((p) => (p === id ? null : p))} />
