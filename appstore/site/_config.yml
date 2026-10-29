@@ -1,0 +1,14 @@
+# GitHub Pages site for Kurubaran Anandhan's apps: one directory per app,
+# each with its privacy policy and support page. See README.md.
+title: Kurubaran Anandhan
+description: Privacy policies and support for my apps
+# Folders starting with "_" (like _template) and these files aren't published.
+exclude:
+  - README.md
+# Every page uses _layouts/default.html (which also declares UTF-8), without
+# needing it in each file's front matter.
+defaults:
+  - scope:
+      path: ''
+    values:
+      layout: default

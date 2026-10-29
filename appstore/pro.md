@@ -74,39 +74,57 @@ Lifetime on (shared with up to five family members), extensions off.
 
 ## Publishing the privacy policy and support pages
 
-`appstore/privacy-policy.md` and `appstore/support.md` are ready for
-GitHub Pages (their front matter sets the URL). This repo is private, and
-GitHub Pages on a free plan only publishes public repos, so they go in a
-small public repo of their own:
+`appstore/site/` is a complete GitHub Pages site for all your apps, one
+directory per app:
+
+```
+appstore/site/
+  _config.yml
+  index.md          /              list of apps
+  tide/             /tide/         Tide's landing page
+    privacy.md      /tide/privacy/ Privacy Policy URL
+    support.md      /tide/support/ Support URL
+  _layouts/         the page layout
+  _template/        copied for each new app (not published)
+  README.md         how to add an app (not published)
+```
+
+This repo is private, and GitHub Pages on a free plan only publishes
+public repos, so the site goes in a public repo of its own:
 
 1. On github.com, **New repository** named exactly
-   `thisiskurubaran.github.io`, **Public**, with a README. A repo with that
-   name becomes your site at `https://thisiskurubaran.github.io`.
-2. Add the two pages, either with **Add file > Upload files** or:
+   `thisiskurubaran.github.io`, **Public**. A repo with that name becomes
+   your site at `https://thisiskurubaran.github.io`.
+2. Copy the site into it:
 
    ```bash
    git clone https://github.com/thisiskurubaran/thisiskurubaran.github.io.git
+   cp -R Tide/appstore/site/. thisiskurubaran.github.io/
    cd thisiskurubaran.github.io
-   mkdir -p tide
-   cp ../Tide/appstore/privacy-policy.md tide/privacy.md
-   cp ../Tide/appstore/support.md tide/support.md
-   printf 'title: Kurubaran Anandhan\ntheme: jekyll-theme-primer\n' > _config.yml
-   git add . && git commit -m "Add Tide privacy policy and support pages" && git push
+   git add . && git commit -m "Add app privacy policies and support pages" && git push
    ```
 
-3. In the new repo: **Settings > Pages > Build and deployment**, Source
-   **Deploy from a branch**, Branch **main** / **(root)**, **Save**. (User
-   sites usually have this on already.)
-4. After a minute or two, the **Actions** tab shows the
-   "pages build and deployment" run finish, and these open:
+   Or drag the contents of `appstore/site/` into **Add file > Upload
+   files** on GitHub (keep the folders).
+3. In that repo: **Settings > Pages > Build and deployment**, Source
+   **Deploy from a branch**, Branch **main** / **(root)**, **Save** (user
+   sites usually have this on already).
+4. After a minute or two, the **Actions** tab shows "pages build and
+   deployment" finish, and these open:
+   - `https://thisiskurubaran.github.io/`
    - `https://thisiskurubaran.github.io/tide/privacy/`
    - `https://thisiskurubaran.github.io/tide/support/`
-5. Put both URLs in App Store Connect (step 8 above). The app's paywall
-   already links to the privacy URL.
+5. Put the Tide URLs in App Store Connect (step 8 above). The app's
+   paywall already links to the privacy URL.
 
-When the policy changes, edit it here, copy it over again, and update its
-effective date. Keep the URL the same: the app and App Store Connect both
-point at it.
+**Other apps**: copy `_template/` to a directory named after the app
+(lowercase, hyphens, e.g. `my-app/`), fill in the placeholders, and add a
+row to `index.md`; the site's README.md has the details. You can do this
+straight in the public repo; only Tide's directory is kept here.
+
+**Changing Tide's policy**: edit `appstore/site/tide/` here, update the
+effective date, copy the `tide/` directory over again and push. Keep the
+URLs: the app and App Store Connect point at them.
 
 ## Build settings
 

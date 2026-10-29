@@ -55,6 +55,7 @@ handle it under their own privacy policies.
 | Linked folders | Files copied to and from the folder | The folder you choose, e.g. in iCloud Drive or another app |
 | Previews | Whatever the page you preview requests | The page's own server and anything it loads |
 | Sharing and "Open in Tide" | The files you choose | The app or service you pick in the share sheet, or from the app that sent them |
+{: .sent }
 
 Code you run in Tide's terminal or previews can make its own network
 requests; that is up to the code you run.

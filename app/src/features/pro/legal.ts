@@ -1,5 +1,5 @@
 // Links Apple requires next to subscriptions (Guideline 3.1.2). Terms are
-// Apple's standard EULA; the privacy policy is appstore/privacy-policy.md,
+// Apple's standard EULA; the privacy policy is appstore/site/tide/privacy.md,
 // published with GitHub Pages (see appstore/pro.md). Either can be
 // overridden at build time.
 export const TERMS_URL = process.env.EXPO_PUBLIC_TERMS_URL || 'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/';
