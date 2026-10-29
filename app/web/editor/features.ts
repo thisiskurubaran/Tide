@@ -13,8 +13,6 @@ import {
   GutterMarker,
   hoverTooltip,
   keymap,
-  ViewPlugin,
-  ViewUpdate,
   WidgetType,
 } from '@codemirror/view';
 
@@ -300,8 +298,7 @@ class ConflictActions extends WidgetType {
   }
 }
 
-function conflictDecorations(view: EditorView): DecorationSet {
-  const doc = view.state.doc;
+function conflictDecorations(doc: Text): DecorationSet {
   const ranges = [];
   for (const c of findConflicts(doc)) {
     ranges.push(Decoration.widget({ widget: new ConflictActions(c), side: -1, block: true }).range(doc.line(c.start).from));
@@ -320,18 +317,12 @@ function conflictDecorations(view: EditorView): DecorationSet {
   return Decoration.set(ranges, true);
 }
 
-const conflicts = ViewPlugin.fromClass(
-  class {
-    decorations: DecorationSet;
-    constructor(view: EditorView) {
-      this.decorations = conflictDecorations(view);
-    }
-    update(u: ViewUpdate) {
-      if (u.docChanged) this.decorations = conflictDecorations(u.view);
-    }
-  },
-  { decorations: (v) => v.decorations },
-);
+// A state field, not a view plugin: CodeMirror only takes block widgets (the action bar) from state.
+const conflicts = StateField.define<DecorationSet>({
+  create: (state) => conflictDecorations(state.doc),
+  update: (deco, tr) => (tr.docChanged ? conflictDecorations(tr.state.doc) : deco),
+  provide: (f) => EditorView.decorations.from(f),
+});
 
 // ---- Putting it together ----
 
