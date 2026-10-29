@@ -26,6 +26,9 @@ import { TabBar } from './TabBar';
 import { TerminalPanel } from './TerminalPanel';
 import { makeStyles } from '../../theme/theme';
 
+// Extensions can contribute the same command or panel (Show problems); the first one wins.
+const uniqueById = <T extends { id: string }>(items: T[]) => items.filter((x, i) => items.findIndex((o) => o.id === x.id) === i);
+
 const DRAWER_MAX = 340;
 // iPad portrait and wider: the file tree stays open beside the editor.
 const WIDE = 768;
@@ -111,7 +114,7 @@ export function ProjectScreen({ project }: { project: string }) {
     },
   };
 
-  const commands: Command[] = [
+  const commands = uniqueById<Command>([
     { id: 'quick-open', title: 'Open file', icon: 'file', hint: '⌘P', run: () => setPalette('files') },
     { id: 'search', title: 'Search in project', icon: 'search', hint: '⇧⌘F', run: () => setSearching(true) },
     { id: 'find', title: 'Find in file', icon: 'search', hint: '⌘F', run: () => editor.current?.send({ type: 'find' }) },
@@ -137,7 +140,8 @@ export function ProjectScreen({ project }: { project: string }) {
     { id: 'settings', title: 'Settings', icon: 'settings', run: () => router.push('/settings') },
     { id: 'extensions', title: 'Extensions', icon: 'package', run: () => router.push('/extensions') },
     ...extensions.flatMap((ext) => ext.commands?.(ctx) ?? []),
-  ];
+  ]);
+  const panels = uniqueById(extensions.flatMap((ext) => ext.panels ?? []));
 
   // Hardware keyboard shortcuts arrive from whichever WebView has focus.
   const onShortcut = (id: Shortcut) => {
@@ -243,11 +247,9 @@ export function ProjectScreen({ project }: { project: string }) {
 
       <CommandPalette mode={palette} project={project} commands={commands} onOpenFile={openFile} onClose={() => setPalette(null)} />
       <SourceControlSheet visible={sourceControl} project={project} onClose={() => setSourceControl(false)} />
-      {extensions.flatMap((ext) =>
-        (ext.panels ?? []).map(({ id, component: Panel }) => (
-          <Panel key={id} ctx={ctx} visible={panel === id} onClose={() => setPanel((p) => (p === id ? null : p))} />
-        )),
-      )}
+      {panels.map(({ id, component: Panel }) => (
+        <Panel key={id} ctx={ctx} visible={panel === id} onClose={() => setPanel((p) => (p === id ? null : p))} />
+      ))}
       <SearchPanel visible={searching} project={project} onOpen={openAt} onClose={() => setSearching(false)} />
       <PromptSheet
         visible={goingToLine}

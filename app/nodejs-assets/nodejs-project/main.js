@@ -17,6 +17,8 @@ const supervisor = createSupervisor({
     npm: path.join(__dirname, 'npm', 'cli.js'),
     pip: path.join(__dirname, 'pip', 'cli.js'),
     git: path.join(__dirname, 'git', 'cli.js'),
+    format: path.join(__dirname, 'format', 'service.js'),
+    intellisense: path.join(__dirname, 'intellisense', 'service.js'),
   },
 });
 

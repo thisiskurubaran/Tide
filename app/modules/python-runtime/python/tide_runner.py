@@ -207,8 +207,18 @@ def version():
     return sys.version
 
 
+# Requests for tide_tools (Format & Lint) arrive through snippet() so the
+# native modules need no new function. They return a value instead of
+# capturing stdout, which may belong to a script running on another thread.
+_TOOL_PREFIX = "#tide-tool\n"
+
+
 def snippet(code):
     """Runs a code string and returns its output. Used by the debug screen."""
+    if code.startswith(_TOOL_PREFIX):
+        import tide_tools
+
+        return tide_tools.handle(code[len(_TOOL_PREFIX):])
     buf = io.StringIO()
     old_out, old_err = sys.stdout, sys.stderr
     sys.stdout = sys.stderr = buf

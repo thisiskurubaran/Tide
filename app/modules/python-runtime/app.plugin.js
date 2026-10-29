@@ -51,7 +51,8 @@ const IOS_PHASE_SCRIPT = [
   'source "$PROJECT_DIR/$XCFW/build/utils.sh"',
   'install_python "$XCFW"',
   'mkdir -p "$CODESIGNING_FOLDER_PATH/python/tide"',
-  'cp "$PROJECT_DIR/../modules/python-runtime/python/"*.py "$CODESIGNING_FOLDER_PATH/python/tide/"',
+  // Packages too: Format & Lint's pyflakes is a folder.
+  'rsync -a --exclude __pycache__ --exclude ".*" "$PROJECT_DIR/../modules/python-runtime/python/" "$CODESIGNING_FOLDER_PATH/python/tide/"',
 ].join('\\n');
 
 // The XCframework only holds libpython. The stdlib and the extension modules
