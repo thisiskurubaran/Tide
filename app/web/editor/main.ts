@@ -22,12 +22,6 @@ import {
   selectParentSyntax,
   undo,
 } from '@codemirror/commands';
-import { css } from '@codemirror/lang-css';
-import { html } from '@codemirror/lang-html';
-import { javascript } from '@codemirror/lang-javascript';
-import { json } from '@codemirror/lang-json';
-import { markdown } from '@codemirror/lang-markdown';
-import { python } from '@codemirror/lang-python';
 import { bracketMatching, indentOnInput, indentUnit } from '@codemirror/language';
 import { openSearchPanel, searchKeymap } from '@codemirror/search';
 import { Compartment, EditorState, Extension, Prec } from '@codemirror/state';
@@ -57,6 +51,7 @@ import {
   setBreakpoints,
 } from './features';
 import { pinchToZoom } from '../pinch';
+import { languageExtension } from './languages';
 import { optionsExtension } from './options';
 import { buildTheme, FONT_FAMILY } from './theme';
 
@@ -76,31 +71,6 @@ document.head.appendChild(style);
 
 function post(msg: FromEditor) {
   window.ReactNativeWebView?.postMessage(JSON.stringify(msg));
-}
-
-function languageExtension(lang: Language): Extension {
-  switch (lang) {
-    case 'javascript':
-      return javascript();
-    case 'jsx':
-      return javascript({ jsx: true });
-    case 'typescript':
-      return javascript({ typescript: true });
-    case 'tsx':
-      return javascript({ typescript: true, jsx: true });
-    case 'python':
-      return python();
-    case 'json':
-      return json();
-    case 'html':
-      return html();
-    case 'css':
-      return css();
-    case 'markdown':
-      return markdown();
-    default:
-      return [];
-  }
 }
 
 const languageConf = new Compartment();

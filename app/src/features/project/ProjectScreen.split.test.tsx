@@ -48,6 +48,13 @@ jest.mock('../search/SearchPanel', () => ({ SearchPanel: () => null }));
 jest.mock('../external', () => ({ pullFolder: jest.fn(), pushFolder: jest.fn(), useLinked: () => undefined }));
 jest.mock('../external/LinkedFolderSheet', () => ({ LinkedFolderSheet: () => null }));
 jest.mock('../files/FileTree', () => ({ FileTree: () => null }));
+let mockCompare: unknown = null;
+jest.mock('../diff/CompareView', () => ({
+  CompareView: (props: { request: unknown }) => {
+    mockCompare = props.request;
+    return null;
+  },
+}));
 jest.mock('../preview/PreviewPane', () => {
   const { Text } = jest.requireActual('react-native');
   return { PreviewPane: ({ path }: { path: string }) => <Text>{`preview:${path}`}</Text> };
@@ -138,4 +145,18 @@ it('offers tide.json configurations and tasks in the palette', async () => {
   const ids = mockCommands.map((c) => c.id);
   expect(ids).toEqual(expect.arrayContaining(['run-config:Default', 'run-config:Server', 'task:Test']));
   expect(mockCommands.find((c) => c.id === 'run')).toMatchObject({ title: 'Run project (Default)' });
+});
+
+it('offers the merge editor for files with conflicts', async () => {
+  const { buffersStore, workspace } = jest.requireMock('../../state');
+  await workspace.createEmptyProject('merge');
+  await workspace.createFile('merge', '', 'a.txt', '<<<<<<< HEAD\nx\n=======\ny\n>>>>>>> b\n');
+  tabsStore.getState().openTab('merge', 'a.txt');
+  await buffersStore.getState().load('merge', 'a.txt');
+  await render(<ProjectScreen project="merge" />);
+  const ids = mockCommands.map((c) => c.id);
+  expect(ids).toEqual(expect.arrayContaining(['compare.merge', 'compare.head', 'compare.file']));
+  expect(ids).not.toContain('compare.saved');
+  await act(async () => mockCommands.find((c) => c.id === 'compare.merge')!.run());
+  expect(mockCompare).toEqual({ path: 'a.txt', with: 'merge' });
 });

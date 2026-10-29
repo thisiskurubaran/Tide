@@ -41,6 +41,9 @@ import { haptic } from '../../components/haptics';
 import { countRun } from '../support/actions';
 import { PreviewPane } from '../preview/PreviewPane';
 import { previewKind } from '../preview/render';
+import { hasConflicts } from '../diff/conflicts';
+import { CompareView } from '../diff/CompareView';
+import type { CompareRequest } from '../diff/sources';
 
 // Extensions can contribute the same command or panel (Show problems); the first one wins.
 const uniqueById = <T extends { id: string }>(items: T[]) => items.filter((x, i) => items.findIndex((o) => o.id === x.id) === i);
@@ -95,6 +98,10 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
   const [panel, setPanel] = useState<string | null>(null);
   const [showSnapshots, setShowSnapshots] = useState(false);
   const [showLinked, setShowLinked] = useState(false);
+  const [compare, setCompare] = useState<CompareRequest | null>(null);
+  // "Compare with file…" uses the file picker; the next pick is the other file.
+  const comparingWith = useRef<string | null>(null);
+  const currentHasConflicts = useBuffers((s) => (current ? hasConflicts(s.buffers[bufferKey(project, current)]?.content ?? '') : false));
   // Files shown rendered instead of as source. Notebooks start out rendered.
   const [previewToggled, setPreviewToggled] = useState<Record<string, boolean>>({});
   const previewing = (path: string | null) => !!path && !!previewKind(path) && (previewToggled[path] ?? previewKind(path) === 'notebook');
@@ -262,6 +269,26 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     ...(wide ? [{ id: 'split', title: splitOn ? 'Close the second editor' : 'Split editor', icon: 'columns' as const, hint: '⌘\\', run: toggleSplit }] : []),
     ...(current && previewKind(current)
       ? [{ id: 'preview', title: previewing(current) ? 'Show source' : 'Show preview', icon: 'eye' as const, hint: '⇧⌘V', run: togglePreview }]
+      : []),
+    ...(current
+      ? [
+          ...(currentHasConflicts
+            ? [{ id: 'compare.merge', title: 'Resolve conflicts in the merge editor', icon: 'git-merge' as const, run: () => setCompare({ path: current, with: 'merge' }) }]
+            : []),
+          ...(dirty.has(current)
+            ? [{ id: 'compare.saved', title: 'Compare with saved', icon: 'file-text' as const, run: () => setCompare({ path: current, with: 'saved' }) }]
+            : []),
+          { id: 'compare.head', title: 'Compare with last commit', icon: 'git-commit' as const, run: () => setCompare({ path: current, with: 'head' }) },
+          {
+            id: 'compare.file',
+            title: 'Compare with file…',
+            icon: 'copy' as const,
+            run: () => {
+              comparingWith.current = current;
+              setPalette('files');
+            },
+          },
+        ]
       : []),
     { id: 'undo', title: 'Undo', icon: 'rotate-ccw', run: () => editor.current?.send({ type: 'undo' }) },
     { id: 'redo', title: 'Redo', icon: 'rotate-cw', run: () => editor.current?.send({ type: 'redo' }) },
@@ -478,7 +505,24 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
         </>
       )}
 
-      <CommandPalette mode={palette} project={project} commands={commands} onOpenFile={openFile} onClose={() => setPalette(null)} />
+      <CommandPalette
+        mode={palette}
+        project={project}
+        commands={commands}
+        onOpenFile={(path) => {
+          const base = comparingWith.current;
+          comparingWith.current = null;
+          if (base && base !== path) setCompare({ path: base, with: { file: path } });
+          else openFile(path);
+        }}
+        onClose={() => {
+          // The palette closes just before it reports the pick, so the reset
+          // waits a tick: it only matters when it closed without one.
+          setTimeout(() => (comparingWith.current = null), 0);
+          setPalette(null);
+        }}
+      />
+      <CompareView project={project} request={compare} onClose={() => setCompare(null)} />
       <SourceControlSheet visible={sourceControl} project={project} onClose={() => setSourceControl(false)} />
       {panels.map(({ id, component: Panel }) => (
         <Panel key={id} ctx={ctx} visible={panel === id} onClose={() => setPanel((p) => (p === id ? null : p))} />
