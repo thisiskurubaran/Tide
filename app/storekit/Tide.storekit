@@ -1,0 +1,162 @@
+{
+  "identifier": "391E4D55",
+  "nonRenewingSubscriptions": [],
+  "products": [
+    {
+      "displayPrice": "2.99",
+      "familyShareable": false,
+      "internalID": "FE021943",
+      "localizations": [
+        {
+          "description": "Editor and terminal themes and file icons.",
+          "displayName": "Themes & Icons Pack",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "com.thisiskurubaran.tide.ext.themes",
+      "referenceName": "Themes & Icons Pack",
+      "type": "NonConsumable"
+    },
+    {
+      "displayPrice": "4.99",
+      "familyShareable": false,
+      "internalID": "3ADD28C4",
+      "localizations": [
+        {
+          "description": "Prettier, ESLint, autopep8 and pyflakes.",
+          "displayName": "Format & Lint",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "com.thisiskurubaran.tide.ext.format_lint",
+      "referenceName": "Format & Lint",
+      "type": "NonConsumable"
+    },
+    {
+      "displayPrice": "6.99",
+      "familyShareable": false,
+      "internalID": "F32C9E48",
+      "localizations": [
+        {
+          "description": "Diffs, staging, branches, history and conflicts.",
+          "displayName": "Git Pro",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "com.thisiskurubaran.tide.ext.git_pro",
+      "referenceName": "Git Pro",
+      "type": "NonConsumable"
+    },
+    {
+      "displayPrice": "9.99",
+      "familyShareable": false,
+      "internalID": "7049BAB1",
+      "localizations": [
+        {
+          "description": "Completions, hover and go to definition.",
+          "displayName": "IntelliSense Pro",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "com.thisiskurubaran.tide.ext.intellisense",
+      "referenceName": "IntelliSense Pro",
+      "type": "NonConsumable"
+    },
+    {
+      "displayPrice": "9.99",
+      "familyShareable": false,
+      "internalID": "61FA153F",
+      "localizations": [
+        {
+          "description": "Breakpoints and stepping for JavaScript and Python.",
+          "displayName": "Debugger",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "com.thisiskurubaran.tide.ext.debugger",
+      "referenceName": "Debugger",
+      "type": "NonConsumable"
+    },
+    {
+      "displayPrice": "59.99",
+      "familyShareable": true,
+      "internalID": "79F3A982",
+      "localizations": [
+        {
+          "description": "Every Pro feature and extension, for good.",
+          "displayName": "Tide Pro Lifetime",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "com.thisiskurubaran.tide.pro.lifetime",
+      "referenceName": "Tide Pro Lifetime",
+      "type": "NonConsumable"
+    }
+  ],
+  "settings": {
+    "_failTransactionsEnabled": false,
+    "_locale": "en_US",
+    "_storefront": "USA",
+    "_storeKitErrors": []
+  },
+  "subscriptionGroups": [
+    {
+      "id": "DB0F6F37",
+      "localizations": [],
+      "name": "Tide Pro",
+      "subscriptions": [
+        {
+          "adHocOffers": [],
+          "codeOffers": [],
+          "displayPrice": "24.99",
+          "familyShareable": false,
+          "groupNumber": 1,
+          "internalID": "1BF71289",
+          "introductoryOffer": {
+            "internalID": "58723627",
+            "numberOfPeriods": 1,
+            "paymentMode": "free",
+            "subscriptionPeriod": "P1W"
+          },
+          "localizations": [
+            {
+              "description": "Every Pro feature and extension.",
+              "displayName": "Tide Pro Yearly",
+              "locale": "en_US"
+            }
+          ],
+          "productID": "com.thisiskurubaran.tide.pro.yearly",
+          "recurringSubscriptionPeriod": "P1Y",
+          "referenceName": "Tide Pro Yearly",
+          "subscriptionGroupID": "DB0F6F37",
+          "type": "RecurringSubscription"
+        },
+        {
+          "adHocOffers": [],
+          "codeOffers": [],
+          "displayPrice": "2.99",
+          "familyShareable": false,
+          "groupNumber": 1,
+          "internalID": "70863888",
+          "introductoryOffer": null,
+          "localizations": [
+            {
+              "description": "Every Pro feature and extension.",
+              "displayName": "Tide Pro Monthly",
+              "locale": "en_US"
+            }
+          ],
+          "productID": "com.thisiskurubaran.tide.pro.monthly",
+          "recurringSubscriptionPeriod": "P1M",
+          "referenceName": "Tide Pro Monthly",
+          "subscriptionGroupID": "DB0F6F37",
+          "type": "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version": {
+    "major": 3,
+    "minor": 0
+  }
+}

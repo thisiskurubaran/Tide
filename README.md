@@ -133,6 +133,12 @@ The rating prompt is asked for at most once per version, after 5 runs and 3 days
 
 The iOS privacy manifest is set in `app.json` (`ios.privacyManifests`) and declares crash data and the required-reason APIs the app and its Node and Python runtimes use (user defaults, file timestamps, boot time and disk space). `ios.config.usesNonExemptEncryption` is false: the app only uses standard encryption.
 
+## Tide Pro
+
+Tide Pro is a monthly or yearly subscription (7-day free trial on yearly) or a lifetime purchase. It unlocks Remote mode, linked folders, compare and merge, the test runner, preview dev tools, the split editor on iPad, up to 6 terminals (free: 2), 10 snapshots per project (free: 3) and every extension. The plans and limits are in `app/src/features/pro/plans.ts`; the paywall opens from Settings, the Extensions screen and any Pro feature.
+
+[docs/app-store-pro.md](docs/app-store-pro.md) covers setting up the products in App Store Connect, testing with `app/storekit/Tide.storekit` or sandbox, and the review notes. Builds need `EXPO_PUBLIC_PRIVACY_URL` (the hosted privacy policy, drafted in [docs/privacy-policy.md](docs/privacy-policy.md)) for the paywall's Privacy Policy link.
+
 ## Remote mode
 
 Remote mode runs the project in a container on a Tide server you host (see below). Set the server URL and token under Settings, Remote server; both are kept in the Keychain (Keystore on Android).
