@@ -20,7 +20,8 @@ export type Shortcut =
   | 'settings'
   | 'keyboard-shortcuts'
   | 'new-terminal'
-  | 'split';
+  | 'split'
+  | 'preview';
 
 type KeyEvent = { key: string; code?: string; metaKey: boolean; shiftKey: boolean; altKey: boolean };
 
@@ -36,7 +37,7 @@ export function shortcutFor(e: KeyEvent): Shortcut | null {
     if (e.code === 'BracketLeft') return 'prev-tab';
     if (e.code === 'BracketRight') return 'next-tab';
     if (e.code === 'Slash' || key === '?') return 'keyboard-shortcuts';
-    return key === 'p' ? 'palette' : key === 'f' ? 'search' : null;
+    return key === 'p' ? 'palette' : key === 'f' ? 'search' : key === 'v' ? 'preview' : null;
   }
   if (/^[1-9]$/.test(key)) return `tab-${Number(key) as TabNumber}`;
   switch (key) {
@@ -83,6 +84,7 @@ export const SHORTCUT_HELP: { group: string; items: [keys: string, title: string
       ['⌘R', 'Run the project'],
       ['⌘T', 'New terminal'],
       ['⌘\\', 'Split the editor (iPad)'],
+      ['⇧⌘V', 'Preview Markdown or a notebook'],
       ['⌘L', 'Go to line'],
       ['⌘,', 'Settings'],
       ['⇧⌘?', 'Keyboard shortcuts'],

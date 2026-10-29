@@ -48,6 +48,10 @@ jest.mock('../search/SearchPanel', () => ({ SearchPanel: () => null }));
 jest.mock('../external', () => ({ pullFolder: jest.fn(), pushFolder: jest.fn(), useLinked: () => undefined }));
 jest.mock('../external/LinkedFolderSheet', () => ({ LinkedFolderSheet: () => null }));
 jest.mock('../files/FileTree', () => ({ FileTree: () => null }));
+jest.mock('../preview/PreviewPane', () => {
+  const { Text } = jest.requireActual('react-native');
+  return { PreviewPane: ({ path }: { path: string }) => <Text>{`preview:${path}`}</Text> };
+});
 // The palette's commands, as the screen last rendered them.
 let mockCommands: { id: string; run(): void }[] = [];
 jest.mock('../search/CommandPalette', () => ({
@@ -105,4 +109,17 @@ it('opens the file a tide:// link asks for', async () => {
   await render(<ProjectScreen project="linked" launch={{ file: 'src/app.ts', line: 3 }} />);
   expect(tabsStore.getState().byProject.linked).toEqual({ open: ['src/app.ts'], active: 'src/app.ts' });
   expect(screen.getByText('file:src/app.ts')).toBeTruthy();
+});
+
+it('previews Markdown on request and notebooks from the start', async () => {
+  tabsStore.getState().openTab('docs', 'README.md');
+  await render(<ProjectScreen project="docs" />);
+  expect(screen.queryByText('preview:README.md')).toBeNull();
+  await fireEvent.press(screen.getByTestId('toggle-preview'));
+  expect(screen.getByText('preview:README.md')).toBeTruthy();
+  await act(async () => mockCommands.find((c) => c.id === 'preview')!.run());
+  expect(screen.queryByText('preview:README.md')).toBeNull();
+
+  await act(async () => tabsStore.getState().openTab('docs', 'analysis.ipynb'));
+  expect(screen.getByText('preview:analysis.ipynb')).toBeTruthy();
 });

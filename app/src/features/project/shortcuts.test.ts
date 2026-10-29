@@ -8,6 +8,7 @@ describe('shortcutFor', () => {
     expect(key('p', { meta: true })).toBe('quick-open');
     expect(key('P', { meta: true, shift: true })).toBe('palette');
     expect(key('F', { meta: true, shift: true })).toBe('search');
+    expect(key('V', { meta: true, shift: true })).toBe('preview');
     expect(key('l', { meta: true })).toBe('goto-line');
     expect(key('j', { meta: true })).toBe('toggle-terminal');
     expect(key('s', { meta: true })).toBe('save');

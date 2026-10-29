@@ -38,6 +38,8 @@ import { TerminalPanel, TerminalPanelHandle } from './TerminalPanel';
 import { makeStyles } from '../../theme/theme';
 import { haptic } from '../../components/haptics';
 import { countRun } from '../support/actions';
+import { PreviewPane } from '../preview/PreviewPane';
+import { previewKind } from '../preview/render';
 
 // Extensions can contribute the same command or panel (Show problems); the first one wins.
 const uniqueById = <T extends { id: string }>(items: T[]) => items.filter((x, i) => items.findIndex((o) => o.id === x.id) === i);
@@ -91,6 +93,10 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
   const [panel, setPanel] = useState<string | null>(null);
   const [showSnapshots, setShowSnapshots] = useState(false);
   const [showLinked, setShowLinked] = useState(false);
+  // Files shown rendered instead of as source. Notebooks start out rendered.
+  const [previewToggled, setPreviewToggled] = useState<Record<string, boolean>>({});
+  const previewing = (path: string | null) => !!path && !!previewKind(path) && (previewToggled[path] ?? previewKind(path) === 'notebook');
+  const togglePreview = () => current && previewKind(current) && setPreviewToggled((t) => ({ ...t, [current]: !previewing(current) }));
   const linked = useLinked((s) => s.links[project]?.name);
   const progress = useRef(new Animated.Value(0)).current;
   const activePath = useRef(current);
@@ -229,6 +235,9 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     { id: 'save', title: 'Save file', icon: 'save', hint: '⌘S', run: () => current && save(current).then(() => haptic('success')) },
     { id: 'close-tab', title: 'Close file', icon: 'x', hint: '⌘W', run: () => current && closeFile(current) },
     ...(wide ? [{ id: 'split', title: splitOn ? 'Close the second editor' : 'Split editor', icon: 'columns' as const, hint: '⌘\\', run: toggleSplit }] : []),
+    ...(current && previewKind(current)
+      ? [{ id: 'preview', title: previewing(current) ? 'Show source' : 'Show preview', icon: 'eye' as const, hint: '⇧⌘V', run: togglePreview }]
+      : []),
     { id: 'undo', title: 'Undo', icon: 'rotate-ccw', run: () => editor.current?.send({ type: 'undo' }) },
     { id: 'redo', title: 'Redo', icon: 'rotate-cw', run: () => editor.current?.send({ type: 'redo' }) },
     { id: 'files', title: 'Show or hide files', icon: 'sidebar', hint: '⌘B', run: () => (wide ? setSidebarHidden((h) => !h) : setDrawerOpen((o) => !o)) },
@@ -304,6 +313,14 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
         <Text variant="title" numberOfLines={1} style={styles.title}>
           {project}
         </Text>
+        {current && previewKind(current) && (
+          <IconButton
+            icon={previewing(current) ? 'code' : 'eye'}
+            label={previewing(current) ? 'Show source' : 'Show preview'}
+            onPress={togglePreview}
+            testID="toggle-preview"
+          />
+        )}
         <IconButton icon="git-branch" label="Source control" onPress={openSourceControl} testID="open-source-control" />
         <IconButton icon="search" label="Search in project" onPress={() => setSearching(true)} testID="open-search" />
         <IconButton icon="command" label="Commands" onPress={() => setPalette('commands')} testID="open-palette" />
@@ -339,6 +356,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
                 }}
                 onShortcut={onShortcut}
               />
+              {previewing(tabs.active) && <PreviewPane project={project} path={tabs.active!} />}
             </View>
             {splitOn && (
               <>
@@ -361,6 +379,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
                     }}
                     onShortcut={onShortcut}
                   />
+                  {previewing(split.path) && <PreviewPane project={project} path={split.path!} />}
                 </View>
               </>
             )}
