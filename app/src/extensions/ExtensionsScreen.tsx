@@ -11,7 +11,7 @@ import { makeStyles, useColors } from '../theme/theme';
 import { borderWidth, radius, spacing } from '../theme/tokens';
 import { ExtensionManifest, manifests } from './manifests';
 import { extensionsStore, useExtensions } from './state';
-import { isActive } from './store';
+import { isActive, isAvailable } from './store';
 import { ThemePicker } from './themes/ThemePicker';
 
 // The marketplace: every extension with its price, what it does, and a buy,
@@ -64,7 +64,8 @@ export function ExtensionsScreen() {
 function ExtensionCard({ manifest: m }: { manifest: ExtensionManifest }) {
   const styles = useStyles();
   const colors = useColors();
-  const owned = useExtensions((s) => s.owned.includes(m.id));
+  const owned = useExtensions((s) => isAvailable(s, m.id));
+  const viaPro = useExtensions((s) => s.included && !s.owned.includes(m.id));
   const active = useExtensions((s) => isActive(s, m.id));
   const price = useExtensions((s) => s.prices[m.id] ?? m.fallbackPrice);
   const busy = useExtensions((s) => s.busy);
@@ -102,7 +103,7 @@ function ExtensionCard({ manifest: m }: { manifest: ExtensionManifest }) {
         {owned ? (
           <>
             <Text variant="muted" style={styles.flex}>
-              {active ? 'Installed' : 'Turned off'}
+              {active ? (viaPro ? 'Included with Pro' : 'Installed') : 'Turned off'}
             </Text>
             <Switch testID={`ext-${m.id}-enabled`} value={active} onValueChange={(v) => store.setEnabled(m.id, v)} />
           </>

@@ -23,6 +23,8 @@ export interface ExtensionsState {
   owned: ExtensionId[];
   // Owned extensions the user switched off.
   disabled: ExtensionId[];
+  // Tide Pro includes every extension; set from the Pro store, not persisted.
+  included: boolean;
   prices: Partial<Record<ExtensionId, string>>;
   prefs: ExtensionPrefs;
   busy: ExtensionId | 'restore' | null;
@@ -36,7 +38,11 @@ export interface ExtensionsState {
   clearError(): void;
 }
 
-export const isActive = (s: Pick<ExtensionsState, 'owned' | 'disabled'>, id: ExtensionId) => s.owned.includes(id) && !s.disabled.includes(id);
+export const isActive = (s: Pick<ExtensionsState, 'owned' | 'disabled'> & { included?: boolean }, id: ExtensionId) =>
+  (s.owned.includes(id) || !!s.included) && !s.disabled.includes(id);
+
+// Bought, or included with Pro: what the Extensions screen shows as available.
+export const isAvailable = (s: Pick<ExtensionsState, 'owned' | 'included'>, id: ExtensionId) => s.owned.includes(id) || s.included;
 
 const idsFor = (productIds: string[]) =>
   productIds.map((p) => manifestForProduct(p)?.id).filter((id): id is ExtensionId => id !== undefined);
@@ -53,6 +59,7 @@ export function createExtensionsStore(storage: StateStorage, purchases: Purchase
         return {
           owned: [],
           disabled: [],
+          included: false,
           prices: {},
           prefs: DEFAULT_PREFS,
           busy: null,
