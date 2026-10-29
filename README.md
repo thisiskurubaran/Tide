@@ -137,7 +137,7 @@ The iOS privacy manifest is set in `app.json` (`ios.privacyManifests`) and decla
 
 Tide Pro is a monthly or yearly subscription (7-day free trial on yearly) or a lifetime purchase. It unlocks Remote mode, linked folders, compare and merge, the test runner, preview dev tools, the split editor on iPad, up to 6 terminals (free: 2), 10 snapshots per project (free: 3) and every extension. The plans and limits are in `app/src/features/pro/plans.ts`; the paywall opens from Settings, the Extensions screen and any Pro feature.
 
-[docs/app-store-pro.md](docs/app-store-pro.md) covers setting up the products in App Store Connect, testing with `app/storekit/Tide.storekit` or sandbox, and the review notes. Builds need `EXPO_PUBLIC_PRIVACY_URL` (the hosted privacy policy, drafted in [docs/privacy-policy.md](docs/privacy-policy.md)) for the paywall's Privacy Policy link.
+[appstore/pro.md](appstore/pro.md) covers setting up the products in App Store Connect, testing with `app/storekit/Tide.storekit` or sandbox, and the review notes. Builds need `EXPO_PUBLIC_PRIVACY_URL` (the hosted privacy policy, drafted in [appstore/privacy-policy.md](appstore/privacy-policy.md)) for the paywall's Privacy Policy link.
 
 ## Remote mode
 
