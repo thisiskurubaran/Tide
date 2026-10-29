@@ -11,6 +11,12 @@ import type { Runner } from '../runtime/runner';
 
 const project = path.join(__dirname, '..', '..', 'nodejs-assets', 'nodejs-project');
 
+// Runs still going when a test ends keep jest from exiting; afterEach(stopRuns) ends them.
+const live: { kill(): void }[] = [];
+export function stopRuns() {
+  for (const run of live.splice(0)) run.kill();
+}
+
 export function supervisorRunner(): Runner & { root: string; file(rel: string, content: string): void } {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { createSupervisor } = require(path.join(project, 'supervisor'));
@@ -26,6 +32,7 @@ export function supervisorRunner(): Runner & { root: string; file(rel: string, c
     },
   });
   supervisor.handle({ type: 'init', root });
+  live.push({ kill: () => [...listeners.keys()].forEach((id) => supervisor.handle({ type: 'kill', id })) });
   return {
     root,
     run(req, onMessage) {

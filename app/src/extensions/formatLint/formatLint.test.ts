@@ -3,11 +3,14 @@
  */
 import { createPythonTools } from '../pythonTools';
 import { createService } from '../services';
-import { ensureServiceBundles, hostPython, hostSnippet, pythonToolsInstalled, supervisorRunner } from '../testing';
+import { ensureServiceBundles, hostPython, hostSnippet, pythonToolsInstalled, stopRuns, supervisorRunner } from '../testing';
 import { LintMessage, toDiagnostics } from './lintMessages';
 
 const cwd = process.cwd();
-afterEach(() => process.chdir(cwd));
+afterEach(() => {
+  stopRuns();
+  process.chdir(cwd);
+});
 beforeAll(ensureServiceBundles, 120_000);
 
 describe('format service', () => {
