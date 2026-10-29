@@ -59,7 +59,7 @@ export function NewProjectSheet({ visible, onCreate, onClone, onImport, onOpenFo
   }
 
   return (
-    <Sheet visible={visible} onClose={onClose}>
+    <Sheet visible={visible} onClose={onClose} scrollable>
       <Text variant="title">New project</Text>
       <View style={styles.field}>
         <TextInput

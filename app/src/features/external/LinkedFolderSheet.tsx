@@ -66,7 +66,7 @@ export function LinkedFolderSheet({ project, onClose }: { project: string | null
     ]);
 
   return (
-    <Sheet visible={project !== null} onClose={onClose}>
+    <Sheet visible={project !== null} onClose={onClose} scrollable>
       <Text variant="title">Linked folder</Text>
       {!link ? (
         <>

@@ -47,7 +47,7 @@ export function PromptSheet({ visible, title, initialValue = '', placeholder, co
   }
 
   return (
-    <Sheet visible={visible} onClose={onClose}>
+    <Sheet visible={visible} onClose={onClose} scrollable>
       <Text variant="title">{title}</Text>
       <View style={styles.field}>
         <TextInput

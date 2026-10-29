@@ -32,7 +32,7 @@ export function ActionSheet({ title, actions, onClose }: ActionSheetProps) {
     if (open) haptic('press');
   }, [open]);
   return (
-    <Sheet visible={open} onClose={onClose}>
+    <Sheet visible={open} onClose={onClose} scrollable>
       <Text variant="muted" numberOfLines={1}>
         {title}
       </Text>
