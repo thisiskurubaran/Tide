@@ -61,6 +61,7 @@
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
         },
+        "NSLocalNetworkUsageDescription": "Tide connects to the Remote mode server you set up and to previews running on your local network.",
         "LSSupportsOpeningDocumentsInPlace": false,
         "CFBundleDocumentTypes": [
           {
@@ -163,7 +164,12 @@
         }
       ],
       "expo-router",
-      "expo-secure-store",
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": false
+        }
+      ],
       "expo-iap",
       "./plugins/withLocalPreview.js",
       [
