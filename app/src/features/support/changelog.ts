@@ -7,6 +7,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '2.0.0',
+    items: [
+      'GitHub: sign in, browse and clone your repositories, review and merge pull requests, work on issues and follow Actions',
+      'Deploy a website to GitHub Pages, Netlify, Vercel or Cloudflare Pages, or start a Render deploy',
+      'SSH: a terminal on your own servers and SFTP to browse and edit their files, with ed25519 keys kept in the Keychain',
+      'Send HTTP requests from .http files and read formatted responses',
+      'Browse and query SQLite databases, and see JSON as a collapsible tree',
+      'Vim and Emacs key bindings for the editor, in Settings',
+    ],
+  },
+  {
     version: '1.0.1',
     items: [
       'cd works with folder names that have spaces, and Tab completion escapes them',

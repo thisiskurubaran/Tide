@@ -23,8 +23,13 @@ app/                             Expo app (dev client, prebuild, New Architectur
   src/features/remote            Remote mode: server settings, file sync, remote shell, preview
   web/editor                     CodeMirror 6 editor bundle (Vite, single HTML file)
   web/terminal                   xterm.js terminal bundle (Vite, single HTML file)
-  nodejs-assets/nodejs-project   Supervisor inside nodejs-mobile: runs each script in a worker thread; npm, pip and git built-ins
+  nodejs-assets/nodejs-project   Supervisor inside nodejs-mobile: runs each script in a worker thread; npm, pip, git and ssh built-ins
   src/features/git               Git settings, Source Control sheet, running git from the UI
+  src/features/github            GitHub sign-in (device flow), repositories, pull requests, issues, Actions
+  src/features/deploy            Publishing a folder to GitHub Pages, Netlify, Vercel, Cloudflare Pages; Render deploy hooks
+  src/features/ssh               SSH servers and keys, the SSH terminal backend, SFTP browsing and editing
+  src/features/http              .http request files: parsing, sending, the request/response viewer
+  src/features/database          SQLite viewer (expo-sqlite): tables, rows, running SQL
   src/features/privacy           Opt-in crash reports (Sentry) and the scrubbing applied to them
   .maestro                       End-to-end flows (Maestro)
   modules/python-runtime         Expo module: Chaquopy on Android, CPython on iOS; python/tide_runner.py runs scripts
@@ -182,6 +187,12 @@ isomorphic-git is bundled into `app/nodejs-assets/nodejs-project/git/isogit.js`,
 ```bash
 cd app
 npm run build:git
+```
+
+ssh2 is bundled the same way into `app/nodejs-assets/nodejs-project/ssh/ssh2.js`. nodejs-mobile on iOS has no WebAssembly, so the bundle swaps ssh2's WebAssembly poly1305 for a stub and `tide:ssh` turns the chacha20-poly1305 cipher off. After upgrading ssh2:
+
+```bash
+npm run build:ssh
 ```
 
 ## Extensions

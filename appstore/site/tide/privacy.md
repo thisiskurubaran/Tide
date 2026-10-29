@@ -33,8 +33,11 @@ Tide keeps the following on your device, in its own storage:
   **snapshots** (automatic copies of a project you can restore).
 - **Settings**: theme, editor options, key bar layout, recent projects and
   similar preferences.
-- **Credentials**: your Git name, email and access token, and the Remote
-  server address and token, are kept in the iOS Keychain.
+- **Credentials**, kept in the iOS Keychain: your Git name, email and
+  access token (also used for GitHub when you sign in to it), the Remote
+  server address and token, the tokens you add for deploying (Netlify,
+  Vercel, Cloudflare) and Render deploy hook URLs, and your SSH servers,
+  passwords and private keys. SSH private keys never leave your device.
 - **Purchase status**: which Tide Pro plan or extensions your Apple Account
   owns, so they keep working offline.
 
@@ -51,6 +54,10 @@ handle it under their own privacy policies.
 | Feature | What is sent | To |
 |---|---|---|
 | Git (clone, pull, push) | Your repository's contents and history, your Git name and email (in commits), and your access token | The Git host you use, e.g. GitHub |
+| GitHub (sign-in, repositories, pull requests, issues, Actions) | Your GitHub access token, and what you do on those screens: comments, reviews, new issues and pull requests, merges, re-runs | GitHub (github.com and api.github.com) |
+| Deploy | The files in the folder you publish, the token you added for that service, and settings such as the site or project name | The service you choose: GitHub Pages, Netlify, Vercel, Cloudflare Pages, or Render (only a request to your deploy hook) |
+| SSH and SFTP | Your username and password or a signature made with your key (the private key itself is never sent), your terminal input, and the files you open, save or copy | The server you add. It's run by you or whoever gave you access, not by me. |
+| HTTP requests (.http files) | The requests you send, including any headers and bodies you write | The address in each request |
 | npm and pip installs | Names and versions of the packages you install | The npm registry (registry.npmjs.org) and PyPI (pypi.org) |
 | Packages screen | Your search terms, and the names of installed packages to check for updates | The npm registry and PyPI |
 | Remote mode | Your project's files, your terminal input, and the server token | The Tide server whose address you enter. That server is run by you or your organisation, not by me. |
@@ -60,7 +67,8 @@ handle it under their own privacy policies.
 {: .sent }
 
 Code you run in Tide's terminal or previews can make its own network
-requests; that is up to the code you run.
+requests; that is up to the code you run. Databases you open in the
+database viewer are read and changed on your device only.
 
 ## Purchases
 

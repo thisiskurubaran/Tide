@@ -138,6 +138,24 @@ override the defaults:
 | `EXPO_PUBLIC_PRIVACY_URL` | `https://thisiskurubaran.github.io/tide/privacy/` | Privacy Policy link on the paywall |
 | `EXPO_PUBLIC_TERMS_URL` | Apple's standard EULA | Terms of Use link on the paywall |
 | `EXPO_PUBLIC_SUPPORT_EMAIL` | `thisiskurubaran@gmail.com` | Report a problem and Suggest a feature |
+| `EXPO_PUBLIC_GITHUB_CLIENT_ID` | none | "Sign in with GitHub". Without it, GitHub sign-in only offers pasting a token. |
+
+### GitHub sign-in (OAuth App)
+
+"Sign in with GitHub" uses GitHub's device flow, which needs only a Client
+ID (no secret goes in the app):
+
+1. github.com → Settings → Developer settings → OAuth Apps → **New OAuth App**.
+2. Application name `Tide`, Homepage URL
+   `https://thisiskurubaran.github.io/tide/`, Authorization callback URL
+   the same (device flow doesn't use it, but the form requires one).
+3. Register, then tick **Enable Device Flow** and save.
+4. Copy the **Client ID** and build with it, e.g. in `app/.env.local`:
+   `EXPO_PUBLIC_GITHUB_CLIENT_ID=Ov23li…`, then `npx expo prebuild --clean`
+   and archive as usual. `.env*.local` is gitignored.
+
+The app asks for the `repo`, `workflow` and `read:org` scopes. The token is
+the same one Settings → Git uses, so signing in also makes push work.
 
 ## Testing
 
