@@ -91,7 +91,8 @@
     "build:web": "node scripts/build-web.js",
     "build:git": "node scripts/build-git.js",
     "build:services": "node scripts/build-services.js",
-    "e2e": "maestro test --exclude-tags remote .maestro"
+    "e2e": "maestro test --exclude-tags remote .maestro",
+    "build:ssh": "node scripts/build-ssh.js"
   },
   "private": true,
   "jest": {
