@@ -1,12 +1,13 @@
 import Feather from '@expo/vector-icons/Feather';
 import { router } from 'expo-router';
-import { ReactNode, useState } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, Switch, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { IconButton } from '../../components/Button';
 import { Segmented } from '../../components/Segmented';
 import type { KeymapSetting } from '../editor/bridge';
+import { accountStore, useAccount } from '../github/account';
 import { Text } from '../../components/Text';
 import { settingsStore, useSettings } from '../../state';
 import { ContrastSetting, EditorOptionKey, FONT_SIZE_MAX, FONT_SIZE_MIN, ThemeSetting } from '../../state/settings';
@@ -34,6 +35,10 @@ export function SettingsScreen() {
   const haptics = useSettings((s) => s.haptics);
   const contrast = useSettings((s) => s.contrast);
   const keymap = useSettings((s) => s.keymap);
+  const githubUser = useAccount((s) => s.user);
+  useEffect(() => {
+    accountStore.getState().refresh();
+  }, []);
   const pro = useIsPro();
   const proDetail = useProState((s) => proStatus(s));
   const [icon, setIcon] = useState<'standard' | 'pro'>(() => (usingProIcon() ? 'pro' : 'standard'));
@@ -169,6 +174,12 @@ export function SettingsScreen() {
         </Section>
 
         <Section title="Git">
+          <LinkRow
+            label="GitHub"
+            detail={githubUser ? `Signed in as ${githubUser.login}` : 'Repositories, pull requests, issues and Actions'}
+            onPress={() => router.push('/github/account')}
+            testID="settings-github"
+          />
           <LinkRow
             label="Identity and token"
             detail={git.name ? `${git.name}${git.token ? ', token set' : ''}` : 'Not set up'}

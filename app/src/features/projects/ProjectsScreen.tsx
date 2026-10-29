@@ -11,14 +11,14 @@ import { PromptSheet } from '../../components/PromptSheet';
 import { Text } from '../../components/Text';
 import { projectsStore, tabsStore, useProjects, workspace } from '../../state';
 import { borderWidth, fontSizes, radius, spacing } from '../../theme/tokens';
-import { localRunner } from '../../runtime';
 import { exportProject, pickZip } from '../backup/actions';
 import { SnapshotsSheet } from '../backup/SnapshotsSheet';
 import { writeEntries } from '../backup/zip';
 import { openFolderAsProject, useLinked } from '../external';
 import { projectLink } from '../launch/links';
 import { launchedFromQuickAction } from '../launch/quickActions';
-import { lastLines, runGit } from '../git/runGit';
+import { cloneRepo } from '../git/clone';
+import { projectHref } from './href';
 import { NewProjectSheet } from './NewProjectSheet';
 import { makeStyles, useColors } from '../../theme/theme';
 import { haptic } from '../../components/haptics';
@@ -29,7 +29,7 @@ import { requirePro } from '../pro';
 
 const mark = require('../../../assets/icons/splash.png');
 
-export const projectHref = (name: string) => `/project/${encodeURIComponent(name)}` as const;
+export { projectHref } from './href';
 
 // Reopen the last project once per launch; after that the list is the home screen.
 let restoredLastProject = false;
@@ -77,6 +77,7 @@ export function ProjectsScreen() {
           Projects
         </Text>
         {__DEV__ && <IconButton icon="cpu" label="Runtime spike" onPress={() => router.push('/debug')} />}
+        <IconButton icon="github" label="GitHub" onPress={() => router.push('/github')} testID="open-github" />
         <IconButton icon="package" label="Extensions" onPress={() => router.push('/extensions')} testID="open-extensions" />
         <IconButton icon="settings" label="Settings" onPress={() => router.push('/settings')} testID="open-settings" />
       </View>
@@ -126,11 +127,12 @@ export function ProjectsScreen() {
           setCreating(false);
           router.push(projectHref(project));
         }}
+        onBrowseGitHub={() => {
+          setCreating(false);
+          router.push('/github');
+        }}
         onClone={async (name, url) => {
-          const project = await projectsStore.getState().cloneProject(name, async (p) => {
-            const r = await runGit(localRunner, p, ['clone', url, '.']);
-            if (r.code !== 0) throw new Error(lastLines(r.stderr || r.stdout).replace(/^fatal: /, '') || 'Clone failed');
-          });
+          const project = await cloneRepo(name, url);
           setCreating(false);
           router.push(projectHref(project));
         }}
