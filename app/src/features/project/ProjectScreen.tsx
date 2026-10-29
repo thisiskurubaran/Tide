@@ -19,7 +19,6 @@ import { languageFor } from '../editor/bridge';
 import { EditorKeyBar } from '../editor/EditorKeyBar';
 import { useKeyboardHeight } from '../editor/useKeyboardHeight';
 import { TerminalKeyBar } from '../terminal/TerminalKeyBar';
-import { TerminalHandle } from '../terminal/TerminalPane';
 import { SourceControlSheet } from '../git/SourceControlSheet';
 import { Command, CommandPalette } from '../search/CommandPalette';
 import { SearchPanel } from '../search/SearchPanel';
@@ -27,7 +26,7 @@ import { runLine } from './run';
 import type { Shortcut } from './shortcuts';
 import { ShortcutsSheet } from './ShortcutsSheet';
 import { TabBar } from './TabBar';
-import { TerminalPanel } from './TerminalPanel';
+import { TerminalPanel, TerminalPanelHandle } from './TerminalPanel';
 import { makeStyles } from '../../theme/theme';
 
 // Extensions can contribute the same command or panel (Show problems); the first one wins.
@@ -51,7 +50,7 @@ export function ProjectScreen({ project }: { project: string }) {
   );
   const dirty = new Set(dirtyKey ? dirtyKey.split('\n') : []);
   const editor = useRef<EditorHandle>(null);
-  const terminal = useRef<TerminalHandle>(null);
+  const terminal = useRef<TerminalPanelHandle>(null);
   const keyboardHeight = useKeyboardHeight();
   // The pane that last took focus gets the space above the keyboard.
   const [typingIn, setTypingIn] = useState<'editor' | 'terminal'>('editor');
@@ -160,6 +159,18 @@ export function ProjectScreen({ project }: { project: string }) {
     { id: 'next-tab', title: 'Next file', icon: 'chevron-right', hint: '⇧⌘]', run: () => switchTab(1) },
     { id: 'prev-tab', title: 'Previous file', icon: 'chevron-left', hint: '⇧⌘[', run: () => switchTab(-1) },
     { id: 'run', title: 'Run project', icon: 'play', hint: '⌘R', run: () => runProject() },
+    {
+      id: 'new-terminal',
+      title: 'New terminal',
+      icon: 'plus-square',
+      hint: '⌘T',
+      run: () => {
+        setTerminalHidden(false);
+        terminal.current?.newTerminal();
+      },
+    },
+    { id: 'terminal.close', title: 'Close terminal', icon: 'x-square', run: () => terminal.current?.closeTerminal() },
+    { id: 'terminal.next', title: 'Next terminal', icon: 'terminal', run: () => terminal.current?.nextTerminal() },
     { id: 'keyboard-shortcuts', title: 'Keyboard shortcuts', icon: 'command', hint: '⇧⌘?', run: () => setShortcutsOpen(true) },
     { id: 'toggle-terminal', title: 'Toggle terminal', icon: 'terminal', hint: '⌘J', run: () => setTerminalHidden((h) => !h) },
     { id: 'local', title: 'Terminal: use Local', icon: 'smartphone', run: () => runnerStore.getState().setMode('local') },

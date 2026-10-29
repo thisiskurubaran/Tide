@@ -18,7 +18,8 @@ export type Shortcut =
   | 'files'
   | 'run'
   | 'settings'
-  | 'keyboard-shortcuts';
+  | 'keyboard-shortcuts'
+  | 'new-terminal';
 
 type KeyEvent = { key: string; code?: string; metaKey: boolean; shiftKey: boolean; altKey: boolean };
 
@@ -52,6 +53,8 @@ export function shortcutFor(e: KeyEvent): Shortcut | null {
       return 'files';
     case 'r':
       return 'run';
+    case 't':
+      return 'new-terminal';
     case ',':
       return 'settings';
     default:
@@ -75,6 +78,7 @@ export const SHORTCUT_HELP: { group: string; items: [keys: string, title: string
       ['⌘B', 'Show or hide files'],
       ['⌘J', 'Show or hide the terminal'],
       ['⌘R', 'Run the project'],
+      ['⌘T', 'New terminal'],
       ['⌘L', 'Go to line'],
       ['⌘,', 'Settings'],
       ['⇧⌘?', 'Keyboard shortcuts'],

@@ -14,6 +14,7 @@ describe('shortcutFor', () => {
     expect(key('w', { meta: true })).toBe('close-tab');
     expect(key('b', { meta: true })).toBe('files');
     expect(key('r', { meta: true })).toBe('run');
+    expect(key('t', { meta: true })).toBe('new-terminal');
     expect(key(',', { meta: true })).toBe('settings');
   });
 
