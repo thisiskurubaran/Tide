@@ -45,6 +45,8 @@ jest.mock('../../extensions/gitPro', () => ({ GIT_PRO_PANEL: 'git-pro' }));
 jest.mock('./TerminalPanel', () => ({ TerminalPanel: () => null }));
 jest.mock('../git/SourceControlSheet', () => ({ SourceControlSheet: () => null }));
 jest.mock('../search/SearchPanel', () => ({ SearchPanel: () => null }));
+jest.mock('../external', () => ({ pullFolder: jest.fn(), pushFolder: jest.fn(), useLinked: () => undefined }));
+jest.mock('../external/LinkedFolderSheet', () => ({ LinkedFolderSheet: () => null }));
 jest.mock('../files/FileTree', () => ({ FileTree: () => null }));
 // The palette's commands, as the screen last rendered them.
 let mockCommands: { id: string; run(): void }[] = [];

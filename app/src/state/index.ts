@@ -4,7 +4,7 @@ import { createSnapshots } from '../features/backup/snapshots';
 import { createExpoFs } from '../features/files/expoFs';
 import { createWorkspace } from '../features/files/workspace';
 import { BuffersState, createBuffersStore } from './buffers';
-import { createProjectsStore, ProjectsState } from './projects';
+import { createProjectsStore, ProjectHooks, ProjectsState } from './projects';
 import { createRunnerStore, RunnerState } from './runner';
 import { createSettingsStore, SettingsState } from './settings';
 import { createFsStorage } from './storage';
@@ -21,9 +21,18 @@ export const runnerStore = createRunnerStore(storage);
 export const settingsStore = createSettingsStore(storage);
 export const buffersStore = createBuffersStore(workspace);
 export const snapshots = createSnapshots(appFs, workspace);
+// Features that keep per-project data elsewhere follow renames and deletes here.
+const projectHooks: ProjectHooks[] = [
+  { renamed: (from, to) => snapshots.renameProject(from, to), deleted: (project) => snapshots.removeProject(project) },
+];
+export const onProjectChange = (hooks: ProjectHooks) => projectHooks.push(hooks);
 export const projectsStore = createProjectsStore(workspace, tabsStore, buffersStore, {
-  renamed: (from, to) => snapshots.renameProject(from, to),
-  deleted: (project) => snapshots.removeProject(project),
+  renamed: async (from, to) => {
+    for (const h of projectHooks) await h.renamed?.(from, to).catch(() => undefined);
+  },
+  deleted: async (project) => {
+    for (const h of projectHooks) await h.deleted?.(project).catch(() => undefined);
+  },
 });
 
 export const useProjects = <T>(selector: (s: ProjectsState) => T) => useStore(projectsStore, selector);

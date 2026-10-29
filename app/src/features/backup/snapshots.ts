@@ -6,7 +6,7 @@ import type { Workspace } from '../files/workspace';
 import { STATE_DIR } from '../../state/storage';
 import { BackupError, fromBase64, SNAPSHOT_FILE_LIMIT, toBase64, writeEntries, zipEntries, zipProject } from './zip';
 
-export type SnapshotReason = 'auto' | 'manual' | 'before-restore';
+export type SnapshotReason = 'auto' | 'manual' | 'before-restore' | 'before-pull';
 
 export interface Snapshot {
   id: string;
@@ -26,7 +26,7 @@ export function createSnapshots(fs: FsAdapter, workspace: Workspace, now: () => 
     if ((await fs.stat(dir)) !== 'dir') return [];
     const out: Snapshot[] = [];
     for (const e of await fs.readDir(dir)) {
-      const m = /^(\d+)-(auto|manual|before-restore)\.zip$/.exec(e.name);
+      const m = /^(\d+)-(auto|manual|before-restore|before-pull)\.zip$/.exec(e.name);
       if (!m || e.kind !== 'file') continue;
       // base64 is 4 characters per 3 bytes.
       const size = Math.floor(((await fs.readBase64(joinPath(dir, e.name))).length * 3) / 4);

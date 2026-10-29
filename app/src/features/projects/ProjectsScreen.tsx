@@ -14,6 +14,7 @@ import { localRunner } from '../../runtime';
 import { exportProject, pickZip } from '../backup/actions';
 import { SnapshotsSheet } from '../backup/SnapshotsSheet';
 import { writeEntries } from '../backup/zip';
+import { openFolderAsProject, useLinked } from '../external';
 import { lastLines, runGit } from '../git/runGit';
 import { NewProjectSheet } from './NewProjectSheet';
 import { makeStyles, useColors } from '../../theme/theme';
@@ -30,6 +31,7 @@ export function ProjectsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const projects = useProjects((s) => s.projects);
+  const links = useLinked((s) => s.links);
   const [creating, setCreating] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -82,6 +84,7 @@ export function ProjectsScreen() {
             <Text variant="label" style={styles.rowTitle} numberOfLines={1}>
               {item}
             </Text>
+            {links[item] && <Feather name="link-2" size={14} color={colors.mutedForeground} accessibilityLabel={`Linked to ${links[item].name}`} />}
             <IconButton icon="more-horizontal" label={`Actions for ${item}`} onPress={() => setMenuFor(item)} />
           </Pressable>
         )}
@@ -104,6 +107,11 @@ export function ProjectsScreen() {
             const r = await runGit(localRunner, p, ['clone', url, '.']);
             if (r.code !== 0) throw new Error(lastLines(r.stderr || r.stdout).replace(/^fatal: /, '') || 'Clone failed');
           });
+          setCreating(false);
+          router.push(projectHref(project));
+        }}
+        onOpenFolder={async (name) => {
+          const project = await openFolderAsProject(name);
           setCreating(false);
           router.push(projectHref(project));
         }}

@@ -15,6 +15,8 @@ import { projectTabs } from '../../state/tabs';
 import { borderWidth, spacing } from '../../theme/tokens';
 import { exportProject } from '../backup/actions';
 import { SnapshotsSheet } from '../backup/SnapshotsSheet';
+import { pullFolder, pushFolder, useLinked } from '../external';
+import { LinkedFolderSheet } from '../external/LinkedFolderSheet';
 import { FileTree } from '../files/FileTree';
 import { EditorHandle, EditorHost, EditorPane } from '../editor/EditorPane';
 import { languageFor } from '../editor/bridge';
@@ -81,6 +83,8 @@ export function ProjectScreen({ project }: { project: string }) {
   const [sourceControl, setSourceControl] = useState(false);
   const [panel, setPanel] = useState<string | null>(null);
   const [showSnapshots, setShowSnapshots] = useState(false);
+  const [showLinked, setShowLinked] = useState(false);
+  const linked = useLinked((s) => s.links[project]?.name);
   const progress = useRef(new Animated.Value(0)).current;
   const activePath = useRef(current);
   activePath.current = current;
@@ -158,6 +162,15 @@ export function ProjectScreen({ project }: { project: string }) {
 
   const save = (path: string) => saveWithHooks(extensions, ctx, path);
 
+  // Palette pull and push; failures open the sheet, which can re-grant access.
+  const syncFolder = (sync: (project: string) => Promise<unknown>) =>
+    sync(project).catch((e: Error) =>
+      Alert.alert("Couldn't sync the folder", e.message, [
+        { text: 'OK', style: 'cancel' },
+        { text: 'Open linked folder', onPress: () => setShowLinked(true) },
+      ]),
+    );
+
   const ctx: ProjectContext = {
     project,
     activePath: () => activePath.current,
@@ -228,6 +241,13 @@ export function ProjectScreen({ project }: { project: string }) {
           .catch((e: Error) => Alert.alert("Couldn't export", e.message)),
     },
     { id: 'snapshots', title: 'Snapshots', icon: 'clock', run: () => setShowSnapshots(true) },
+    { id: 'linked-folder', title: linked ? `Linked folder: ${linked}` : 'Link to a folder in Files', icon: 'folder', run: () => setShowLinked(true) },
+    ...(linked
+      ? [
+          { id: 'folder.pull', title: `Pull from ${linked}`, icon: 'download' as const, run: () => syncFolder(pullFolder) },
+          { id: 'folder.push', title: `Push to ${linked}`, icon: 'upload' as const, run: () => syncFolder(pushFolder) },
+        ]
+      : []),
     ...extensions.flatMap((ext) => ext.commands?.(ctx) ?? []),
   ]);
   const panels = uniqueById(extensions.flatMap((ext) => ext.panels ?? []));
@@ -371,6 +391,7 @@ export function ProjectScreen({ project }: { project: string }) {
       <SearchPanel visible={searching} project={project} onOpen={openAt} onClose={() => setSearching(false)} />
       <ShortcutsSheet visible={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       <SnapshotsSheet project={showSnapshots ? project : null} onClose={() => setShowSnapshots(false)} />
+      <LinkedFolderSheet project={showLinked ? project : null} onClose={() => setShowLinked(false)} />
       <PromptSheet
         visible={goingToLine}
         title="Go to line"

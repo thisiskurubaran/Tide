@@ -6,6 +6,7 @@ import { Appearance } from 'react-native';
 import { breakpointsStore } from '../extensions/debugger/breakpoints';
 import { extensionsStore } from '../extensions/state';
 import { gitSettingsStore } from '../features/git/settings';
+import { linkedStore } from '../features/external';
 import { keyBarStore } from '../features/keybar/store';
 import { startCrashReports } from '../features/privacy/crashReports';
 import { remoteSettingsStore } from '../features/remote/settings';
@@ -44,6 +45,7 @@ export default function RootLayout() {
       hydrated(extensionsStore),
       hydrated(breakpointsStore),
       hydrated(keyBarStore),
+      hydrated(linkedStore),
       projectsStore.getState().refresh(),
       remoteSettingsStore.getState().load().catch(() => undefined),
       gitSettingsStore.getState().load().catch(() => undefined),

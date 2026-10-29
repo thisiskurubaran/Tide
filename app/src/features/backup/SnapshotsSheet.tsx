@@ -15,6 +15,7 @@ const REASONS: Record<Snapshot['reason'], string> = {
   auto: 'Automatic',
   manual: 'Taken by you',
   'before-restore': 'Before a restore',
+  'before-pull': 'Before pulling from a folder',
 };
 
 const size = (bytes: number) => (bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`);

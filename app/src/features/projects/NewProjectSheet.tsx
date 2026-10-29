@@ -15,13 +15,16 @@ interface NewProjectSheetProps {
   onClone(name: string, url: string): Promise<void>;
   // Asks for a .zip; the name defaults to the zip's.
   onImport(name: string): Promise<void>;
+  // Asks for a folder in Files and links the project to it; the name defaults to the folder's.
+  onOpenFolder(name: string): Promise<void>;
   onClose(): void;
 }
 
 const CLONE = 'clone';
 const IMPORT = 'import';
+const FOLDER = 'folder';
 
-export function NewProjectSheet({ visible, onCreate, onClone, onImport, onClose }: NewProjectSheetProps) {
+export function NewProjectSheet({ visible, onCreate, onClone, onImport, onOpenFolder, onClose }: NewProjectSheetProps) {
   const styles = useStyles();
   const colors = useColors();
   const [name, setName] = useState('');
@@ -44,6 +47,7 @@ export function NewProjectSheet({ visible, onCreate, onClone, onImport, onClose 
     try {
       if (templateId === CLONE) await onClone(name.trim() || repoName(url), url.trim());
       else if (templateId === IMPORT) await onImport(name.trim());
+      else if (templateId === FOLDER) await onOpenFolder(name.trim());
       else await onCreate(name, templateId);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -63,7 +67,7 @@ export function NewProjectSheet({ visible, onCreate, onClone, onImport, onClose 
             setName(v);
             setError(null);
           }}
-          placeholder={templateId === CLONE ? 'Project name (default: repository name)' : 'Project name'}
+          placeholder={templateId === CLONE ? 'Project name (default: repository name)' : templateId === FOLDER ? 'Project name (default: folder name)' : 'Project name'}
           placeholderTextColor={colors.mutedForeground}
           autoFocus
           autoCapitalize="none"
@@ -98,6 +102,7 @@ export function NewProjectSheet({ visible, onCreate, onClone, onImport, onClose 
         {[
           ...templates,
           { id: CLONE, label: 'Clone from Git', description: 'Clone a repository over HTTPS. Private ones need a token in Settings, Git.' },
+          { id: FOLDER, label: 'Open a folder', description: 'Work on a folder from Files, iCloud Drive or another app, and sync changes back to it.' },
           { id: IMPORT, label: 'Import a .zip', description: 'Pick a .zip, from Files or iCloud Drive; its files become the project.' },
         ].map((t) => {
           const selected = t.id === templateId;
@@ -119,7 +124,7 @@ export function NewProjectSheet({ visible, onCreate, onClone, onImport, onClose 
       <View style={styles.actions}>
         <Button title="Cancel" variant="outline" onPress={onClose} />
         <Button
-          title={busy && templateId === CLONE ? 'Cloning...' : templateId === CLONE ? 'Clone' : templateId === IMPORT ? 'Choose .zip' : 'Create'}
+          title={busy && templateId === CLONE ? 'Cloning...' : templateId === CLONE ? 'Clone' : templateId === IMPORT ? 'Choose .zip' : templateId === FOLDER ? 'Choose folder' : 'Create'}
           onPress={create}
           disabled={busy || (templateId === CLONE && !url.trim())}
           testID="create-project"
