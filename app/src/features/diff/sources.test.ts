@@ -6,15 +6,15 @@ import { loadComparison } from './sources';
 // A runner that answers `git __tide show` like the built-in git does.
 function gitRunner(stdout: string, code = 0, stderr = ''): Runner {
   return {
-    run: (_req, onMessage) => {
+    run: (req, onMessage) => {
       setTimeout(() => {
-        if (stdout) onMessage({ type: 'stdout', id: 'x', data: stdout } as never);
-        if (stderr) onMessage({ type: 'stderr', id: 'x', data: stderr } as never);
-        onMessage({ type: 'exit', id: 'x', code } as never);
+        if (stdout) onMessage({ type: 'stdout', id: req.id, data: stdout });
+        if (stderr) onMessage({ type: 'stderr', id: req.id, data: stderr });
+        onMessage({ type: 'exit', id: req.id, code });
       }, 0);
-      return { send: () => undefined, kill: () => undefined } as never;
     },
-  } as unknown as Runner;
+    send: () => undefined,
+  };
 }
 
 async function setup() {
