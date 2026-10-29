@@ -9,7 +9,11 @@ const root = path.join(__dirname, '..');
 const out = path.join(root, 'assets', 'icons');
 
 // Colors match docs/brand.md and src/theme/tokens.ts.
-const light = { tile: '#111413', body: '#fcfcfb', accent: '#7c9bff' };
+// The light tile is a gradient, drawn with the `tile-gradient` defs every svg() includes.
+const light = { tile: 'url(#tile-gradient)', body: '#ffffff', accent: '#a9bdff' };
+const tileGradient = ['#3b5bdb', '#0e1a4d'];
+// The wave on transparent dark icons, where there is no blue tile behind it.
+const brandBlue = '#7c9bff';
 const dark = { tile: '#f1f3f2', body: '#0d0f0e', accent: '#1d4ed8' };
 
 const mark = fs.readFileSync(path.join(root, 'assets', 'brand', 'tide-mark.svg'), 'utf8');
@@ -18,17 +22,21 @@ if (!chevron || !wave) throw new Error('tide-mark.svg no longer has the chevron 
 
 function symbol(body, accent) {
   return (
-    `<path d="${chevron}" fill="none" stroke="${body}" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>` +
+    `<path d="${chevron}" fill="none" stroke="${body}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>` +
     `<path d="${wave}" fill="none" stroke="${accent}" stroke-width="3" stroke-linecap="round"/>`
   );
 }
 
 // viewBox in mark units; the 32-unit tile is placed at `inset` inside `size` units.
 function svg(size, inset, content, background) {
+  const defs =
+    `<defs><linearGradient id="tile-gradient" x1="0" y1="0" x2="1" y2="1">` +
+    `<stop offset="0" stop-color="${tileGradient[0]}"/><stop offset="1" stop-color="${tileGradient[1]}"/>` +
+    `</linearGradient></defs>`;
   const bg = background ? `<rect x="0" y="0" width="${size}" height="${size}" fill="${background}"/>` : '';
   const scale = (size - inset * 2) / 32;
   return (
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}">${bg}` +
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}">${defs}${bg}` +
     `<g transform="translate(${inset} ${inset}) scale(${scale})">${content}</g></svg>`
   );
 }
@@ -89,8 +97,9 @@ const outputs = {
   // iOS masks the corners itself, so the tile color runs to the edges.
   'ios-light.png': () => opaquePng(render(svg(32, 0, symbol(light.body, light.accent), light.tile), 1024)),
   // iOS 18 draws dark and tinted icons on its own background, so these are transparent.
-  'ios-dark.png': () => render(svg(32, 0, symbol(dark.tile, light.accent)), 1024).asPng(),
+  'ios-dark.png': () => render(svg(32, 0, symbol(dark.tile, brandBlue)), 1024).asPng(),
   'ios-tinted.png': () => render(svg(32, 0, symbol('#ffffff', '#b8b8b8')), 1024).asPng(),
+  'android-background.png': () => render(svg(ANDROID, 0, '', light.tile), 1024).asPng(),
   'android-foreground.png': () =>
     render(svg(ANDROID, ANDROID_INSET, symbol(light.body, light.accent)), 1024).asPng(),
   'android-monochrome.png': () =>
