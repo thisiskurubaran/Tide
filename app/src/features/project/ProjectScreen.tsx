@@ -1,3 +1,4 @@
+import * as Clipboard from 'expo-clipboard';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Animated, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
@@ -27,6 +28,7 @@ import { TerminalKeyBar } from '../terminal/TerminalKeyBar';
 import { SourceControlSheet } from '../git/SourceControlSheet';
 import { Command, CommandPalette } from '../search/CommandPalette';
 import { SearchPanel } from '../search/SearchPanel';
+import { projectLink, ProjectLinkOptions } from '../launch/links';
 import { runLine } from './run';
 import type { Shortcut } from './shortcuts';
 import { ShortcutsSheet } from './ShortcutsSheet';
@@ -39,12 +41,14 @@ import { makeStyles } from '../../theme/theme';
 const uniqueById = <T extends { id: string }>(items: T[]) => items.filter((x, i) => items.findIndex((o) => o.id === x.id) === i);
 
 const SNAPSHOT_DELAY_MS = 3000;
+const LAUNCH_RUN_DELAY_MS = 1000;
 const DRAWER_MAX = 340;
 // iPad portrait and wider: the file tree stays open beside the editor.
 const WIDE = 768;
 const SIDEBAR_WIDTH = 280;
 
-export function ProjectScreen({ project }: { project: string }) {
+// `launch` comes from a tide:// link or quick action: a file to open, and whether to run.
+export function ProjectScreen({ project, launch }: { project: string; launch?: ProjectLinkOptions | null }) {
   const styles = useStyles();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -163,6 +167,22 @@ export function ProjectScreen({ project }: { project: string }) {
 
   const save = (path: string) => saveWithHooks(extensions, ctx, path);
 
+  // A link can open a file (at a line) and run the project. The terminal
+  // needs a moment after mounting before it takes input.
+  useEffect(() => {
+    if (!launch) return;
+    if (launch.file) {
+      if (launch.line) openAt(launch.file, launch.line);
+      else openFile(launch.file);
+    }
+    if (!launch.run) return;
+    const timer = setTimeout(() => runProject().catch((e) => console.warn('Run failed', e)), LAUNCH_RUN_DELAY_MS);
+    return () => clearTimeout(timer);
+    // Once per opening; the screen is keyed by project.
+  }, []);
+
+  const copyLink = (options?: ProjectLinkOptions) => Clipboard.setStringAsync(projectLink(project, options));
+
   // Palette pull and push; failures open the sheet, which can re-grant access.
   const syncFolder = (sync: (project: string) => Promise<unknown>) =>
     sync(project).catch((e: Error) =>
@@ -247,6 +267,9 @@ export function ProjectScreen({ project }: { project: string }) {
       icon: 'share',
       run: () => current && shareFile(project, current).catch((e: Error) => Alert.alert("Couldn't share", e.message)),
     },
+    { id: 'copy-link', title: 'Copy link to this project', icon: 'link', run: () => copyLink() },
+    { id: 'copy-run-link', title: 'Copy link that runs this project', icon: 'link', run: () => copyLink({ run: true }) },
+    ...(current ? [{ id: 'copy-file-link', title: 'Copy link to this file', icon: 'link' as const, run: () => copyLink({ file: current }) }] : []),
     { id: 'snapshots', title: 'Snapshots', icon: 'clock', run: () => setShowSnapshots(true) },
     { id: 'linked-folder', title: linked ? `Linked folder: ${linked}` : 'Link to a folder in Files', icon: 'folder', run: () => setShowLinked(true) },
     ...(linked

@@ -1,5 +1,6 @@
 import Feather from '@expo/vector-icons/Feather';
-import { router } from 'expo-router';
+import * as Clipboard from 'expo-clipboard';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Alert, FlatList, Image, Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -15,6 +16,8 @@ import { exportProject, pickZip } from '../backup/actions';
 import { SnapshotsSheet } from '../backup/SnapshotsSheet';
 import { writeEntries } from '../backup/zip';
 import { openFolderAsProject, useLinked } from '../external';
+import { projectLink } from '../launch/links';
+import { launchedFromQuickAction } from '../launch/quickActions';
 import { lastLines, runGit } from '../git/runGit';
 import { NewProjectSheet } from './NewProjectSheet';
 import { makeStyles, useColors } from '../../theme/theme';
@@ -37,9 +40,17 @@ export function ProjectsScreen() {
   const [renaming, setRenaming] = useState<string | null>(null);
   const [snapshotsFor, setSnapshotsFor] = useState<string | null>(null);
 
+  // tide://?new=1 and the "New project" quick action.
+  const { new: startNew } = useLocalSearchParams<{ new?: string }>();
+  useEffect(() => {
+    if (startNew) setCreating(true);
+  }, [startNew]);
+
   useEffect(() => {
     if (restoredLastProject) return;
     restoredLastProject = true;
+    // A quick action picked from the home screen goes where it says instead.
+    if (launchedFromQuickAction() || startNew) return;
     const last = tabsStore.getState().lastProject;
     if (last && projectsStore.getState().projects.includes(last)) router.push(projectHref(last));
   }, []);
@@ -131,6 +142,7 @@ export function ProjectsScreen() {
           menuFor
             ? [
                 { label: 'Rename', icon: 'edit-2', onPress: () => setRenaming(menuFor) },
+                { label: 'Copy link', icon: 'link', onPress: () => Clipboard.setStringAsync(projectLink(menuFor)) },
                 {
                   label: 'Export as .zip',
                   icon: 'share',

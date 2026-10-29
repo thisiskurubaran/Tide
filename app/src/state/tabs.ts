@@ -10,6 +10,8 @@ export interface TabsState {
   byProject: Record<string, ProjectTabs>;
   // Last opened project, so a restart lands back where the user was.
   lastProject: string | null;
+  // Most recently opened first; feeds the home screen quick actions.
+  recent: string[];
   // `activate: false` adds the tab without showing it, e.g. for the second editor pane.
   openTab(project: string, path: string, activate?: boolean): void;
   closeTab(project: string, path: string): void;
@@ -20,6 +22,8 @@ export interface TabsState {
   renameProject(from: string, to: string): void;
   removeProject(project: string): void;
 }
+
+const MAX_RECENT = 5;
 
 const empty: ProjectTabs = { open: [], active: null };
 
@@ -35,6 +39,7 @@ export function createTabsStore(storage: StateStorage) {
         return {
           byProject: {},
           lastProject: null,
+          recent: [],
           openTab: (project, path, activate = true) =>
             update(project, (t) => ({ open: t.open.includes(path) ? t.open : [...t.open, path], active: activate ? path : t.active })),
           closeTab: (project, path) =>
@@ -46,7 +51,8 @@ export function createTabsStore(storage: StateStorage) {
               const active = t.active === path ? (open[i] ?? open[i - 1] ?? null) : t.active;
               return { open, active };
             }),
-          setLastProject: (project) => set({ lastProject: project }),
+          setLastProject: (project) =>
+            set((s) => ({ lastProject: project, recent: project ? [project, ...s.recent.filter((p) => p !== project)].slice(0, MAX_RECENT) : s.recent })),
           renamePath: (project, from, to) =>
             update(project, (t) => {
               const move = (p: string) => (isUnder(p, from) ? to + p.slice(from.length) : p);
@@ -63,12 +69,13 @@ export function createTabsStore(storage: StateStorage) {
               return {
                 byProject: tabs ? { ...rest, [to]: tabs } : rest,
                 lastProject: s.lastProject === from ? to : s.lastProject,
+                recent: s.recent.map((p) => (p === from ? to : p)),
               };
             }),
           removeProject: (project) =>
             set((s) => {
               const { [project]: _removed, ...rest } = s.byProject;
-              return { byProject: rest, lastProject: s.lastProject === project ? null : s.lastProject };
+              return { byProject: rest, lastProject: s.lastProject === project ? null : s.lastProject, recent: s.recent.filter((p) => p !== project) };
             }),
         };
       },
@@ -76,7 +83,7 @@ export function createTabsStore(storage: StateStorage) {
         name: 'tabs',
         version: 1,
         storage: createJSONStorage(() => storage),
-        partialize: (s) => ({ byProject: s.byProject, lastProject: s.lastProject }),
+        partialize: (s) => ({ byProject: s.byProject, lastProject: s.lastProject, recent: s.recent }),
       },
     ),
   );

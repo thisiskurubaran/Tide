@@ -8,6 +8,7 @@ import { extensionsStore } from '../extensions/state';
 import { gitSettingsStore } from '../features/git/settings';
 import { linkedStore } from '../features/external';
 import { keyBarStore } from '../features/keybar/store';
+import { startQuickActions } from '../features/launch/quickActions';
 import { startCrashReports } from '../features/privacy/crashReports';
 import { remoteSettingsStore } from '../features/remote/settings';
 import { projectsStore, runnerStore, settingsStore, tabsStore, useSettings } from '../state';
@@ -51,6 +52,7 @@ export default function RootLayout() {
       gitSettingsStore.getState().load().catch(() => undefined),
     ]).finally(() => {
       startCrashReports(settingsStore);
+      startQuickActions();
       setReady(true);
       SplashScreen.hideAsync();
       // Prices and purchases made on another device; the cached list works until it answers.

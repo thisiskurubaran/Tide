@@ -61,6 +61,7 @@ describe('tabs store', () => {
     const restarted = createTabsStore(storage);
     await restarted.persist.rehydrate();
     expect(restarted.getState().lastProject).toBe('p');
+    expect(restarted.getState().recent).toEqual(['p']);
     expect(projectTabs(restarted.getState(), 'p')).toEqual({ open: ['index.js'], active: 'index.js' });
   });
 });
@@ -117,12 +118,22 @@ describe('projects store', () => {
     expect(projects.getState().projects).toEqual(['hello']);
     expect(Object.keys(projects.getState().trees)).toEqual(['hello']);
     expect(tabs.getState().lastProject).toBe('hello');
+    expect(tabs.getState().recent).toEqual(['hello']);
     expect(projectTabs(tabs.getState(), 'hello').open).toEqual(['index.js']);
 
     await p.deleteProject('hello');
     expect(projects.getState().projects).toEqual([]);
     expect(tabs.getState().byProject).toEqual({});
     expect(tabs.getState().lastProject).toBeNull();
+    expect(tabs.getState().recent).toEqual([]);
+  });
+
+  it('keeps recent projects in order without repeats', () => {
+    const { tabs } = setup();
+    const t = tabs.getState();
+    ['a', 'b', 'a', 'c'].forEach((p) => t.setLastProject(p));
+    t.setLastProject(null);
+    expect(tabs.getState().recent).toEqual(['c', 'a', 'b']);
   });
 });
 

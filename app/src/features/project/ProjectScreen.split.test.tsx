@@ -100,3 +100,9 @@ it('splits the editor and sends opened files to the focused pane', async () => {
   await act(async () => commands().find((c) => c.id === 'split')!.run());
   expect(screen.getAllByTestId('pane')).toHaveLength(1);
 });
+
+it('opens the file a tide:// link asks for', async () => {
+  await render(<ProjectScreen project="linked" launch={{ file: 'src/app.ts', line: 3 }} />);
+  expect(tabsStore.getState().byProject.linked).toEqual({ open: ['src/app.ts'], active: 'src/app.ts' });
+  expect(screen.getByText('file:src/app.ts')).toBeTruthy();
+});
