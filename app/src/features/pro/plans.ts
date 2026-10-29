@@ -36,7 +36,7 @@ export const PRO_LIMITS = { snapshots: 10, terminals: 6 } as const;
 export type ProFeature = 'remote' | 'linked-folders' | 'compare' | 'tests' | 'devtools' | 'split-editor' | 'snapshots' | 'terminals' | 'extensions';
 
 export const PRO_FEATURES: Record<ProFeature, { icon: IconName; title: string; description: string }> = {
-  remote: { icon: 'server', title: 'Remote mode', description: 'A full Linux terminal in a container: any language, any package, native builds.' },
+  remote: { icon: 'server', title: 'Remote mode', description: 'A full Linux terminal on a Tide server you host: any language, any package, native builds.' },
   'linked-folders': { icon: 'folder', title: 'Linked folders', description: 'Open folders from Files and iCloud Drive and sync changes back.' },
   compare: { icon: 'git-merge', title: 'Compare and merge', description: 'Diffs against the last commit or any file, and a merge editor for conflicts.' },
   tests: { icon: 'check-square', title: 'Test runner', description: 'Run node:test, pytest and unittest suites and jump to failures.' },
