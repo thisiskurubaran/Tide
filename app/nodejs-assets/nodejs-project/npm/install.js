@@ -74,7 +74,7 @@ function parseSpec(spec) {
 /**
  * @param {{ cwd: string, add?: string[], registry?: string, log?: (line: string) => void }} options
  */
-async function install({ cwd, add = [], registry = DEFAULT_REGISTRY, log = console.log }) {
+async function install({ cwd, add = [], registry = DEFAULT_REGISTRY, log = console.log, prune = false }) {
   const started = Date.now();
   const pkgFile = path.join(cwd, 'package.json');
   const pkg = readJson(pkgFile) || { name: path.basename(cwd), version: '1.0.0', private: true };
@@ -178,11 +178,48 @@ async function install({ cwd, add = [], registry = DEFAULT_REGISTRY, log = conso
     if (meta.gypfile || files.includes('binding.gyp')) warnings.push(`${name}@${version} needs a native build; use Remote mode`);
   });
 
+  // After an uninstall: top-level packages nothing needs any more go too.
+  let removed = 0;
+  if (prune) {
+    const top = path.join(cwd, 'node_modules');
+    const entries = fs.existsSync(top) ? fs.readdirSync(top) : [];
+    for (const entry of entries) {
+      if (entry.startsWith('.')) continue;
+      const names = entry.startsWith('@') ? fs.readdirSync(path.join(top, entry)).map((n) => `${entry}/${n}`) : [entry];
+      for (const name of names) {
+        if (plan.has(`node_modules/${name}`)) continue;
+        fs.rmSync(path.join(top, name), { recursive: true, force: true });
+        removed++;
+      }
+      if (entry.startsWith('@') && fs.existsSync(path.join(top, entry)) && !fs.readdirSync(path.join(top, entry)).length) fs.rmdirSync(path.join(top, entry));
+    }
+  }
+
   fs.writeFileSync(pkgFile, `${JSON.stringify(pkg, null, 2)}\n`);
   for (const w of warnings.sort()) log(`warn: ${w}`);
+  if (removed) log(`removed ${removed} package${removed === 1 ? '' : 's'}`);
   const seconds = ((Date.now() - started) / 1000).toFixed(1);
   log(added ? `added ${added} package${added === 1 ? '' : 's'} in ${seconds}s` : `up to date in ${seconds}s`);
   return { plan, added, warnings };
 }
 
-module.exports = { install, parseSpec };
+/** Removes packages from package.json, then reinstalls with pruning. */
+async function uninstall({ cwd, names, registry = DEFAULT_REGISTRY, log = console.log }) {
+  const pkgFile = path.join(cwd, 'package.json');
+  const pkg = readJson(pkgFile);
+  if (!pkg) throw new Error('no package.json here');
+  for (const name of names) {
+    let found = false;
+    for (const field of ['dependencies', 'devDependencies', 'optionalDependencies']) {
+      if (pkg[field] && name in pkg[field]) {
+        delete pkg[field][name];
+        found = true;
+      }
+    }
+    if (!found) log(`warn: ${name} is not in package.json`);
+  }
+  fs.writeFileSync(pkgFile, `${JSON.stringify(pkg, null, 2)}\n`);
+  return install({ cwd, registry, log, prune: true });
+}
+
+module.exports = { install, uninstall, parseSpec };

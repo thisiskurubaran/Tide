@@ -46,6 +46,7 @@ const COMMAND_HELP: [string, string][] = [
   ['python <file> [args]', 'run a Python file'],
   ['run [name]', 'run the project, or a named configuration (uses tide.json)'],
   ['npm install [pkg...]', 'install pure-JS packages into node_modules'],
+  ['npm uninstall <pkg...>', 'remove packages and what only they needed'],
   ['pip install <pkg...>', 'install pure-Python packages into .pylibs'],
   ['git <command>', 'clone, status, add, commit, log, push, pull (git help)'],
   ['clear', 'clear the screen'],

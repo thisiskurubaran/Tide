@@ -3,15 +3,24 @@
 // directory the user typed the command in.
 'use strict';
 
-const { install } = require('./install');
+const { install, uninstall } = require('./install');
 
-const USAGE = 'usage: npm install [package...]\nOther npm commands need Remote mode.';
+const USAGE = 'usage: npm install [package...]\n       npm uninstall <package...>\nOther npm commands need Remote mode.';
 
 async function main(args) {
   const [command, ...rest] = args;
   if (command === 'install' || command === 'i' || command === 'add') {
     const specs = rest.filter((a) => !a.startsWith('-'));
     await install({ cwd: process.cwd(), add: specs, registry: process.env.TIDE_NPM_REGISTRY });
+    return 0;
+  }
+  if (command === 'uninstall' || command === 'remove' || command === 'rm' || command === 'un') {
+    const names = rest.filter((a) => !a.startsWith('-'));
+    if (!names.length) {
+      console.error(USAGE);
+      return 1;
+    }
+    await uninstall({ cwd: process.cwd(), names, registry: process.env.TIDE_NPM_REGISTRY });
     return 0;
   }
   if (!command || command === 'help' || command === '--help' || command === '-h') {

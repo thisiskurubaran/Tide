@@ -13,7 +13,7 @@ import zlib from 'zlib';
 /* eslint-disable @typescript-eslint/no-require-imports */
 const semver = require('../../../nodejs-assets/nodejs-project/npm/semver');
 const { extract } = require('../../../nodejs-assets/nodejs-project/npm/tar');
-const { install, parseSpec } = require('../../../nodejs-assets/nodejs-project/npm/install');
+const { install, uninstall, parseSpec } = require('../../../nodejs-assets/nodejs-project/npm/install');
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'tide-npm-'));
@@ -181,6 +181,17 @@ describe('install', () => {
     const again = await install({ cwd, registry, log: () => {} });
     expect(again.added).toBe(0);
     expect(requests.slice(before).some((r) => r.startsWith('/tarballs/'))).toBe(false);
+  });
+
+  it('uninstalls a package and prunes what only it needed', async () => {
+    const cwd = tmp();
+    await install({ cwd, registry, add: ['a', 'native'], log: () => {} });
+    expect(fs.existsSync(path.join(cwd, 'node_modules/b'))).toBe(true);
+    const lines: string[] = [];
+    await uninstall({ cwd, registry, names: ['a'], log: (l: string) => lines.push(l) });
+    expect(read(cwd, 'package.json').dependencies).toEqual({ native: '^1.0.0' });
+    expect(fs.readdirSync(path.join(cwd, 'node_modules'))).toEqual(['native']);
+    expect(lines).toContain('removed 2 packages');
   });
 
   it('saves latest as a caret range and warns about native builds', async () => {

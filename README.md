@@ -103,7 +103,7 @@ Python scripts run in the embedded CPython 3.15 (Chaquopy on Android), each on i
 
 `pip install <package>...` (also `pip install -r requirements.txt`, `pip uninstall`, `pip list` and `python -m pip`) installs pure-Python wheels from PyPI into the project's `.pylibs` folder, which is on `sys.path` for every run. It resolves dependencies, extras and environment markers for the device and checks each wheel's sha256. Packages that only ship compiled wheels need Remote mode. pip itself runs in the Node supervisor, next to npm. Python scripts can make HTTPS requests with the standard library or `requests`.
 
-`npm install [package...]` works locally for pure-JS packages: it resolves versions from the registry, checks each tarball's integrity and extracts it into `node_modules`. Install scripts never run, and packages that need a native build print a warning; install those in Remote mode.
+`npm install [package...]` and `npm uninstall <package...>` work locally for pure-JS packages (uninstall also removes what only that package needed): it resolves versions from the registry, checks each tarball's integrity and extracts it into `node_modules`. Install scripts never run, and packages that need a native build print a warning; install those in Remote mode.
 
 ## Editor
 
