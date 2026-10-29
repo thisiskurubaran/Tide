@@ -74,7 +74,16 @@ export function GitSettingsScreen() {
         </View>
         <View style={styles.field}>
           <Text variant="label">Access token</Text>
-          <TextInput {...input} testID="git-token" value={token} onChangeText={setToken} placeholder="github_pat_..." secureTextEntry />
+          <TextInput
+            {...input}
+            testID="git-token"
+            value={token}
+            onChangeText={setToken}
+            placeholder="github_pat_..."
+            secureTextEntry
+            // Without this iOS treats the field as a password and offers to save the token to Passwords.
+            textContentType="oneTimeCode"
+          />
         </View>
         {error && <Text variant="error">{error}</Text>}
         <View style={styles.actions}>

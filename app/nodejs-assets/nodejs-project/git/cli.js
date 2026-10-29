@@ -359,13 +359,22 @@ const commands = {
     const dir = await findRoot();
     takeFlag(args, '-u', '--set-upstream');
     const [remote = 'origin', ref = (await git.currentBranch({ fs, dir })) ?? undefined] = args.filter((a) => !a.startsWith('-'));
-    const result = await git.push({ fs, http, dir, remote, ref, onAuth, onAuthFailure, onProgress });
+    let result;
+    try {
+      result = await git.push({ fs, http, dir, remote, ref, onAuth, onAuthFailure, onProgress });
+    } catch (e) {
+      // isomorphic-git's own message suggests its `force` option, which this CLI doesn't have.
+      if (e && e.code === 'PushRejectedError') throw new GitError(`${remote} has commits you don't have: run git pull, then push again`);
+      throw e;
+    }
     endProgress();
     if (!result.ok) throw new GitError(result.error || 'push failed');
+    let rejected = false;
     for (const [name, r] of Object.entries(result.refs)) {
       console.log(r.ok ? `${name}: pushed to ${remote}` : `${name}: rejected (${r.error})`);
+      if (!r.ok) rejected = true;
     }
-    return 0;
+    return rejected ? 1 : 0;
   },
 
   async pull(args) {

@@ -90,7 +90,8 @@ export function RemoteSettingsScreen() {
             }}
             placeholder="TIDE_TOKEN from the server"
             secureTextEntry
-            textContentType="password"
+            // Not "password": iOS would offer to save the token to Passwords on submit.
+            textContentType="oneTimeCode"
           />
         </View>
         {error && <Text variant="error">{error}</Text>}
