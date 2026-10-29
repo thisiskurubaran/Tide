@@ -15,6 +15,7 @@ import { projectTabs } from '../../state/tabs';
 import { borderWidth, spacing } from '../../theme/tokens';
 import { FileTree } from '../files/FileTree';
 import { EditorHandle, EditorHost, EditorPane } from '../editor/EditorPane';
+import { languageFor } from '../editor/bridge';
 import { EditorKeyBar } from '../editor/EditorKeyBar';
 import { useKeyboardHeight } from '../editor/useKeyboardHeight';
 import { TerminalKeyBar } from '../terminal/TerminalKeyBar';
@@ -247,7 +248,7 @@ export function ProjectScreen({ project }: { project: string }) {
           {typingIn === 'terminal' && !terminalHidden ? (
             <TerminalKeyBar input={(data) => terminal.current?.input(data)} onHide={() => terminal.current?.blur()} />
           ) : (
-            <EditorKeyBar send={(msg) => editor.current?.send(msg)} />
+            <EditorKeyBar send={(msg) => editor.current?.send(msg)} language={languageFor(tabs.active ?? '')} />
           )}
         </View>
       )}

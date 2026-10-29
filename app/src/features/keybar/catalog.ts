@@ -1,0 +1,118 @@
+// Keys the editor and terminal key bars can show. A bar is a list of key ids:
+// a built-in id from these catalogs, or 'text:<chars>' for any text, which
+// is how users add their own symbols and snippets. No React Native imports,
+// so tests and settings screens share it.
+import type { Language } from '../editor/bridge';
+
+export type EditorAction = 'left' | 'right' | 'up' | 'down' | 'tab' | 'undo' | 'redo' | 'find' | 'complete';
+
+export interface CatalogKey {
+  id: string;
+  // Shown on the key; icon is a Feather name and wins over label.
+  label?: string;
+  icon?: string;
+  a11y: string;
+}
+
+export const EDITOR_KEYS: CatalogKey[] = [
+  { id: 'left', icon: 'arrow-left', a11y: 'Cursor left' },
+  { id: 'up', icon: 'arrow-up', a11y: 'Cursor up' },
+  { id: 'down', icon: 'arrow-down', a11y: 'Cursor down' },
+  { id: 'right', icon: 'arrow-right', a11y: 'Cursor right' },
+  { id: 'tab', label: '⇥', a11y: 'Tab' },
+  { id: 'undo', icon: 'corner-up-left', a11y: 'Undo' },
+  { id: 'redo', icon: 'corner-up-right', a11y: 'Redo' },
+  { id: 'find', icon: 'search', a11y: 'Find' },
+  { id: 'complete', icon: 'list', a11y: 'Show suggestions' },
+];
+
+// Bytes a hardware keyboard would send for each key.
+const ESC = '\x1b';
+export const TERMINAL_KEYS: (CatalogKey & { data: string })[] = [
+  { id: 'esc', label: 'esc', a11y: 'Escape', data: ESC },
+  { id: 'tab', label: '⇥', a11y: 'Tab', data: '\t' },
+  { id: 'ctrl-c', label: '^C', a11y: 'Control C', data: '\x03' },
+  { id: 'ctrl-d', label: '^D', a11y: 'Control D', data: '\x04' },
+  { id: 'ctrl-z', label: '^Z', a11y: 'Control Z', data: '\x1a' },
+  { id: 'ctrl-l', label: '^L', a11y: 'Clear screen', data: '\x0c' },
+  { id: 'ctrl-r', label: '^R', a11y: 'Search history', data: '\x12' },
+  { id: 'ctrl-a', label: '^A', a11y: 'Start of line', data: '\x01' },
+  { id: 'ctrl-e', label: '^E', a11y: 'End of line', data: '\x05' },
+  { id: 'left', icon: 'arrow-left', a11y: 'Cursor left', data: `${ESC}[D` },
+  { id: 'up', icon: 'arrow-up', a11y: 'Previous command', data: `${ESC}[A` },
+  { id: 'down', icon: 'arrow-down', a11y: 'Next command', data: `${ESC}[B` },
+  { id: 'right', icon: 'arrow-right', a11y: 'Cursor right', data: `${ESC}[C` },
+  { id: 'home', label: 'home', a11y: 'Home', data: `${ESC}[H` },
+  { id: 'end', label: 'end', a11y: 'End', data: `${ESC}[F` },
+  { id: 'pgup', label: 'pg↑', a11y: 'Page up', data: `${ESC}[5~` },
+  { id: 'pgdn', label: 'pg↓', a11y: 'Page down', data: `${ESC}[6~` },
+];
+
+export const text = (chars: string) => `text:${chars}`;
+
+// Names for symbols, so VoiceOver reads more than "punctuation".
+const SYMBOL_NAMES: Record<string, string> = {
+  '{': 'Open brace',
+  '}': 'Close brace',
+  '(': 'Open parenthesis',
+  ')': 'Close parenthesis',
+  '[': 'Open bracket',
+  ']': 'Close bracket',
+  ';': 'Semicolon',
+  ':': 'Colon',
+  '"': 'Double quote',
+  "'": 'Single quote',
+  '`': 'Backtick',
+  '=': 'Equals',
+  '<': 'Less than',
+  '>': 'Greater than',
+  '/': 'Slash',
+  '\\': 'Backslash',
+  '-': 'Dash',
+  '_': 'Underscore',
+  '~': 'Tilde',
+  '.': 'Dot',
+  '|': 'Pipe',
+  '*': 'Star',
+  '#': 'Hash',
+  '$': 'Dollar',
+  '&': 'Ampersand',
+  '!': 'Exclamation mark',
+  '@': 'At sign',
+  '%': 'Percent',
+  '+': 'Plus',
+  '?': 'Question mark',
+};
+
+const chars = (s: string) => [...s].map(text);
+
+export const DEFAULT_EDITOR_KEYS = ['left', 'up', 'down', 'right', 'tab', ...chars('{}()[];:"\'=<>/\\'), 'undo', 'redo', 'find'];
+export const DEFAULT_TERMINAL_KEYS = ['esc', 'tab', 'ctrl-c', 'ctrl-l', 'left', 'up', 'down', 'right', ...chars('/-~.|>"\'*_')];
+
+// Starting points per language; users can change them in Settings.
+export const LANGUAGE_PRESETS: Partial<Record<Language, string[]>> = {
+  python: ['left', 'up', 'down', 'right', 'tab', ...chars(':()[]{}=_\'".#'), text('self.'), 'undo', 'redo', 'find'],
+  javascript: ['left', 'up', 'down', 'right', 'tab', ...chars('{}()[];=<>\'"`'), text('=>'), text('const '), 'undo', 'redo', 'find'],
+  html: ['left', 'up', 'down', 'right', 'tab', ...chars('<>/="\''), text('</'), 'undo', 'redo', 'find'],
+};
+
+export interface KeyFace {
+  id: string;
+  label?: string;
+  icon?: string;
+  a11y: string;
+}
+
+// How a key id looks; unknown ids (from a newer version) come back null and are skipped.
+export function keyFace(id: string, bar: 'editor' | 'terminal'): KeyFace | null {
+  if (id.startsWith('text:')) {
+    const value = id.slice(5);
+    if (!value) return null;
+    return { id, label: value.length > 8 ? `${value.slice(0, 7)}…` : value, a11y: SYMBOL_NAMES[value] ?? `Type ${value}` };
+  }
+  const found = (bar === 'editor' ? EDITOR_KEYS : TERMINAL_KEYS).find((k) => k.id === id);
+  return found ? { id, label: found.label, icon: found.icon, a11y: found.a11y } : null;
+}
+
+export const terminalData = (id: string): string | null =>
+  id.startsWith('text:') ? id.slice(5) : (TERMINAL_KEYS.find((k) => k.id === id)?.data ?? null);

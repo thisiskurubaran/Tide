@@ -83,6 +83,10 @@ export function SettingsScreen() {
           ))}
         </Section>
 
+        <Section title="Keyboard">
+          <LinkRow label="Key bar" detail="Keys above the keyboard" onPress={() => router.push('/settings/keys')} testID="settings-keybar" />
+        </Section>
+
         <Section title="Extensions">
           <LinkRow
             label="Extensions"

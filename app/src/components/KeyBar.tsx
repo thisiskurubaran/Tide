@@ -29,8 +29,9 @@ export function KeyBar({ groups, onHide, testID }: KeyBarProps) {
         {groups.map((group, g) => (
           <Fragment key={g}>
             {g > 0 && <View style={styles.divider} />}
-            {group.map((k) => (
-              <Pressable key={k.a11y} accessibilityLabel={k.a11y} onPress={k.onPress} style={({ pressed }) => [styles.key, pressed && styles.pressed]}>
+            {group.map((k, i) => (
+              // Users can add the same key twice, so the index keeps keys unique.
+              <Pressable key={`${i}-${k.a11y}`} accessibilityLabel={k.a11y} onPress={k.onPress} style={({ pressed }) => [styles.key, pressed && styles.pressed]}>
                 {'icon' in k ? (
                   <Feather name={k.icon} size={16} color={colors.foreground} />
                 ) : (
