@@ -58,7 +58,7 @@ export const manifests: ExtensionManifest[] = [
     productId: `${PRODUCT_PREFIX}.git_pro`,
     fallbackPrice: '$6.99',
     features: [
-      'Side-by-side change view for every changed file',
+      'Line-by-line diff for every changed file and every commit',
       'Stage, unstage and discard a whole file or a single hunk',
       'Commit only what is staged',
       'Create, switch and delete branches',

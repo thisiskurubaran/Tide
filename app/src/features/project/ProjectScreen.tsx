@@ -7,6 +7,7 @@ import { IconButton } from '../../components/Button';
 import { PromptSheet } from '../../components/PromptSheet';
 import { Text } from '../../components/Text';
 import { answerRequest, editorFeatures, findDefinition, saveWithHooks, useActiveExtensions, useExtensionHost } from '../../extensions/host';
+import { GIT_PRO_PANEL } from '../../extensions/gitPro';
 import type { ProjectContext } from '../../extensions/types';
 import { buffersStore, projectsStore, runnerStore, tabsStore, useBuffers, useProjects, useTabs } from '../../state';
 import { bufferKey, isDirty } from '../../state/buffers';
@@ -65,6 +66,8 @@ export function ProjectScreen({ project }: { project: string }) {
   const cursor = useRef<{ path: string; offset: number } | null>(null);
   const extensions = useActiveExtensions();
   const features = useMemo(() => editorFeatures(extensions), [extensions]);
+  // Git Pro's screen stands in for the Source Control sheet.
+  const openSourceControl = () => (extensions.some((e) => e.id === 'git-pro') ? setPanel(GIT_PRO_PANEL) : setSourceControl(true));
 
   useEffect(() => {
     projectsStore.getState().loadTree(project);
@@ -136,7 +139,7 @@ export function ProjectScreen({ project }: { project: string }) {
     { id: 'toggle-terminal', title: 'Toggle terminal', icon: 'terminal', hint: '⌘J', run: () => setTerminalHidden((h) => !h) },
     { id: 'local', title: 'Terminal: use Local', icon: 'smartphone', run: () => runnerStore.getState().setMode('local') },
     { id: 'remote', title: 'Terminal: use Remote', icon: 'server', run: () => runnerStore.getState().setMode('remote') },
-    { id: 'source-control', title: 'Source control', icon: 'git-branch', run: () => setSourceControl(true) },
+    { id: 'source-control', title: 'Source control', icon: 'git-branch', run: openSourceControl },
     { id: 'settings', title: 'Settings', icon: 'settings', run: () => router.push('/settings') },
     { id: 'extensions', title: 'Extensions', icon: 'package', run: () => router.push('/extensions') },
     ...extensions.flatMap((ext) => ext.commands?.(ctx) ?? []),
@@ -157,7 +160,7 @@ export function ProjectScreen({ project }: { project: string }) {
         <Text variant="title" numberOfLines={1} style={styles.title}>
           {project}
         </Text>
-        <IconButton icon="git-branch" label="Source control" onPress={() => setSourceControl(true)} testID="open-source-control" />
+        <IconButton icon="git-branch" label="Source control" onPress={openSourceControl} testID="open-source-control" />
         <IconButton icon="search" label="Search in project" onPress={() => setSearching(true)} testID="open-search" />
         <IconButton icon="command" label="Commands" onPress={() => setPalette('commands')} testID="open-palette" />
       </View>
