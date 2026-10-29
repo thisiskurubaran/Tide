@@ -54,23 +54,70 @@ Lifetime on (shared with up to five family members), extensions off.
 6. Add the products to the app version under **In-App Purchases and
    Subscriptions** before submitting it. The first ones have to be
    submitted together with an app version.
-7. **App Privacy**: purchases are handled by Apple and Tide collects no
-   payment data. If crash reports are enabled in the build, declare Crash
-   Data (not linked to the user, not used for tracking).
-8. **App Information > Privacy Policy URL**: required. Host
-   `appstore/privacy-policy.md` (after review) and use the same URL for the
-   build, below. For subscriptions, put links to the Terms of Use (EULA)
-   and Privacy Policy in the app description too (Guideline 3.1.2).
+7. **App Privacy** (the questionnaire behind the label on the store page):
+   - Builds **without** `EXPO_PUBLIC_SENTRY_DSN`: "Data Not Collected".
+   - Builds **with** it: Diagnostics > **Crash Data**, used for App
+     Functionality, **not linked** to the user, **not used for tracking**.
+   - Tide doesn't track (no App Tracking Transparency prompt needed).
+     Purchases are handled by Apple and aren't declared. Problem reports
+     are emails the user chooses to write, which Apple's "optional
+     disclosure" rules cover; if you'd rather be conservative, add
+     Diagnostics > Other Diagnostic Data, not linked, App Functionality.
+8. **Privacy Policy URL** (App Privacy) and **Support URL** (the version
+   page), from the pages published below:
+   `https://thisiskurubaran.github.io/tide/privacy/` and
+   `https://thisiskurubaran.github.io/tide/support/`. For subscriptions,
+   also put links to the Terms of Use (Apple's standard EULA,
+   `https://www.apple.com/legal/internet-services/itunes/dev/stdeula/`)
+   and the Privacy Policy at the end of the app description
+   (Guideline 3.1.2).
+
+## Publishing the privacy policy and support pages
+
+`appstore/privacy-policy.md` and `appstore/support.md` are ready for
+GitHub Pages (their front matter sets the URL). This repo is private, and
+GitHub Pages on a free plan only publishes public repos, so they go in a
+small public repo of their own:
+
+1. On github.com, **New repository** named exactly
+   `thisiskurubaran.github.io`, **Public**, with a README. A repo with that
+   name becomes your site at `https://thisiskurubaran.github.io`.
+2. Add the two pages, either with **Add file > Upload files** or:
+
+   ```bash
+   git clone https://github.com/thisiskurubaran/thisiskurubaran.github.io.git
+   cd thisiskurubaran.github.io
+   mkdir -p tide
+   cp ../Tide/appstore/privacy-policy.md tide/privacy.md
+   cp ../Tide/appstore/support.md tide/support.md
+   printf 'title: Kurubaran Anandhan\ntheme: jekyll-theme-primer\n' > _config.yml
+   git add . && git commit -m "Add Tide privacy policy and support pages" && git push
+   ```
+
+3. In the new repo: **Settings > Pages > Build and deployment**, Source
+   **Deploy from a branch**, Branch **main** / **(root)**, **Save**. (User
+   sites usually have this on already.)
+4. After a minute or two, the **Actions** tab shows the
+   "pages build and deployment" run finish, and these open:
+   - `https://thisiskurubaran.github.io/tide/privacy/`
+   - `https://thisiskurubaran.github.io/tide/support/`
+5. Put both URLs in App Store Connect (step 8 above). The app's paywall
+   already links to the privacy URL.
+
+When the policy changes, edit it here, copy it over again, and update its
+effective date. Keep the URL the same: the app and App Store Connect both
+point at it.
 
 ## Build settings
 
-Set at build time, like `EXPO_PUBLIC_SENTRY_DSN`:
+All optional; set at build time, like `EXPO_PUBLIC_SENTRY_DSN`, to
+override the defaults:
 
-| Variable | Needed | What for |
+| Variable | Default | What for |
 |---|---|---|
-| `EXPO_PUBLIC_PRIVACY_URL` | Yes | Privacy Policy link on the paywall |
-| `EXPO_PUBLIC_TERMS_URL` | No | Terms of Use link; defaults to Apple's standard EULA |
-| `EXPO_PUBLIC_SUPPORT_EMAIL` | Recommended | Report a problem and Suggest a feature |
+| `EXPO_PUBLIC_PRIVACY_URL` | `https://thisiskurubaran.github.io/tide/privacy/` | Privacy Policy link on the paywall |
+| `EXPO_PUBLIC_TERMS_URL` | Apple's standard EULA | Terms of Use link on the paywall |
+| `EXPO_PUBLIC_SUPPORT_EMAIL` | `thisiskurubaran@gmail.com` | Report a problem and Suggest a feature |
 
 ## Testing
 

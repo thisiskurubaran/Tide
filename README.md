@@ -127,7 +127,7 @@ Without it, Sentry is never started. When it is on, reports carry no breadcrumbs
 
 ## Help and feedback
 
-Settings, Help & feedback offers Report a problem, Suggest a feature, Rate Tide and What's new. Reports open a mail draft addressed to `EXPO_PUBLIC_SUPPORT_EMAIL`, set at build time like the DSN, with device details and the session's recent warnings and errors attached as a text file. The user sees the whole draft before sending, and sandbox paths are shortened to `~`. Without the address, or without mail on the device, the report goes to the share sheet instead.
+Settings, Help & feedback offers Report a problem, Suggest a feature, Rate Tide and What's new. Reports open a mail draft addressed to the support address (`EXPO_PUBLIC_SUPPORT_EMAIL` at build time overrides it), with device details and the session's recent warnings and errors attached as a text file. The user sees the whole draft before sending, and sandbox paths are shortened to `~`. Without mail on the device, the report goes to the share sheet instead.
 
 The rating prompt is asked for at most once per version, after 5 runs and 3 days of use. Add each release's notes to `src/features/support/changelog.ts`; What's new shows them once after an update.
 
@@ -137,7 +137,7 @@ The iOS privacy manifest is set in `app.json` (`ios.privacyManifests`) and decla
 
 Tide Pro is a monthly or yearly subscription (7-day free trial on yearly) or a lifetime purchase. It unlocks linked folders, compare and merge, the test runner, preview dev tools, the split editor on iPad, up to 6 terminals (free: 2), 10 snapshots per project (free: 3) and every extension. Remote mode is free at launch, since it needs a server the user hosts. The plans and limits are in `app/src/features/pro/plans.ts`; the paywall opens from Settings, the Extensions screen and any Pro feature.
 
-[appstore/pro.md](appstore/pro.md) covers setting up the products in App Store Connect, testing with `app/storekit/Tide.storekit` or sandbox, and the review notes. Builds need `EXPO_PUBLIC_PRIVACY_URL` (the hosted privacy policy, drafted in [appstore/privacy-policy.md](appstore/privacy-policy.md)) for the paywall's Privacy Policy link.
+[appstore/pro.md](appstore/pro.md) covers setting up the products in App Store Connect, testing with `app/storekit/Tide.storekit` or sandbox, and the review notes. The privacy policy ([appstore/privacy-policy.md](appstore/privacy-policy.md)) and support page ([appstore/support.md](appstore/support.md)) are published with GitHub Pages at `https://thisiskurubaran.github.io/tide/privacy/` and `/tide/support/`; appstore/pro.md has the steps.
 
 ## Remote mode
 

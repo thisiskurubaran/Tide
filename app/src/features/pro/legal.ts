@@ -1,8 +1,9 @@
-// Links Apple requires next to subscriptions (Guideline 3.1.2). Terms default
-// to Apple's standard EULA; the privacy policy has to be hosted by you and
-// set at build time, like the Sentry DSN.
+// Links Apple requires next to subscriptions (Guideline 3.1.2). Terms are
+// Apple's standard EULA; the privacy policy is appstore/privacy-policy.md,
+// published with GitHub Pages (see appstore/pro.md). Either can be
+// overridden at build time.
 export const TERMS_URL = process.env.EXPO_PUBLIC_TERMS_URL || 'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/';
-export const PRIVACY_URL = process.env.EXPO_PUBLIC_PRIVACY_URL ?? '';
+export const PRIVACY_URL = process.env.EXPO_PUBLIC_PRIVACY_URL || 'https://thisiskurubaran.github.io/tide/privacy/';
 
 const PERIOD: Record<string, string> = { yearly: 'year', monthly: 'month' };
 

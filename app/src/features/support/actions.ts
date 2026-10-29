@@ -14,8 +14,8 @@ import { buildReport, DeviceInfo, mailBody } from './report';
 import { shouldAskForReview } from './review';
 import { supportStore } from './store';
 
-// Set at build time, like the Sentry DSN. Without it, reports go to the share sheet.
-const SUPPORT_EMAIL = process.env.EXPO_PUBLIC_SUPPORT_EMAIL ?? '';
+// The address on the support page; a build can use another one.
+const SUPPORT_EMAIL = process.env.EXPO_PUBLIC_SUPPORT_EMAIL || 'thisiskurubaran@gmail.com';
 
 export const appVersion = () => Constants.expoConfig?.version ?? '0.0.0';
 
