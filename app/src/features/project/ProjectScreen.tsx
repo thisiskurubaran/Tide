@@ -40,8 +40,10 @@ import { makeStyles } from '../../theme/theme';
 import { haptic } from '../../components/haptics';
 import { countRun } from '../support/actions';
 import { PreviewPane } from '../preview/PreviewPane';
-import { previewKind, viewerOnly } from '../preview/render';
+import { previewKind, viewerFirst, viewerOnly } from '../preview/render';
 import { DatabasePane } from '../database/DatabasePane';
+import { HttpPane } from '../http/HttpPane';
+import { HTTP_TEMPLATE } from '../http/http';
 import { hasConflicts } from '../diff/conflicts';
 import { CompareView } from '../diff/CompareView';
 import type { CompareRequest } from '../diff/sources';
@@ -111,17 +113,19 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
   // "Compare with file…" uses the file picker; the next pick is the other file.
   const comparingWith = useRef<string | null>(null);
   const currentHasConflicts = useBuffers((s) => (current ? hasConflicts(s.buffers[bufferKey(project, current)]?.content ?? '') : false));
-  // Files shown rendered instead of as source. Notebooks start out rendered;
-  // databases only have their viewer.
+  // Files shown rendered instead of as source. Notebooks and .http files start
+  // out in their viewer; databases only have one.
   const [previewToggled, setPreviewToggled] = useState<Record<string, boolean>>({});
   const previewing = (path: string | null) =>
-    !!path && !!previewKind(path) && (viewerOnly(previewKind(path)) || (previewToggled[path] ?? previewKind(path) === 'notebook'));
+    !!path && !!previewKind(path) && (viewerOnly(previewKind(path)) || (previewToggled[path] ?? viewerFirst(previewKind(path))));
   const canToggle = (path: string | null) => !!path && !!previewKind(path) && !viewerOnly(previewKind(path));
   const togglePreview = () => canToggle(current) && setPreviewToggled((t) => ({ ...t, [current!]: !previewing(current) }));
   const viewer = (path: string | null) =>
     previewing(path) &&
     (previewKind(path!) === 'sqlite' ? (
       <DatabasePane project={project} path={path!} />
+    ) : previewKind(path!) === 'http' ? (
+      <HttpPane project={project} path={path!} />
     ) : (
       <PreviewPane project={project} path={path!} />
     ));
@@ -158,6 +162,18 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
       setSplit({ path });
     } else tabsStore.getState().openTab(project, path);
     setDrawerOpen(false);
+  };
+
+  // requests.http, or requests-2.http and so on when that's taken, started from an example.
+  const newHttpFile = async () => {
+    for (let n = 1; ; n++) {
+      const name = n === 1 ? 'requests.http' : `requests-${n}.http`;
+      if ((await workspace.fileSize(project, name).catch(() => null)) !== null) continue;
+      const path = await workspace.createFile(project, '', name, HTTP_TEMPLATE);
+      await projectsStore.getState().loadTree(project);
+      openFile(path);
+      return;
+    }
   };
 
   // Wraps around, like Ctrl-Tab in most editors.
@@ -283,6 +299,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
   const commands = uniqueById<Command>([
     { id: 'quick-open', title: 'Open file', icon: 'file', hint: '⌘P', run: () => setPalette('files') },
     { id: 'search', title: 'Search in project', icon: 'search', hint: '⇧⌘F', run: () => setSearching(true) },
+    { id: 'http.new', title: 'New HTTP requests file', icon: 'send', run: () => newHttpFile().catch((e) => Alert.alert('Could not create the file', String(e?.message ?? e))) },
     { id: 'find', title: 'Find in file', icon: 'search', hint: '⌘F', run: () => editor.current?.send({ type: 'find' }) },
     { id: 'goto-line', title: 'Go to line', icon: 'corner-down-right', hint: '⌘L', run: () => current && setGoingToLine(true) },
     { id: 'save', title: 'Save file', icon: 'save', hint: '⌘S', run: () => current && save(current).then(() => haptic('success')) },

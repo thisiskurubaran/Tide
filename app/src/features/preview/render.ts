@@ -2,18 +2,22 @@
 // WebView. The page runs no scripts; local images are inlined by the caller.
 import { marked } from 'marked';
 
-export type PreviewKind = 'markdown' | 'notebook' | 'json' | 'sqlite';
+export type PreviewKind = 'markdown' | 'notebook' | 'json' | 'sqlite' | 'http';
 
 export function previewKind(path: string): PreviewKind | null {
   if (/\.(md|markdown|mdx)$/i.test(path)) return 'markdown';
   if (/\.ipynb$/i.test(path)) return 'notebook';
   if (/\.(json|geojson|webmanifest)$/i.test(path)) return 'json';
   if (/\.(db|sqlite|sqlite3|db3)$/i.test(path)) return 'sqlite';
+  if (/\.(http|rest)$/i.test(path)) return 'http';
   return null;
 }
 
 // Files that only make sense in their viewer (binary), so there's no source to switch to.
 export const viewerOnly = (kind: PreviewKind | null) => kind === 'sqlite';
+
+// Files that open in their viewer first; the rest open as source.
+export const viewerFirst = (kind: PreviewKind | null) => kind === 'notebook' || kind === 'http' || viewerOnly(kind);
 
 // Big documents are cut off after this many values, so the page stays responsive.
 const JSON_MAX_NODES = 5000;
