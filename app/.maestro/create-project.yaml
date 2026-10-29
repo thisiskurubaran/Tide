@@ -1,0 +1,17 @@
+# A new project from a template opens with its files in the tree.
+appId: com.thisiskurubaran.tide
+name: Create a project
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    file: common/new-project.yaml
+    env:
+      NAME: e2e-create
+      TEMPLATE: node-hello
+- tapOn:
+    id: open-tree
+- assertVisible:
+    id: tree-index.js
+- assertVisible:
+    id: tree-tide.json

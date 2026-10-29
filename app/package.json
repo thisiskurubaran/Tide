@@ -63,7 +63,8 @@
     "postinstall": "node modules/python-runtime/scripts/fetch-ios-python.js",
     "build:icons": "node scripts/build-icons.js",
     "build:web": "node scripts/build-web.js",
-    "build:git": "node scripts/build-git.js"
+    "build:git": "node scripts/build-git.js",
+    "e2e": "maestro test --exclude-tags remote .maestro"
   },
   "private": true,
   "jest": {

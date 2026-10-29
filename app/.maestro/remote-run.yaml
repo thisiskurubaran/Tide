@@ -1,0 +1,44 @@
+# Run code in Remote mode. Needs the server from /server running and reachable:
+#   maestro test -e TIDE_SERVER_URL=http://localhost:8787 -e TIDE_SERVER_TOKEN=... .maestro/remote-run.yaml
+appId: com.thisiskurubaran.tide
+name: Remote run
+tags:
+  - remote
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    file: common/new-project.yaml
+    env:
+      NAME: e2e-remote
+      TEMPLATE: node-hello
+- tapOn:
+    id: runner-remote
+# The Keychain outlives clearState, so the server may already be set up.
+- runFlow:
+    when:
+      visible:
+        id: remote-setup
+    commands:
+      - tapOn:
+          id: remote-setup
+      - tapOn:
+          id: remote-url
+      - eraseText
+      - inputText: ${TIDE_SERVER_URL}
+      - tapOn:
+          id: remote-token
+      - inputText: ${TIDE_SERVER_TOKEN}
+      - tapOn:
+          id: remote-save
+- extendedWaitUntil:
+    visible: "tide@.*"
+    timeout: 60000
+- runFlow:
+    file: common/run-in-terminal.yaml
+    env:
+      COMMAND: node index.js remote && uname -s
+- extendedWaitUntil:
+    visible: Hello, remote!
+    timeout: 30000
+- assertVisible: Linux

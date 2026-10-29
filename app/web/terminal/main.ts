@@ -33,6 +33,8 @@ const term = new Terminal({
   cursorBlink: true,
   scrollback: 5000,
   allowProposedApi: false,
+  // Mirrors the rows into the accessibility tree, so VoiceOver (and UI tests) can read the output.
+  screenReaderMode: true,
 });
 const fit = new FitAddon();
 term.loadAddon(fit);

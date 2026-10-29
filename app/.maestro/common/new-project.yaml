@@ -1,0 +1,18 @@
+# Creates a project from a template on the projects list and waits for it to open.
+# Params: NAME, TEMPLATE (a template id from src/features/files/templates.ts)
+appId: com.thisiskurubaran.tide
+---
+- tapOn:
+    id: new-project
+- tapOn:
+    id: project-name
+- inputText: ${NAME}
+- tapOn:
+    id: template-${TEMPLATE}
+- tapOn:
+    id: create-project
+- assertVisible:
+    id: terminal
+- extendedWaitUntil:
+    visible: ${NAME} / $
+    timeout: 15000

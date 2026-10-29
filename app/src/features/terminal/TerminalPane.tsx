@@ -133,6 +133,7 @@ export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(functi
   return (
     <WebView<object>
       ref={webview}
+      testID="terminal"
       source={{ html: terminalHtml }}
       originWhitelist={['about:blank']}
       onMessage={onMessage}

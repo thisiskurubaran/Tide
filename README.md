@@ -26,6 +26,7 @@ app/                             Expo app (dev client, prebuild, New Architectur
   nodejs-assets/nodejs-project   Supervisor inside nodejs-mobile: runs each script in a worker thread; npm, pip and git built-ins
   src/features/git               Git settings, Source Control sheet, running git from the UI
   src/features/privacy           Opt-in crash reports (Sentry) and the scrubbing applied to them
+  .maestro                       End-to-end flows (Maestro)
   modules/python-runtime         Expo module: Chaquopy on Android, CPython on iOS; python/tide_runner.py runs scripts
 server/                          Remote mode server: one Docker container per project
 shared/protocol.ts               Runner message types, imported as @shared/protocol
@@ -159,7 +160,37 @@ npm run build:icons
 
 ## Tests
 
+Jest covers the logic:
+
 ```bash
 cd app
 npm test
 ```
+
+### End-to-end flows
+
+`app/.maestro` has Maestro flows for creating a project, editing and running Node, running Python with input, and running in Remote mode. They start from a cleared app, which also clears a dev client's link to Metro, so run them against a Release build on a simulator.
+
+Install Maestro (`brew install mobile-dev-inc/tap/maestro`). It needs Java; Homebrew's OpenJDK is not linked, so point `JAVA_HOME` at it:
+
+```bash
+export JAVA_HOME=/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home
+```
+
+Build the Release app for the simulator. Build for arm64 only: CPython's install step can't handle the two-architecture simulator slice a Release build uses by default.
+
+```bash
+cd app/ios
+xcodebuild -workspace Tide.xcworkspace -scheme Tide -configuration Release -sdk iphonesimulator ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build
+xcrun simctl install booted ~/Library/Developer/Xcode/DerivedData/Tide-*/Build/Products/Release-iphonesimulator/Tide.app
+```
+
+Then run the local flows, and the remote one with a server running (see Remote server):
+
+```bash
+cd app
+npm run e2e
+maestro test -e TIDE_SERVER_URL=http://localhost:8787 -e TIDE_SERVER_TOKEN=<token> .maestro/remote-run.yaml
+```
+
+The flows read the terminal through xterm.js's screen reader mode, which also lets VoiceOver read terminal output.
