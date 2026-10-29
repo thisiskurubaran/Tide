@@ -1,14 +1,22 @@
 ---
+app: tide
 title: Tide
 permalink: /tide/
 ---
 
-# Tide
+{% assign app = site.data.apps | where: "slug", "tide" | first %}
+<div class="hero">
+  <img src="{{ app.icon }}" alt="">
+  <div>
+    <h1>{{ app.name }}</h1>
+    <div>For {{ app.platforms }}</div>
+  </div>
+</div>
 
-A code editor with a terminal for iPhone and iPad. JavaScript and Python
-run on the device, offline.
+{{ app.tagline }}
+{: .lead}
 
-- [Privacy Policy](/tide/privacy/)
-- [Support](/tide/support/)
-
-[All apps](/)
+<p class="links">
+  <a class="button" href="/tide/privacy/">Privacy Policy</a>
+  <a class="button" href="/tide/support/">Support</a>
+</p>

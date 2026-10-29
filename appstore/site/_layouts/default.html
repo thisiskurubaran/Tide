@@ -1,41 +1,115 @@
 <!doctype html>
-<html lang="en">
+{%- assign app = site.data.apps | where: "slug", page.app | first -%}
+<html lang="en"{% if app %} style="--accent: {{ app.accent }}; --accent-dark: {{ app.accent_dark | default: app.accent }};"{% endif %}>
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% if page.title %}{{ page.title }} · {% endif %}{{ site.title }}</title>
-    <meta name="description" content="{{ site.description }}">
+    <meta name="description" content="{{ page.description | default: app.tagline | default: site.description }}">
+    {%- if app and app.icon %}
+    <link rel="icon" href="{{ app.icon }}" type="image/svg+xml">
+    {%- endif %}
     <style>
-      :root { color-scheme: light dark; --fg: #111413; --muted: #5b6361; --bg: #fcfcfb; --line: #e2e2df; --link: #1d4ed8; --code: #f3f3f1; }
-      @media (prefers-color-scheme: dark) { :root { --fg: #f1f3f2; --muted: #a3aaa7; --bg: #0d0f0e; --line: #272c2a; --link: #7c9bff; --code: #1c201e; } }
-      * { box-sizing: border-box; }
-      body { margin: 0; background: var(--bg); color: var(--fg); font: 17px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-text-size-adjust: 100%; }
-      main { max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; }
-      h1 { font-size: 2em; line-height: 1.2; margin: 0 0 0.5em; }
-      h2 { font-size: 1.35em; margin: 2em 0 0.5em; padding-bottom: 0.25em; border-bottom: 1px solid var(--line); }
-      a { color: var(--link); }
-      code { background: var(--code); padding: 0.1em 0.35em; border-radius: 4px; font-size: 0.9em; }
-      table { width: 100%; border-collapse: collapse; margin: 1em 0; display: block; overflow-x: auto; }
-      th, td { text-align: left; vertical-align: top; padding: 8px 10px; border: 1px solid var(--line); }
-      th { background: var(--code); }
-      /* "What goes where" tables ({: .sent } after the table): one block per row on phones. */
-      @media (max-width: 600px) {
-        table.sent, table.sent tbody, table.sent tr, table.sent td { display: block; width: 100%; }
-        table.sent { border: 0; }
-        table.sent thead { display: none; }
-        table.sent tr { padding: 12px 0; border-top: 1px solid var(--line); }
-        table.sent td { border: 0; padding: 2px 0; }
-        table.sent td:first-child { font-weight: 600; }
-        table.sent td:nth-child(2)::before { content: "Sent: "; color: var(--muted); }
-        table.sent td:nth-child(3)::before { content: "To: "; color: var(--muted); }
+      :root {
+        color-scheme: light dark;
+        --bg: #f4f4f2; --surface: #ffffff; --fg: #16181a; --muted: #5f6669; --line: #e4e4e0; --soft: #f1f1ee;
+        --accent: #1d4ed8; --accent-dark: #7c9bff; --link: var(--accent);
+        --radius: 16px;
       }
-      footer { max-width: 760px; margin: 0 auto; padding: 0 16px 32px; color: var(--muted); font-size: 0.9em; }
+      @media (prefers-color-scheme: dark) {
+        :root { --bg: #0e1011; --surface: #16191a; --fg: #eef0ef; --muted: #a2a9a6; --line: #2a2f2e; --soft: #1d2122; --link: var(--accent-dark); }
+      }
+      * { box-sizing: border-box; }
+      html { -webkit-text-size-adjust: 100%; }
+      body {
+        margin: 0; background: var(--bg); color: var(--fg);
+        font: 16.5px/1.65 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+      a:hover { text-decoration-thickness: 2px; }
+      .wrap { max-width: 760px; margin: 0 auto; padding: 0 16px; }
+
+      /* Header: the app's icon and name, and its pages. */
+      .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 20px 0; flex-wrap: wrap; }
+      .brand { display: flex; align-items: center; gap: 10px; color: var(--fg); text-decoration: none; font-weight: 650; font-size: 17px; letter-spacing: -0.01em; }
+      .brand img, .mark { width: 32px; height: 32px; border-radius: 8px; flex: none; }
+      .mark { display: grid; place-items: center; background: var(--link); color: #fff; font-weight: 700; }
+      .nav { display: flex; gap: 4px; padding: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; }
+      .nav a { padding: 6px 14px; border-radius: 999px; color: var(--muted); text-decoration: none; font-size: 14.5px; font-weight: 550; }
+      .nav a:hover { color: var(--fg); }
+      .nav a[aria-current="page"] { background: var(--link); color: var(--surface); }
+
+      /* The page itself, on a card. */
+      main { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 40px 44px 44px; }
+      @media (max-width: 600px) { main { padding: 28px 20px 32px; border-radius: 14px; } }
+      h1 { font-size: 32px; line-height: 1.2; letter-spacing: -0.02em; margin: 0 0 14px; }
+      h2 { font-size: 20px; line-height: 1.3; letter-spacing: -0.01em; margin: 40px 0 10px; }
+      h2::before { content: ""; display: block; width: 28px; height: 3px; border-radius: 2px; background: var(--link); margin-bottom: 14px; }
+      p, ul, ol { margin: 0 0 14px; }
+      ul, ol { padding-left: 22px; }
+      li { margin: 6px 0; }
+      li::marker { color: var(--muted); }
+      strong { font-weight: 650; }
+      code { background: var(--soft); padding: 0.1em 0.4em; border-radius: 6px; font-size: 0.9em; }
+      .meta { display: inline-block; margin: 4px 0 24px; padding: 4px 12px; border-radius: 999px; background: var(--soft); color: var(--muted); font-size: 14px; }
+      .lead { font-size: 18px; color: var(--muted); }
+
+      table { width: 100%; border-collapse: separate; border-spacing: 0; margin: 18px 0; font-size: 15px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+      th, td { text-align: left; vertical-align: top; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+      tr:last-child td { border-bottom: 0; }
+      th { background: var(--soft); font-weight: 650; font-size: 13.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+      td:first-child { font-weight: 600; }
+      /* "What is sent where" tables ({: .sent } after the table): one block per row on phones. */
+      @media (max-width: 600px) {
+        table.sent { border: 0; border-radius: 0; }
+        table.sent, table.sent tbody, table.sent tr, table.sent td { display: block; width: 100%; }
+        table.sent thead { display: none; }
+        table.sent tr { padding: 14px 0; border-top: 1px solid var(--line); }
+        table.sent td { border: 0; padding: 2px 0; }
+        table.sent td:nth-child(2)::before { content: "Sent: "; color: var(--muted); font-weight: 400; }
+        table.sent td:nth-child(3)::before { content: "To: "; color: var(--muted); font-weight: 400; }
+      }
+
+      /* App cards on the home page, and the buttons on an app's page. */
+      .apps { display: grid; gap: 14px; margin: 24px 0 28px; }
+      .app { display: flex; gap: 16px; align-items: flex-start; padding: 20px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+      .app img, .app .mark { width: 56px; height: 56px; border-radius: 13px; font-size: 24px; }
+      .app h2 { margin: 0 0 2px; font-size: 19px; }
+      .app h2::before { display: none; }
+      .app p { margin: 0 0 10px; color: var(--muted); font-size: 15px; }
+      .links { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; }
+      .button { display: inline-block; padding: 7px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--soft); color: var(--fg); text-decoration: none; font-size: 14.5px; font-weight: 550; }
+      .button:hover { border-color: var(--link); }
+      .hero { display: flex; gap: 18px; align-items: center; margin-bottom: 20px; }
+      .hero img, .hero .mark { width: 72px; height: 72px; border-radius: 16px; font-size: 30px; }
+      .hero h1 { margin: 0; }
+
+      footer { padding: 28px 0 40px; color: var(--muted); font-size: 14px; text-align: center; }
     </style>
   </head>
   <body>
-    <main>
-      {{ content }}
-    </main>
-    <footer>© {{ site.time | date: "%Y" }} Kurubaran Anandhan · <a href="/">All apps</a></footer>
+    <div class="wrap">
+      <header class="top">
+        {%- if app %}
+        <a class="brand" href="/{{ app.slug }}/">
+          {%- if app.icon %}<img src="{{ app.icon }}" alt="">{% else %}<span class="mark">{{ app.name | slice: 0 }}</span>{% endif %}
+          <span>{{ app.name }}</span>
+        </a>
+        {%- capture privacy %}/{{ app.slug }}/privacy/{% endcapture %}
+        {%- capture support %}/{{ app.slug }}/support/{% endcapture %}
+        <nav class="nav" aria-label="{{ app.name }}">
+          <a href="{{ privacy }}"{% if page.url == privacy %} aria-current="page"{% endif %}>Privacy</a>
+          <a href="{{ support }}"{% if page.url == support %} aria-current="page"{% endif %}>Support</a>
+        </nav>
+        {%- else %}
+        <span class="brand">{{ site.title }}</span>
+        {%- endif %}
+      </header>
+      <main>
+        {{ content }}
+      </main>
+      <footer>© {{ site.time | date: "%Y" }} Kurubaran Anandhan</footer>
+    </div>
   </body>
 </html>

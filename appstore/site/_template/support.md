@@ -1,4 +1,5 @@
 ---
+app: APP_SLUG
 title: APP_NAME Support
 permalink: /APP_SLUG/support/
 ---
@@ -13,4 +14,3 @@ Need help with APP_NAME, found a bug, or have an idea? Email
 **QUESTION?**
 ANSWER.
 
-[Privacy Policy](/APP_SLUG/privacy/)

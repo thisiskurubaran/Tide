@@ -1,13 +1,22 @@
 ---
+app: APP_SLUG
 title: APP_NAME
 permalink: /APP_SLUG/
 ---
 
-# APP_NAME
+{% assign app = site.data.apps | where: "slug", "APP_SLUG" | first %}
+<div class="hero">
+  {% if app.icon %}<img src="{{ app.icon }}" alt="">{% else %}<span class="mark">{{ app.name | slice: 0 }}</span>{% endif %}
+  <div>
+    <h1>{{ app.name }}</h1>
+    <div>For {{ app.platforms }}</div>
+  </div>
+</div>
 
-One or two sentences about what APP_NAME does.
+{{ app.tagline }}
+{: .lead}
 
-- [Privacy Policy](/APP_SLUG/privacy/)
-- [Support](/APP_SLUG/support/)
-
-[All apps](/)
+<p class="links">
+  <a class="button" href="/APP_SLUG/privacy/">Privacy Policy</a>
+  <a class="button" href="/APP_SLUG/support/">Support</a>
+</p>

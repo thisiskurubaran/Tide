@@ -1,11 +1,13 @@
 ---
+app: APP_SLUG
 title: APP_NAME Privacy Policy
 permalink: /APP_SLUG/privacy/
 ---
 
 # APP_NAME Privacy Policy
 
-Effective: DATE
+Effective DATE
+{: .meta}
 
 APP_NAME is an app for PLATFORMS, made by Kurubaran Anandhan ("I", "me").
 This policy explains what happens to your information when you use

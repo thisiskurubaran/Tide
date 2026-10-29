@@ -1,11 +1,13 @@
 ---
+app: tide
 title: Tide Privacy Policy
 permalink: /tide/privacy/
 ---
 
 # Tide Privacy Policy
 
-Effective: 29 October 2026
+Effective 29 October 2026
+{: .meta}
 
 Tide is a code editor with a terminal for iPhone and iPad, made by
 Kurubaran Anandhan ("I", "me"). This policy explains what happens to your

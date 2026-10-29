@@ -4,25 +4,31 @@ Privacy policies and support pages for my apps, published with GitHub
 Pages. Each app has its own directory:
 
 ```
-_config.yml          site settings
-_layouts/default.html  the layout every page uses (light and dark)
-index.md             https://thisiskurubaran.github.io/  (list of apps)
+_config.yml            site settings
+_data/apps.yml         every app: name, tagline, platforms, colors, icon
+_layouts/default.html  the layout every page uses (light and dark, no gradients)
+index.md               https://thisiskurubaran.github.io/  (the apps, as cards)
 tide/
-  index.md           /tide/
-  privacy.md         /tide/privacy/   App Store "Privacy Policy URL"
-  support.md         /tide/support/   App Store "Support URL"
-_template/           copied for each new app; not published
+  icon.svg             the app's icon, shown in the header and on cards
+  index.md             /tide/
+  privacy.md           /tide/privacy/   App Store "Privacy Policy URL"
+  support.md           /tide/support/   App Store "Support URL"
+_template/             copied for each new app; not published
 ```
 
 ## Adding an app
 
 1. Copy `_template/` to a directory named after the app, lowercase with
-   hyphens, e.g. `my-app/`. That name is the app's URL path.
-2. In the three files, replace `APP_NAME` (e.g. "My App"), `APP_SLUG`
-   (the directory name), `PLATFORMS` and `DATE`, and write the privacy
-   policy from what the app actually does.
-3. Add a row for the app to the table in `index.md`.
-4. Commit and push. The pages are live a minute or two later at
+   hyphens, e.g. `my-app/`. That name is the app's URL path (its "slug").
+2. In the three files, replace `APP_NAME`, `APP_SLUG` (the directory
+   name) and `DATE`, and write the privacy policy from what the app
+   actually does.
+3. Add the app to `_data/apps.yml`: slug, name, tagline, platforms, its
+   brand color for light and dark mode (flat colors), and an icon. Put
+   the icon in the app's directory as `icon.svg` (or `.png`, 256 px or
+   more); without one, the app's initial is shown in its color.
+4. Commit and push. The home page lists it automatically, and its pages
+   are live a minute or two later at
    `https://thisiskurubaran.github.io/<app>/privacy/` and `/<app>/support/`.
 
 Never rename an app's directory after it ships: the app and its App Store

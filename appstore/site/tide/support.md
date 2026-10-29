@@ -1,4 +1,5 @@
 ---
+app: tide
 title: Tide Support
 permalink: /tide/support/
 ---
@@ -32,4 +33,3 @@ In Tide's own storage on the device, included in your device backup. To
 work on a folder from Files or iCloud Drive, use New project > Open a
 folder; to move a project elsewhere, use Export as .zip.
 
-[Privacy Policy](/tide/privacy/)

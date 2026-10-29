@@ -80,11 +80,13 @@ directory per app:
 ```
 appstore/site/
   _config.yml
-  index.md          /              list of apps
-  tide/             /tide/         Tide's landing page
+  _data/apps.yml    every app: name, tagline, colors, icon
+  _layouts/         the page layout (light and dark, no gradients)
+  index.md          /              the apps, as cards
+  tide/             /tide/         Tide's page
+    icon.svg
     privacy.md      /tide/privacy/ Privacy Policy URL
     support.md      /tide/support/ Support URL
-  _layouts/         the page layout
   _template/        copied for each new app (not published)
   README.md         how to add an app (not published)
 ```
@@ -118,8 +120,8 @@ public repos, so the site goes in a public repo of its own:
    paywall already links to the privacy URL.
 
 **Other apps**: copy `_template/` to a directory named after the app
-(lowercase, hyphens, e.g. `my-app/`), fill in the placeholders, and add a
-row to `index.md`; the site's README.md has the details. You can do this
+(lowercase, hyphens, e.g. `my-app/`), fill in the placeholders, and add
+the app to `_data/apps.yml`; the site's README.md has the details. You can do this
 straight in the public repo; only Tide's directory is kept here.
 
 **Changing Tide's policy**: edit `appstore/site/tide/` here, update the
