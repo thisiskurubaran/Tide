@@ -18,6 +18,7 @@ import { useRemoteSettings } from '../remote/settings';
 import { appVersion, contactSupport, rateApp } from '../support/actions';
 import { CHANGELOG, Release } from '../support/changelog';
 import { WhatsNewSheet } from '../support/WhatsNewSheet';
+import { Onboarding } from '../onboarding/Onboarding';
 
 export function SettingsScreen() {
   const styles = useStyles();
@@ -39,6 +40,7 @@ export function SettingsScreen() {
   const owned = useExtensions((s) => s.owned.length);
   const settings = settingsStore.getState();
   const [whatsNew, setWhatsNew] = useState<Release[] | null>(null);
+  const [tour, setTour] = useState(false);
   const support = (kind: 'bug' | 'feature') => contactSupport(kind).catch((e: Error) => Alert.alert("Couldn't open mail", e.message));
 
   return (
@@ -132,6 +134,7 @@ export function SettingsScreen() {
           <LinkRow label="Report a problem" detail="Mail with device details and recent logs" onPress={() => support('bug')} testID="settings-report" />
           <LinkRow label="Suggest a feature" onPress={() => support('feature')} testID="settings-feature" />
           <LinkRow label="Rate Tide" onPress={() => rateApp().catch(() => undefined)} testID="settings-rate" />
+          <LinkRow label="Take the tour" detail="The basics, in six screens" onPress={() => setTour(true)} testID="settings-tour" />
           <LinkRow label="What's new" detail={`Version ${appVersion()}`} onPress={() => setWhatsNew(CHANGELOG)} testID="settings-whats-new" />
         </Section>
 
@@ -152,6 +155,13 @@ export function SettingsScreen() {
         )}
       </ScrollView>
       <WhatsNewSheet releases={whatsNew} onClose={() => setWhatsNew(null)} />
+      <Onboarding
+        visible={tour}
+        onDone={(create) => {
+          setTour(false);
+          if (create) router.navigate('/?new=1');
+        }}
+      />
     </View>
   );
 }

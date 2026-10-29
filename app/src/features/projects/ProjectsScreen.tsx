@@ -23,6 +23,8 @@ import { NewProjectSheet } from './NewProjectSheet';
 import { makeStyles, useColors } from '../../theme/theme';
 import { haptic } from '../../components/haptics';
 import { WhatsNewOnUpdate } from '../support/WhatsNew';
+import { Onboarding } from '../onboarding/Onboarding';
+import { supportStore, useSupport } from '../support/store';
 
 const mark = require('../../../assets/icons/splash.png');
 
@@ -37,6 +39,7 @@ export function ProjectsScreen() {
   const insets = useSafeAreaInsets();
   const projects = useProjects((s) => s.projects);
   const links = useLinked((s) => s.links);
+  const onboarded = useSupport((s) => s.onboarded);
   const [creating, setCreating] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -161,6 +164,13 @@ export function ProjectsScreen() {
 
       <SnapshotsSheet project={snapshotsFor} onClose={() => setSnapshotsFor(null)} />
       <WhatsNewOnUpdate />
+      <Onboarding
+        visible={!onboarded}
+        onDone={(create) => {
+          supportStore.getState().setOnboarded(true);
+          if (create) setCreating(true);
+        }}
+      />
 
       <PromptSheet
         visible={renaming !== null}

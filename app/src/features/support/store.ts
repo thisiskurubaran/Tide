@@ -9,7 +9,10 @@ export interface SupportState {
   askedVersion: string | null;
   // The version whose What's new was last shown; null until the first launch is done.
   seenVersion: string | null;
+  // The first-run tour was finished or skipped.
+  onboarded: boolean;
   countRun(): void;
+  setOnboarded(done: boolean): void;
   asked(version: string): void;
   seen(version: string): void;
 }
@@ -22,6 +25,8 @@ export function createSupportStore(s: StateStorage, now = Date.now) {
         runs: 0,
         askedVersion: null,
         seenVersion: null,
+        onboarded: false,
+        setOnboarded: (onboarded) => set({ onboarded }),
         countRun: () => set((st) => ({ runs: st.runs + 1 })),
         asked: (askedVersion) => set({ askedVersion }),
         seen: (seenVersion) => set({ seenVersion }),
@@ -30,7 +35,7 @@ export function createSupportStore(s: StateStorage, now = Date.now) {
         name: 'support',
         version: 1,
         storage: createJSONStorage(() => s),
-        partialize: ({ installedAt, runs, askedVersion, seenVersion }) => ({ installedAt, runs, askedVersion, seenVersion }),
+        partialize: ({ installedAt, runs, askedVersion, seenVersion, onboarded }) => ({ installedAt, runs, askedVersion, seenVersion, onboarded }),
       },
     ),
   );

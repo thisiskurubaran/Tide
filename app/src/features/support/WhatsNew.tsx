@@ -11,8 +11,9 @@ export function WhatsNewOnUpdate() {
   const [releases, setReleases] = useState<Release[] | null>(null);
   useEffect(() => {
     const version = appVersion();
-    const { seenVersion, seen } = supportStore.getState();
-    setReleases(unseenReleases(seenVersion, version));
+    const { seenVersion, seen, onboarded } = supportStore.getState();
+    // The first-run tour covers the same ground; it wins.
+    setReleases(onboarded ? unseenReleases(seenVersion, version) : []);
     seen(version);
   }, []);
   return <WhatsNewSheet releases={releases} onClose={() => setReleases(null)} />;
