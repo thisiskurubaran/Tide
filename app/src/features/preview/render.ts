@@ -1,13 +1,54 @@
-// Turns Markdown and Jupyter notebooks into an HTML page for the preview
+// Turns Markdown, Jupyter notebooks and JSON into an HTML page for the preview
 // WebView. The page runs no scripts; local images are inlined by the caller.
 import { marked } from 'marked';
 
-export type PreviewKind = 'markdown' | 'notebook';
+export type PreviewKind = 'markdown' | 'notebook' | 'json' | 'sqlite';
 
 export function previewKind(path: string): PreviewKind | null {
   if (/\.(md|markdown|mdx)$/i.test(path)) return 'markdown';
   if (/\.ipynb$/i.test(path)) return 'notebook';
+  if (/\.(json|geojson|webmanifest)$/i.test(path)) return 'json';
+  if (/\.(db|sqlite|sqlite3|db3)$/i.test(path)) return 'sqlite';
   return null;
+}
+
+// Files that only make sense in their viewer (binary), so there's no source to switch to.
+export const viewerOnly = (kind: PreviewKind | null) => kind === 'sqlite';
+
+// Big documents are cut off after this many values, so the page stays responsive.
+const JSON_MAX_NODES = 5000;
+// Levels open when the tree first shows.
+const JSON_OPEN_DEPTH = 2;
+
+// A collapsible tree for JSON, built from <details> so it works without scripts.
+export function jsonToHtml(source: string): string {
+  let value: unknown;
+  try {
+    value = JSON.parse(source);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return `<p class="err">This JSON can't be parsed: ${escapeHtml(message)}</p><p class="note">Switch to the source to fix it.</p>`;
+  }
+  let nodes = 0;
+  const scalar = (v: unknown) => {
+    if (v === null) return '<span class="j-null">null</span>';
+    if (typeof v === 'string') return `<span class="j-str">"${escapeHtml(v)}"</span>`;
+    if (typeof v === 'number') return `<span class="j-num">${v}</span>`;
+    return `<span class="j-bool">${String(v)}</span>`;
+  };
+  const render = (v: unknown, key: string | null, depth: number): string => {
+    if (++nodes > JSON_MAX_NODES) return '';
+    const label = key === null ? '' : `<span class="j-key">${escapeHtml(key)}</span>: `;
+    if (v === null || typeof v !== 'object') return `<div class="j-row">${label}${scalar(v)}</div>`;
+    const entries = Array.isArray(v) ? v.map((x, i) => [String(i), x] as const) : Object.entries(v as Record<string, unknown>);
+    const summary = Array.isArray(v) ? `[${entries.length}]` : `{${entries.length}}`;
+    if (entries.length === 0) return `<div class="j-row">${label}<span class="j-meta">${Array.isArray(v) ? '[]' : '{}'}</span></div>`;
+    const children = entries.map(([k, x]) => render(x, k, depth + 1)).join('');
+    return `<details${depth < JSON_OPEN_DEPTH ? ' open' : ''}><summary>${label}<span class="j-meta">${summary}</span></summary><div class="j-kids">${children}</div></details>`;
+  };
+  const tree = render(value, null, 0);
+  const cut = nodes > JSON_MAX_NODES ? `<p class="note">Showing the first ${JSON_MAX_NODES.toLocaleString('en-US')} values. Switch to the source for the rest.</p>` : '';
+  return `<div class="json">${tree}</div>${cut}`;
 }
 
 export const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -109,6 +150,16 @@ hr{border:0;border-top:1px solid ${c.border}}
 pre.out{background:none;border-left:3px solid ${c.border};border-radius:0}
 .err{color:${c.error}}
 .note{color:${c.muted}}
+.json{font:.9em/1.7 ui-monospace,Menlo,monospace}
+.json details>summary{cursor:pointer;list-style:none}
+.json details>summary::-webkit-details-marker{display:none}
+.json details>summary::before{content:'\\25B8';display:inline-block;width:1em;color:${c.muted}}
+.json details[open]>summary::before{content:'\\25BE'}
+.j-kids{padding-left:1.1em;border-left:1px solid ${c.border};margin-left:.35em}
+.j-row{padding-left:1em;white-space:pre-wrap;word-break:break-all}
+.j-key{color:${c.link}}
+.j-str{color:${c.foreground}}
+.j-num,.j-bool,.j-null,.j-meta{color:${c.muted}}
 </style></head><body>${body}</body></html>`;
 }
 

@@ -5,12 +5,12 @@ import WebView from 'react-native-webview';
 import { buffersStore, useBuffers, useSettings, workspace } from '../../state';
 import { bufferKey } from '../../state/buffers';
 import { useColors } from '../../theme/theme';
-import { imageType, localImages, markdownToHtml, notebookToHtml, previewKind, previewPage } from './render';
+import { imageType, jsonToHtml, localImages, markdownToHtml, notebookToHtml, previewKind, previewPage } from './render';
 
 const RENDER_DELAY_MS = 250;
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 
-// Rendered Markdown or notebook for the open file, following edits as you
+// Rendered Markdown, notebook or JSON tree for the open file, following edits as you
 // type. Scripts are off; links open in the browser.
 export function PreviewPane({ project, path }: { project: string; path: string }) {
   const colors = useColors();
@@ -26,7 +26,8 @@ export function PreviewPane({ project, path }: { project: string; path: string }
     if (content === undefined) return;
     let cancelled = false;
     const timer = setTimeout(async () => {
-      let body = previewKind(path) === 'notebook' ? notebookToHtml(content) : markdownToHtml(content);
+      const kind = previewKind(path);
+      let body = kind === 'notebook' ? notebookToHtml(content) : kind === 'json' ? jsonToHtml(content) : markdownToHtml(content);
       // The page can't read project files, so local images go in as data URIs.
       for (const img of localImages(body, path)) {
         const type = imageType(img.path);

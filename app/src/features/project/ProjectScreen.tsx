@@ -40,7 +40,8 @@ import { makeStyles } from '../../theme/theme';
 import { haptic } from '../../components/haptics';
 import { countRun } from '../support/actions';
 import { PreviewPane } from '../preview/PreviewPane';
-import { previewKind } from '../preview/render';
+import { previewKind, viewerOnly } from '../preview/render';
+import { DatabasePane } from '../database/DatabasePane';
 import { hasConflicts } from '../diff/conflicts';
 import { CompareView } from '../diff/CompareView';
 import type { CompareRequest } from '../diff/sources';
@@ -110,10 +111,20 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
   // "Compare with file…" uses the file picker; the next pick is the other file.
   const comparingWith = useRef<string | null>(null);
   const currentHasConflicts = useBuffers((s) => (current ? hasConflicts(s.buffers[bufferKey(project, current)]?.content ?? '') : false));
-  // Files shown rendered instead of as source. Notebooks start out rendered.
+  // Files shown rendered instead of as source. Notebooks start out rendered;
+  // databases only have their viewer.
   const [previewToggled, setPreviewToggled] = useState<Record<string, boolean>>({});
-  const previewing = (path: string | null) => !!path && !!previewKind(path) && (previewToggled[path] ?? previewKind(path) === 'notebook');
-  const togglePreview = () => current && previewKind(current) && setPreviewToggled((t) => ({ ...t, [current]: !previewing(current) }));
+  const previewing = (path: string | null) =>
+    !!path && !!previewKind(path) && (viewerOnly(previewKind(path)) || (previewToggled[path] ?? previewKind(path) === 'notebook'));
+  const canToggle = (path: string | null) => !!path && !!previewKind(path) && !viewerOnly(previewKind(path));
+  const togglePreview = () => canToggle(current) && setPreviewToggled((t) => ({ ...t, [current!]: !previewing(current) }));
+  const viewer = (path: string | null) =>
+    previewing(path) &&
+    (previewKind(path!) === 'sqlite' ? (
+      <DatabasePane project={project} path={path!} />
+    ) : (
+      <PreviewPane project={project} path={path!} />
+    ));
   const linked = useLinked((s) => s.links[project]?.name);
   const progress = useRef(new Animated.Value(0)).current;
   const activePath = useRef(current);
@@ -277,7 +288,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     { id: 'save', title: 'Save file', icon: 'save', hint: '⌘S', run: () => current && save(current).then(() => haptic('success')) },
     { id: 'close-tab', title: 'Close file', icon: 'x', hint: '⌘W', run: () => current && closeFile(current) },
     ...(wide ? [{ id: 'split', title: splitOn ? 'Close the second editor' : 'Split editor', icon: 'columns' as const, hint: '⌘\\', run: toggleSplit }] : []),
-    ...(current && previewKind(current)
+    ...(canToggle(current)
       ? [{ id: 'preview', title: previewing(current) ? 'Show source' : 'Show preview', icon: 'eye' as const, hint: '⇧⌘V', run: togglePreview }]
       : []),
     ...(current
@@ -398,7 +409,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
         <Text variant="title" numberOfLines={1} style={styles.title}>
           {project}
         </Text>
-        {current && previewKind(current) && (
+        {canToggle(current) && (
           <IconButton
             icon={previewing(current) ? 'code' : 'eye'}
             label={previewing(current) ? 'Show source' : 'Show preview'}
@@ -430,7 +441,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
               <EditorPane
                 ref={leftEditor}
                 project={project}
-                path={tabs.active}
+                path={tabs.active && viewerOnly(previewKind(tabs.active)) ? null : tabs.active}
                 features={features}
                 host={editorHost}
                 onBrowse={() => (wide ? setPalette('files') : setDrawerOpen(true))}
@@ -441,7 +452,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
                 }}
                 onShortcut={onShortcut}
               />
-              {previewing(tabs.active) && <PreviewPane project={project} path={tabs.active!} />}
+              {viewer(tabs.active)}
             </View>
             {splitOn && (
               <>
@@ -450,7 +461,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
                   <EditorPane
                     ref={rightEditor}
                     project={project}
-                    path={split.path}
+                    path={split.path && viewerOnly(previewKind(split.path)) ? null : split.path}
                     features={features}
                     host={editorHost}
                     onBrowse={() => {
@@ -464,7 +475,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
                     }}
                     onShortcut={onShortcut}
                   />
-                  {previewing(split.path) && <PreviewPane project={project} path={split.path!} />}
+                  {viewer(split.path)}
                 </View>
               </>
             )}

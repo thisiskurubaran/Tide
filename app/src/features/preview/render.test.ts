@@ -1,4 +1,4 @@
-import { localImages, markdownToHtml, notebookToHtml, previewKind } from './render';
+import { jsonToHtml, localImages, markdownToHtml, notebookToHtml, previewKind, viewerOnly } from './render';
 
 describe('preview rendering', () => {
   it('knows which files it previews', () => {
@@ -51,5 +51,33 @@ describe('preview rendering', () => {
       { src: './img/a.png', path: 'docs/img/a.png' },
       { src: '../logo.svg', path: 'logo.svg' },
     ]);
+  });
+});
+
+describe('JSON preview', () => {
+  it('knows JSON and database files', () => {
+    expect(previewKind('package.json')).toBe('json');
+    expect(previewKind('data/app.db')).toBe('sqlite');
+    expect(previewKind('notes.sqlite3')).toBe('sqlite');
+    expect(viewerOnly(previewKind('a.db'))).toBe(true);
+    expect(viewerOnly(previewKind('a.json'))).toBe(false);
+  });
+
+  it('renders a collapsible tree, open two levels deep', () => {
+    const html = jsonToHtml('{"name":"tide","tags":["a","<b>"],"deep":{"x":{"y":1}},"none":null,"ok":true}');
+    expect(html).toContain('<span class="j-key">name</span>: <span class="j-str">"tide"</span>');
+    expect(html).toContain('&lt;b&gt;');
+    expect(html).toContain('<span class="j-null">null</span>');
+    expect(html.match(/<details open>/g)).toHaveLength(3);
+    expect(html).toContain('<details><summary><span class="j-key">x</span>');
+  });
+
+  it('explains JSON it cannot parse', () => {
+    expect(jsonToHtml('{"a": }')).toContain("This JSON can't be parsed");
+  });
+
+  it('stops after a few thousand values', () => {
+    const html = jsonToHtml(JSON.stringify(Array.from({ length: 6000 }, (_, i) => i)));
+    expect(html).toContain('Showing the first 5,000 values');
   });
 });
