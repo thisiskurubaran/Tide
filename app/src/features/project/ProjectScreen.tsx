@@ -183,6 +183,7 @@ export function ProjectScreen({ project }: { project: string }) {
             }}
           />
 
+          {extensions.map((ext) => ext.bar && <ext.bar key={ext.id} ctx={ctx} />)}
           {/* Both panes stay mounted so the terminal keeps its scrollback and the editor its undo history. */}
           <View style={[styles.editor, keyboardOpen && typingIn === 'terminal' && !terminalHidden && styles.collapsed]}>
             <EditorPane

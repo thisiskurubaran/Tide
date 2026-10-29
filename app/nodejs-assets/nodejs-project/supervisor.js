@@ -6,6 +6,7 @@
 
 const path = require('path');
 const { Worker } = require('worker_threads');
+const { createDebugger } = require('./debugger');
 
 const BOOTSTRAP = path.join(__dirname, 'worker.js');
 const DEFAULT_MAX_MEMORY_MB = 256;
@@ -22,6 +23,9 @@ function createSupervisor({ send, builtins = {} }) {
   let root = null;
   /** @type {Map<string, { worker: Worker, killed: boolean, timer: NodeJS.Timeout | null }>} */
   const runs = new Map();
+  const debug = createDebugger({ send, root: () => /** @type {string} */ (root) });
+  /** Debug runs whose worker isn't created yet, so a kill can cancel them. */
+  const starting = new Set();
 
   /** Resolves a root-relative path and refuses anything outside the root. */
   function resolve(rel) {
@@ -38,7 +42,28 @@ function createSupervisor({ send, builtins = {} }) {
 
   /** @param {any} req */
   function run(req) {
-    if (runs.has(req.id)) return fail(req.id, `run ${req.id} is already active`);
+    if (runs.has(req.id) || starting.has(req.id)) return fail(req.id, `run ${req.id} is already active`);
+    if (req.debug) {
+      // The debugger has to be listening before the worker starts.
+      starting.add(req.id);
+      debug.prepare(req.id, req.debug.breakpoints || {}).then(
+        () => {
+          if (!starting.delete(req.id)) return void debug.ended(req.id);
+          start(req);
+        },
+        (e) => {
+          starting.delete(req.id);
+          debug.ended(req.id);
+          fail(req.id, `can't debug: ${/** @type {Error} */ (e).message}`);
+        },
+      );
+      return;
+    }
+    start(req);
+  }
+
+  /** @param {any} req */
+  function start(req) {
     let entry;
     let cwd;
     try {
@@ -78,6 +103,7 @@ function createSupervisor({ send, builtins = {} }) {
 
     const state = { worker, killed: false, timer: /** @type {NodeJS.Timeout | null} */ (null) };
     runs.set(req.id, state);
+    if (req.debug) debug.started(req.id, worker.threadId);
     const timeoutMs = limits.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     if (timeoutMs > 0) {
       state.timer = setTimeout(() => {
@@ -103,6 +129,7 @@ function createSupervisor({ send, builtins = {} }) {
     worker.on('exit', (code) => {
       if (state.timer) clearTimeout(state.timer);
       runs.delete(req.id);
+      if (req.debug) debug.ended(req.id);
       // Let stdout/stderr drain before the exit message so output isn't cut off.
       setImmediate(() =>
         send(state.killed ? { type: 'exit', id: req.id, code: 130, signal: 'SIGINT' } : { type: 'exit', id: req.id, code }),
@@ -125,11 +152,14 @@ function createSupervisor({ send, builtins = {} }) {
         if (state) state.worker.postMessage({ stdin: String(msg.data) });
         return;
       }
+      case 'debug':
+        return debug.command(String(msg.id), msg.command);
       case 'kill': {
+        if (starting.delete(String(msg.id))) return send({ type: 'exit', id: msg.id, code: 130, signal: 'SIGINT' });
         const state = runs.get(String(msg.id));
         if (state) {
           state.killed = true;
-          state.worker.terminate();
+          debug.release(String(msg.id)).finally(() => state.worker.terminate());
         }
         return;
       }

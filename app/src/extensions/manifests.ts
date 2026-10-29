@@ -93,6 +93,7 @@ export const manifests: ExtensionManifest[] = [
       'Continue, pause, step over, step into and step out',
       'Call stack and variables you can expand',
       'Evaluate expressions in the paused frame',
+      'A debug console with the program output and input',
     ],
     note: 'Debugs scripts run on the device (Local mode).',
   },

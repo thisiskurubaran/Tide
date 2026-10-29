@@ -1,8 +1,14 @@
-import type { RunnerMessage } from '@shared/protocol';
+import type { DebugEvent, RunnerMessage } from '@shared/protocol';
 
 import type { Runner } from '../runner';
 
-type Output = { id: string; kind: 'stdout' | 'stderr'; data: string };
+// 'debug' carries a JSON DebugEvent from tide_runner's debugger.
+type Output = { id: string; kind: 'stdout' | 'stderr' | 'debug'; data: string };
+
+// Debugger commands share the stdin channel (see tide_runner.feed), so the
+// native modules need no new function.
+export const DEBUG_PREFIX = '\u0000tide-debug:';
+export const DEBUG_ARG = '--tide-debug';
 type Exit = { id: string; code: number; killed: boolean };
 
 export interface PythonHost {
@@ -24,7 +30,12 @@ export function createPythonRunner(host: PythonHost, root: () => string): Runner
   function subscribe() {
     if (subscribed) return;
     subscribed = true;
-    host.addListener('onOutput', (e: Output) => listeners.get(e.id)?.({ type: e.kind, id: e.id, data: e.data }));
+    host.addListener('onOutput', (e: Output) => {
+      const listener = listeners.get(e.id);
+      if (!listener) return;
+      if (e.kind === 'debug') listener({ type: 'debug', id: e.id, event: JSON.parse(e.data) as DebugEvent });
+      else listener({ type: e.kind, id: e.id, data: e.data });
+    });
     host.addListener('onExit', (e: Exit) => {
       const listener = listeners.get(e.id);
       listeners.delete(e.id);
@@ -39,8 +50,9 @@ export function createPythonRunner(host: PythonHost, root: () => string): Runner
       const base = root();
       // "projects/<name>/..." -> pure-Python packages from pip live in <project>/.pylibs.
       const project = req.cwd.split('/').slice(0, 2).join('/');
+      const args = req.debug ? [DEBUG_ARG, JSON.stringify(req.debug), ...req.args] : req.args;
       host
-        .run(req.id, join(base, req.entry), join(base, req.cwd), req.args, [join(base, project, '.pylibs')], base)
+        .run(req.id, join(base, req.entry), join(base, req.cwd), args, [join(base, project, '.pylibs')], base)
         .catch((e: Error) => {
           listeners.delete(req.id);
           onMessage({ type: 'stderr', id: req.id, data: `${e.message}\n` });
@@ -49,6 +61,7 @@ export function createPythonRunner(host: PythonHost, root: () => string): Runner
     },
     send(msg) {
       if (msg.type === 'stdin') host.write(msg.id, msg.data).catch(() => undefined);
+      else if (msg.type === 'debug') host.write(msg.id, DEBUG_PREFIX + JSON.stringify(msg.command)).catch(() => undefined);
       else host.kill(msg.id).catch(() => undefined);
     },
   };

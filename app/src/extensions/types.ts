@@ -60,6 +60,8 @@ export interface TideExtension {
   commands?(ctx: ProjectContext): Command[];
   // Sheets a command can open with ctx.openPanel(id).
   panels?: Panel[];
+  // A strip under the tabs, e.g. the debug toolbar. It renders nothing when it has nothing to show.
+  bar?: ComponentType<{ ctx: ProjectContext }>;
   editor?: Partial<EditorFeatures>;
   language?: LanguageProvider;
   // Runs on an explicit save (Cmd-S, Save file), not autosave. Returns the
