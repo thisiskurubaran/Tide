@@ -202,6 +202,7 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
       {/* The default type argument makes WebView's props `WebViewProps & undefined`, i.e. never. */}
       <WebView<object>
         ref={webview}
+        testID="editor"
         source={{ html: editorHtml }}
         originWhitelist={['about:blank']}
         onMessage={onMessage}

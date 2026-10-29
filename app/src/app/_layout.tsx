@@ -1,14 +1,15 @@
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
+import { Appearance } from 'react-native';
 
 import { breakpointsStore } from '../extensions/debugger/breakpoints';
 import { extensionsStore } from '../extensions/state';
 import { gitSettingsStore } from '../features/git/settings';
+import { startCrashReports } from '../features/privacy/crashReports';
 import { remoteSettingsStore } from '../features/remote/settings';
-import { projectsStore, runnerStore, settingsStore, tabsStore } from '../state';
-import { useColorScheme, useColors } from '../theme/theme';
+import { projectsStore, runnerStore, settingsStore, tabsStore, useSettings } from '../state';
+import { useColors } from '../theme/theme';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -22,8 +23,15 @@ const hydrated = (store: Persisted) =>
 
 export default function RootLayout() {
   const [ready, setReady] = useState(false);
-  const scheme = useColorScheme();
+  const theme = useSettings((s) => s.theme);
   const colors = useColors();
+
+  // The window takes the app's theme, so the status bar, keyboard and system
+  // dialogs match it. Setting the status bar style from JS instead was lost
+  // whenever the device switched between light and dark.
+  useEffect(() => {
+    Appearance.setColorScheme(theme === 'system' ? 'auto' : theme);
+  }, [theme]);
 
   useEffect(() => {
     // Keep the splash up until saved tabs and the project list are loaded,
@@ -38,6 +46,7 @@ export default function RootLayout() {
       remoteSettingsStore.getState().load().catch(() => undefined),
       gitSettingsStore.getState().load().catch(() => undefined),
     ]).finally(() => {
+      startCrashReports(settingsStore);
       setReady(true);
       SplashScreen.hideAsync();
       // Prices and purchases made on another device; the cached list works until it answers.
@@ -48,9 +57,6 @@ export default function RootLayout() {
   if (!ready) return null;
 
   return (
-    <>
-      <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
-      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }} />
-    </>
+    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }} />
   );
 }

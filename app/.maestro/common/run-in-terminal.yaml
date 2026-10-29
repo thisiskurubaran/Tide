@@ -1,0 +1,8 @@
+# Types a command into the terminal and presses return.
+# Params: COMMAND
+appId: com.thisiskurubaran.tide
+---
+- tapOn:
+    id: terminal
+- inputText: ${COMMAND}
+- pressKey: Enter

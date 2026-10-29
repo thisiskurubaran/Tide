@@ -1,7 +1,7 @@
 import Feather from '@expo/vector-icons/Feather';
 import { router } from 'expo-router';
 import { ReactNode } from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { Pressable, ScrollView, Switch, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { IconButton } from '../../components/Button';
@@ -13,6 +13,7 @@ import { makeStyles, useColors } from '../../theme/theme';
 import { borderWidth, radius, spacing } from '../../theme/tokens';
 import { useExtensions } from '../../extensions/state';
 import { useGitSettings } from '../git/settings';
+import { crashReportsAvailable } from '../privacy/crashReports';
 import { useRemoteSettings } from '../remote/settings';
 
 export function SettingsScreen() {
@@ -21,6 +22,8 @@ export function SettingsScreen() {
   const theme = useSettings((s) => s.theme);
   const editorFontSize = useSettings((s) => s.editorFontSize);
   const terminalFontSize = useSettings((s) => s.terminalFontSize);
+  const crashReports = useSettings((s) => s.crashReports);
+  const colors = useColors();
   const remote = useRemoteSettings((s) => s.settings);
   const git = useGitSettings((s) => s.settings);
   const owned = useExtensions((s) => s.owned.length);
@@ -80,6 +83,22 @@ export function SettingsScreen() {
             testID="settings-remote"
           />
         </Section>
+
+        {crashReportsAvailable && (
+          <Section title="Privacy">
+            <Row label="Send crash reports">
+              <Switch
+                testID="crash-reports"
+                value={crashReports}
+                onValueChange={(on) => settings.setCrashReports(on)}
+                trackColor={{ true: colors.brand, false: colors.secondary }}
+              />
+            </Row>
+            <Text variant="muted" style={styles.note}>
+              Sends crash details to Sentry. Reports never include your code, file contents, project names or terminal output.
+            </Text>
+          </Section>
+        )}
       </ScrollView>
     </View>
   );
@@ -171,4 +190,5 @@ const useStyles = makeStyles((colors) => ({
   detail: { maxWidth: '50%' },
   stepper: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   stepValue: { minWidth: 24, textAlign: 'center' },
+  note: { padding: spacing.md },
 }));

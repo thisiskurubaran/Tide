@@ -25,6 +25,8 @@ app/                             Expo app (dev client, prebuild, New Architectur
   web/terminal                   xterm.js terminal bundle (Vite, single HTML file)
   nodejs-assets/nodejs-project   Supervisor inside nodejs-mobile: runs each script in a worker thread; npm, pip and git built-ins
   src/features/git               Git settings, Source Control sheet, running git from the UI
+  src/features/privacy           Opt-in crash reports (Sentry) and the scrubbing applied to them
+  .maestro                       End-to-end flows (Maestro)
   modules/python-runtime         Expo module: Chaquopy on Android, CPython on iOS; python/tide_runner.py runs scripts
   src/extensions                 Paid extensions: the extension API, in-app purchases, the Extensions screen and each extension
 server/                          Remote mode server: one Docker container per project
@@ -80,11 +82,21 @@ Python scripts run in the embedded CPython 3.15 (Chaquopy on Android), each on i
 
 The search icon in a project searches every file (skipping `node_modules`, `.git`, `.pylibs` and binary files), and tapping a result opens the file at that line. The command icon opens the command palette: delete the `>` to switch to quick open, which matches file paths as you type. Go to line is in the palette.
 
-On an iPad, or any screen at least 768 points wide, the file tree stays open on the left, and the app rotates to landscape. With a hardware keyboard, the editor and terminal pass these shortcuts to the app: ⌘P quick open, ⇧⌘P command palette, ⇧⌘F search in project, ⌘L go to line, ⌘J show or hide the terminal, ⌘S save. They only work while the editor or the terminal has focus.
+On an iPad, or any screen at least 768 points wide, the file tree stays open on the left, and the app rotates to landscape. With a hardware keyboard, the editor and terminal pass these shortcuts to the app: ⌘P quick open, ⇧⌘P command palette, ⇧⌘F search in project, ⌘L go to line, ⌘J show or hide the terminal, ⌘S save. They only work while the editor or the terminal has focus. In the iOS Simulator, turn on I/O, Keyboard, Send Keyboard Shortcuts to Device; even then the Simulator keeps ⌘S (save screenshot) and ⌘L (lock) for itself.
 
 ## Settings
 
-Settings (the gear on the projects list) has the theme (System, Light or Dark, all from the FuseOps tokens), the editor and terminal font sizes, and the Remote server.
+Settings (the gear on the projects list) has the theme (System, Light or Dark, all from the FuseOps tokens), the editor and terminal font sizes, Git, the Remote server and, in builds set up for it, crash reports.
+
+## Crash reports
+
+Crash reports go to Sentry and are off until the user turns on Settings, Privacy, Send crash reports. A build only offers the setting when `EXPO_PUBLIC_SENTRY_DSN` is set at build time (for a dev client, when Metro starts):
+
+```sh
+EXPO_PUBLIC_SENTRY_DSN=https://<key>@<org>.ingest.sentry.io/<project> npx expo start --dev-client
+```
+
+Without it, Sentry is never started. When it is on, reports carry no breadcrumbs, user data, request data, screenshots or view hierarchy, and any path under Documents (which would name a project or file) is replaced with `<documents>`. Native crash reports also include the random installation ID the Sentry SDK generates. Source maps are not uploaded, so JS stack traces from release builds are minified.
 
 ## Remote mode
 
@@ -173,7 +185,37 @@ npm run build:icons
 
 ## Tests
 
+Jest covers the logic:
+
 ```bash
 cd app
 npm test
 ```
+
+### End-to-end flows
+
+`app/.maestro` has Maestro flows for creating a project, editing and running Node, running Python with input, and running in Remote mode. They start from a cleared app, which also clears a dev client's link to Metro, so run them against a Release build on a simulator.
+
+Install Maestro (`brew install mobile-dev-inc/tap/maestro`). It needs Java; Homebrew's OpenJDK is not linked, so point `JAVA_HOME` at it:
+
+```bash
+export JAVA_HOME=/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home
+```
+
+Build the Release app for the simulator. Build for arm64 only: CPython's install step can't handle the two-architecture simulator slice a Release build uses by default.
+
+```bash
+cd app/ios
+xcodebuild -workspace Tide.xcworkspace -scheme Tide -configuration Release -sdk iphonesimulator ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build
+xcrun simctl install booted ~/Library/Developer/Xcode/DerivedData/Tide-*/Build/Products/Release-iphonesimulator/Tide.app
+```
+
+Then run the local flows, and the remote one with a server running (see Remote server):
+
+```bash
+cd app
+npm run e2e
+maestro test -e TIDE_SERVER_URL=http://localhost:8787 -e TIDE_SERVER_TOKEN=<token> .maestro/remote-run.yaml
+```
+
+The flows read the terminal through xterm.js's screen reader mode, which also lets VoiceOver read terminal output.

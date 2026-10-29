@@ -1,0 +1,39 @@
+# Edit index.js in the editor, then run it with node and with run (tide.json).
+appId: com.thisiskurubaran.tide
+name: Edit and run Node
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    file: common/new-project.yaml
+    env:
+      NAME: e2e-node
+      TEMPLATE: node-hello
+- tapOn:
+    id: open-tree
+- tapOn:
+    id: tree-index.js
+- assertVisible:
+    id: tab-index.js
+# The end of the file is below the last line, so a tap there puts the cursor at the end.
+- tapOn:
+    id: editor
+    point: 50%,80%
+- inputText: "console.log('sum', 6 * 7);"
+# Tide's own key bar closes the keyboard; that blurs the editor, which saves the file.
+- tapOn: Hide keyboard
+- runFlow:
+    file: common/run-in-terminal.yaml
+    env:
+      COMMAND: node index.js Maestro
+- extendedWaitUntil:
+    visible: Hello, Maestro!
+    timeout: 20000
+- assertVisible: sum 42
+- runFlow:
+    file: common/run-in-terminal.yaml
+    env:
+      COMMAND: run
+- extendedWaitUntil:
+    visible: Hello, world!
+    timeout: 20000

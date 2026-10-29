@@ -1,0 +1,23 @@
+# Run a Python script that reads from stdin.
+appId: com.thisiskurubaran.tide
+name: Run Python
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    file: common/new-project.yaml
+    env:
+      NAME: e2e-python
+      TEMPLATE: python-hello
+- runFlow:
+    file: common/run-in-terminal.yaml
+    env:
+      COMMAND: python main.py
+- extendedWaitUntil:
+    visible: What's your name?
+    timeout: 30000
+- inputText: Tide
+- pressKey: Enter
+- extendedWaitUntil:
+    visible: Hello, Tide!
+    timeout: 15000
