@@ -9,7 +9,7 @@ import { Text } from '../../components/Text';
 import { answerRequest, editorFeatures, findDefinition, saveWithHooks, useActiveExtensions, useExtensionHost } from '../../extensions/host';
 import { GIT_PRO_PANEL } from '../../extensions/gitPro';
 import type { ProjectContext } from '../../extensions/types';
-import { buffersStore, projectsStore, runnerStore, tabsStore, useBuffers, useProjects, useTabs } from '../../state';
+import { buffersStore, projectsStore, runnerStore, tabsStore, useBuffers, useProjects, useTabs, workspace } from '../../state';
 import { bufferKey, isDirty } from '../../state/buffers';
 import { projectTabs } from '../../state/tabs';
 import { borderWidth, spacing } from '../../theme/tokens';
@@ -22,7 +22,9 @@ import { TerminalHandle } from '../terminal/TerminalPane';
 import { SourceControlSheet } from '../git/SourceControlSheet';
 import { Command, CommandPalette } from '../search/CommandPalette';
 import { SearchPanel } from '../search/SearchPanel';
+import { runLine } from './run';
 import type { Shortcut } from './shortcuts';
+import { ShortcutsSheet } from './ShortcutsSheet';
 import { TabBar } from './TabBar';
 import { TerminalPanel } from './TerminalPanel';
 import { makeStyles } from '../../theme/theme';
@@ -58,6 +60,8 @@ export function ProjectScreen({ project }: { project: string }) {
   const [searching, setSearching] = useState(false);
   const [goingToLine, setGoingToLine] = useState(false);
   const [terminalHidden, setTerminalHidden] = useState(false);
+  const [sidebarHidden, setSidebarHidden] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [sourceControl, setSourceControl] = useState(false);
   const [panel, setPanel] = useState<string | null>(null);
   const progress = useRef(new Animated.Value(0)).current;
@@ -84,6 +88,22 @@ export function ProjectScreen({ project }: { project: string }) {
     tabsStore.getState().openTab(project, path);
     setDrawerOpen(false);
   };
+
+  // Wraps around, like Ctrl-Tab in most editors.
+  function switchTab(step: number) {
+    if (!tabs.open.length) return;
+    const i = tabs.active ? tabs.open.indexOf(tabs.active) : -1;
+    openFile(tabs.open[(i + step + tabs.open.length) % tabs.open.length]);
+  }
+
+  async function runProject() {
+    const config = await workspace.readFile(project, 'tide.json').catch(() => null);
+    const line = runLine(runnerStore.getState().mode, config);
+    if (!line) return;
+    await buffersStore.getState().flushProject(project);
+    setTerminalHidden(false);
+    terminal.current?.input(line);
+  }
 
   const openAt = (path: string, line: number, column?: number) => {
     openFile(path);
@@ -135,12 +155,16 @@ export function ProjectScreen({ project }: { project: string }) {
     },
     { id: 'undo', title: 'Undo', icon: 'rotate-ccw', run: () => editor.current?.send({ type: 'undo' }) },
     { id: 'redo', title: 'Redo', icon: 'rotate-cw', run: () => editor.current?.send({ type: 'redo' }) },
-    { id: 'files', title: 'Show files', icon: 'sidebar', run: () => !wide && setDrawerOpen(true) },
+    { id: 'files', title: 'Show or hide files', icon: 'sidebar', hint: '⌘B', run: () => (wide ? setSidebarHidden((h) => !h) : setDrawerOpen((o) => !o)) },
+    { id: 'next-tab', title: 'Next file', icon: 'chevron-right', hint: '⇧⌘]', run: () => switchTab(1) },
+    { id: 'prev-tab', title: 'Previous file', icon: 'chevron-left', hint: '⇧⌘[', run: () => switchTab(-1) },
+    { id: 'run', title: 'Run project', icon: 'play', hint: '⌘R', run: () => runProject() },
+    { id: 'keyboard-shortcuts', title: 'Keyboard shortcuts', icon: 'command', hint: '⇧⌘?', run: () => setShortcutsOpen(true) },
     { id: 'toggle-terminal', title: 'Toggle terminal', icon: 'terminal', hint: '⌘J', run: () => setTerminalHidden((h) => !h) },
     { id: 'local', title: 'Terminal: use Local', icon: 'smartphone', run: () => runnerStore.getState().setMode('local') },
     { id: 'remote', title: 'Terminal: use Remote', icon: 'server', run: () => runnerStore.getState().setMode('remote') },
     { id: 'source-control', title: 'Source control', icon: 'git-branch', run: openSourceControl },
-    { id: 'settings', title: 'Settings', icon: 'settings', run: () => router.push('/settings') },
+    { id: 'settings', title: 'Settings', icon: 'settings', hint: '⌘,', run: () => router.push('/settings') },
     { id: 'extensions', title: 'Extensions', icon: 'package', run: () => router.push('/extensions') },
     ...extensions.flatMap((ext) => ext.commands?.(ctx) ?? []),
   ]);
@@ -148,8 +172,12 @@ export function ProjectScreen({ project }: { project: string }) {
 
   // Hardware keyboard shortcuts arrive from whichever WebView has focus.
   const onShortcut = (id: Shortcut) => {
+    const tab = /^tab-(\d)$/.exec(id);
     if (id === 'palette') setPalette('commands');
-    else commands.find((c) => c.id === id)?.run();
+    else if (tab) {
+      const path = tabs.open[Number(tab[1]) - 1];
+      if (path) openFile(path);
+    } else commands.find((c) => c.id === id)?.run();
   };
 
   return (
@@ -166,7 +194,7 @@ export function ProjectScreen({ project }: { project: string }) {
       </View>
 
       <View style={[styles.body, wide && styles.row]}>
-        {wide && (
+        {wide && !sidebarHidden && (
           <View style={[styles.sidebar, { paddingBottom: insets.bottom }]} testID="sidebar">
             <FileTree project={project} nodes={tree ?? []} activePath={tabs.active} onOpenFile={openFile} />
           </View>
@@ -255,6 +283,7 @@ export function ProjectScreen({ project }: { project: string }) {
         <Panel key={id} ctx={ctx} visible={panel === id} onClose={() => setPanel((p) => (p === id ? null : p))} />
       ))}
       <SearchPanel visible={searching} project={project} onOpen={openAt} onClose={() => setSearching(false)} />
+      <ShortcutsSheet visible={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       <PromptSheet
         visible={goingToLine}
         title="Go to line"

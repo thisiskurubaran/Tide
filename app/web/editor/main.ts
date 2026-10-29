@@ -10,8 +10,10 @@ import { bracketMatching, indentOnInput, indentUnit } from '@codemirror/language
 import { openSearchPanel, searchKeymap } from '@codemirror/search';
 import { Compartment, EditorState, Extension, Prec } from '@codemirror/state';
 import {
+  crosshairCursor,
   drawSelection,
   EditorView,
+  rectangularSelection,
   highlightActiveLine,
   highlightActiveLineGutter,
   keymap,
@@ -145,6 +147,10 @@ function baseExtensions(lang: Language): Extension[] {
     highlightActiveLineGutter(),
     history(),
     drawSelection(),
+    // Several cursors: Cmd-click adds one, Option-drag selects a column.
+    EditorState.allowMultipleSelections.of(true),
+    rectangularSelection(),
+    crosshairCursor(),
     indentOnInput(),
     bracketMatching(),
     closeBrackets(),
