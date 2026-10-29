@@ -13,11 +13,14 @@ import { ExtensionManifest, manifests } from './manifests';
 import { extensionsStore, useExtensions } from './state';
 import { isActive, isAvailable } from './store';
 import { ThemePicker } from './themes/ThemePicker';
+import { useIsPro } from '../features/pro';
 
 // The marketplace: every extension with its price, what it does, and a buy,
 // enable or settings control. Purchases are per extension; there is no bundle.
 export function ExtensionsScreen() {
   const styles = useStyles();
+  const colors = useColors();
+  const pro = useIsPro();
   const insets = useSafeAreaInsets();
   const error = useExtensions((s) => s.error);
   const busy = useExtensions((s) => s.busy);
@@ -37,6 +40,15 @@ export function ExtensionsScreen() {
       </View>
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.lg }]}>
         <Text variant="muted">Each extension is a one-time purchase and works on all your devices signed in to the same store account.</Text>
+        {!pro && (
+          <Pressable onPress={() => router.push('/pro')} style={styles.pro} accessibilityRole="button" testID="extensions-pro">
+            <Feather name="star" size={18} color={colors.brand} />
+            <Text style={styles.flex}>
+              <Text variant="label">Tide Pro</Text> includes every extension, plus Remote mode, linked folders and more.
+            </Text>
+            <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+          </Pressable>
+        )}
         {error && (
           <Pressable onPress={() => store.clearError()} style={styles.error} accessibilityRole="alert" testID="extensions-error">
             <Text variant="error" style={styles.flex}>
@@ -174,6 +186,7 @@ const useStyles = makeStyles((colors) => ({
   title: { flex: 1 },
   content: { padding: spacing.md, gap: spacing.md },
   flex: { flex: 1 },
+  pro: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.lg, backgroundColor: colors.brandSoft },
   error: {
     flexDirection: 'row',
     alignItems: 'center',

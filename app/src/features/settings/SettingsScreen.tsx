@@ -19,6 +19,8 @@ import { appVersion, contactSupport, rateApp } from '../support/actions';
 import { CHANGELOG, Release } from '../support/changelog';
 import { WhatsNewSheet } from '../support/WhatsNewSheet';
 import { Onboarding } from '../onboarding/Onboarding';
+import { useIsPro, useProState } from '../pro';
+import { proStatus } from '../pro/store';
 
 export function SettingsScreen() {
   const styles = useStyles();
@@ -29,6 +31,8 @@ export function SettingsScreen() {
   const crashReports = useSettings((s) => s.crashReports);
   const haptics = useSettings((s) => s.haptics);
   const contrast = useSettings((s) => s.contrast);
+  const pro = useIsPro();
+  const proDetail = useProState((s) => proStatus(s));
   const editorOptions: Record<EditorOptionKey, boolean> = {
     wordWrap: useSettings((s) => s.wordWrap),
     folding: useSettings((s) => s.folding),
@@ -51,6 +55,10 @@ export function SettingsScreen() {
         <Text variant="title">Settings</Text>
       </View>
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.lg }]}>
+        <Section title="Tide Pro">
+          <LinkRow label={pro ? 'Tide Pro' : 'Get Tide Pro'} detail={proDetail ?? 'Remote mode, linked folders, every extension and more'} onPress={() => router.push('/pro')} testID="settings-pro" />
+        </Section>
+
         <Section title="Appearance">
           <Row label="Theme">
             <Segmented<ThemeSetting>
