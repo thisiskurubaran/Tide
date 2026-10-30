@@ -1,8 +1,8 @@
 // Publishing a folder of the project as a website. Each provider talks to its
 // service's HTTP API with the user's own token; Tide has no server of its own.
-import { blake3 } from '@noble/hashes/blake3';
-import { sha256 } from '@noble/hashes/sha2';
-import { bytesToHex } from '@noble/hashes/utils';
+import { blake3 } from '@noble/hashes/blake3.js';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex } from '@noble/hashes/utils.js';
 import { gzipSync, zipSync } from 'fflate';
 
 import { fromBase64 } from '../backup/zip';

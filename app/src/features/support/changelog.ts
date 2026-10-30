@@ -20,6 +20,7 @@ export const CHANGELOG: Release[] = [
       'Send HTTP requests from .http files, switch between dev and prod environments, and save responses',
       'Browse, edit and query SQLite databases and export tables to CSV; see JSON as a collapsible tree',
       'Vim and Emacs key bindings for the editor, in Settings',
+      'Security fixes, and updated React Native, Expo, Git and Markdown components',
     ],
   },
   {
