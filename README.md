@@ -23,13 +23,14 @@ app/                             Expo app (dev client, prebuild, New Architectur
   src/features/remote            Remote mode: server settings, file sync, remote shell, preview
   web/editor                     CodeMirror 6 editor bundle (Vite, single HTML file)
   web/terminal                   xterm.js terminal bundle (Vite, single HTML file)
-  nodejs-assets/nodejs-project   Supervisor inside nodejs-mobile: runs each script in a worker thread; npm, pip, git and ssh built-ins
+  nodejs-assets/nodejs-project   Supervisor inside nodejs-mobile: runs each script in a worker thread; npm, pip, git, ssh and lua built-ins
   src/features/git               Git settings, Source Control sheet, running git from the UI
   src/features/github            GitHub sign-in (device flow), repositories, pull requests, issues, Actions
-  src/features/deploy            Publishing a folder to GitHub Pages, Netlify, Vercel, Cloudflare Pages; Render deploy hooks
+  src/features/deploy            Publishing a folder to GitHub Pages, Firebase Hosting, Netlify, Vercel, Cloudflare Pages; Render deploy hooks
   src/features/ssh               SSH servers and keys, the SSH terminal backend, SFTP browsing and editing
-  src/features/http              .http request files: parsing, sending, the request/response viewer
-  src/features/database          SQLite viewer (expo-sqlite): tables, rows, running SQL
+  src/features/http              .http request files: parsing, sending, environments, the request/response viewer
+  src/features/database          SQLite viewer (expo-sqlite): tables, rows, editing, running SQL, CSV export
+  src/runtime/wasm               Ruby and PHP: a hidden web view running their WebAssembly builds (web/runtimes, assets/runtimes)
   src/features/privacy           Opt-in crash reports (Sentry) and the scrubbing applied to them
   .maestro                       End-to-end flows (Maestro)
   modules/python-runtime         Expo module: Chaquopy on Android, CPython on iOS; python/tide_runner.py runs scripts
@@ -194,6 +195,10 @@ ssh2 is bundled the same way into `app/nodejs-assets/nodejs-project/ssh/ssh2.js`
 ```bash
 npm run build:ssh
 ```
+
+Lua is fengari (Lua 5.3 in plain JavaScript), bundled into `app/nodejs-assets/nodejs-project/lua/fengari.js` by `npm run build:lua` and run by the `tide:lua` built-in, which adds `io.read`, `io.lines` and `io.open`.
+
+Ruby (CRuby 3.4, ruby.wasm) and PHP (8.3, php-wasm) need WebAssembly, which neither Hermes nor nodejs-mobile has on iOS, so they run in a hidden web view (`src/runtime/wasm`). The page is `web/runtimes`, built into `app/assets/runtimes/runtime.html` by `npm run build:runtimes` and committed; `npm install` copies the interpreters (`ruby.wasm`, 31 MB, and `php.wasm`, 18 MB) next to it from node_modules, and they aren't committed. Each run copies the project into the interpreter's virtual disk and writes back what changed. Programs can't read the terminal (input ends at once). `npm run test:runtimes` checks the page in Chromium.
 
 ## Extensions
 
