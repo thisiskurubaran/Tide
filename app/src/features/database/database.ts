@@ -44,10 +44,59 @@ export async function tableColumns(db: Db, table: string): Promise<string[]> {
   return cols.map((c) => c.name);
 }
 
-export async function tablePage(db: Db, table: string, offset: number): Promise<{ columns: string[]; rows: Row[] }> {
+// Each row's rowid rides along under this name, so a row can be edited or deleted.
+export const ROWID = '__tide_rowid__';
+
+export async function tablePage(db: Db, table: string, offset: number): Promise<{ columns: string[]; rows: Row[]; editable: boolean }> {
   const columns = await tableColumns(db, table);
-  const rows = await db.getAllAsync<Row>(`SELECT * FROM ${quoteIdent(table)} LIMIT ? OFFSET ?`, PAGE_SIZE, offset);
-  return { columns: columns.length ? columns : Object.keys(rows[0] ?? {}), rows };
+  let rows: Row[];
+  let editable = true;
+  try {
+    rows = await db.getAllAsync<Row>(`SELECT rowid AS ${ROWID}, * FROM ${quoteIdent(table)} LIMIT ? OFFSET ?`, PAGE_SIZE, offset);
+  } catch {
+    // Views and WITHOUT ROWID tables: shown, not edited.
+    editable = false;
+    rows = await db.getAllAsync<Row>(`SELECT * FROM ${quoteIdent(table)} LIMIT ? OFFSET ?`, PAGE_SIZE, offset);
+  }
+  return { columns: columns.length ? columns : Object.keys(rows[0] ?? {}).filter((c) => c !== ROWID), rows, editable };
+}
+
+// What's typed in an edit box: NULL (any case) means SQL NULL; SQLite's column
+// affinity turns "42" into a number in a numeric column.
+export const parseValue = (text: string): string | null => (text.trim().toUpperCase() === 'NULL' ? null : text);
+
+export async function updateCell(db: Db, table: string, rowid: unknown, column: string, text: string) {
+  await db.runAsync(`UPDATE ${quoteIdent(table)} SET ${quoteIdent(column)} = ? WHERE rowid = ?`, parseValue(text), rowid);
+}
+
+export async function deleteRow(db: Db, table: string, rowid: unknown) {
+  await db.runAsync(`DELETE FROM ${quoteIdent(table)} WHERE rowid = ?`, rowid);
+}
+
+// Columns left empty get their default.
+export async function insertRow(db: Db, table: string, values: Record<string, string>) {
+  const set = Object.entries(values).filter(([, v]) => v !== '');
+  if (!set.length) return db.runAsync(`INSERT INTO ${quoteIdent(table)} DEFAULT VALUES`);
+  return db.runAsync(
+    `INSERT INTO ${quoteIdent(table)} (${set.map(([c]) => quoteIdent(c)).join(', ')}) VALUES (${set.map(() => '?').join(', ')})`,
+    ...set.map(([, v]) => parseValue(v)),
+  );
+}
+
+// RFC 4180 CSV: a header row, then the rows. NULL is an empty field; blobs are base64.
+export function toCsv(columns: string[], rows: Row[]): string {
+  const field = (v: unknown) => {
+    if (v === null || v === undefined) return '';
+    const s = v instanceof Uint8Array ? btoa(String.fromCharCode(...v)) : String(v);
+    return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  return [columns.map(field).join(','), ...rows.map((r) => columns.map((c) => field(r[c])).join(','))].join('\r\n') + '\r\n';
+}
+
+// Every row of a table, for export (tablePage pages through it for the screen).
+export async function allRows(db: Db, table: string): Promise<{ columns: string[]; rows: Row[] }> {
+  const columns = await tableColumns(db, table);
+  return { columns, rows: await db.getAllAsync<Row>(`SELECT * FROM ${quoteIdent(table)}`) };
 }
 
 // Strips comments and string literals, so keywords and semicolons inside them don't count.

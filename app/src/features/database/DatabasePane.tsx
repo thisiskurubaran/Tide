@@ -1,27 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { openDatabaseAsync } from 'expo-sqlite';
-import { FlatList, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Alert, FlatList, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
-import { Button } from '../../components/Button';
+import { ActionSheet } from '../../components/ActionSheet';
+import { Button, IconButton } from '../../components/Button';
+import { FormSheet } from '../../components/FormSheet';
 import { haptic } from '../../components/haptics';
 import { Segmented } from '../../components/Segmented';
 import { Text } from '../../components/Text';
-import { documentsPath } from '../../runtime/paths';
 import { makeStyles, useColors } from '../../theme/theme';
 import { borderWidth, fonts, fontSizes, radius, spacing } from '../../theme/tokens';
-import { PROJECTS_DIR } from '../files/workspace';
-import { Db, formatCell, listTables, PAGE_SIZE, QueryResult, Row, runSql, TableInfo, tablePage } from './database';
+import { projectsStore, workspace } from '../../state';
+import { toBase64 } from '../backup/zip';
+import { openProjectDb } from './open';
+import { allRows, Db, deleteRow, formatCell, insertRow, listTables, PAGE_SIZE, QueryResult, Row, ROWID, runSql, TableInfo, tablePage, toCsv, updateCell } from './database';
 
 const CELL_WIDTH = 160;
 
-async function openDb(project: string, path: string): Promise<Db> {
-  const slash = path.lastIndexOf('/');
-  const dir = `${documentsPath()}/${PROJECTS_DIR}/${project}${slash > 0 ? `/${path.slice(0, slash)}` : ''}`;
-  // A connection of its own, so programs run in the terminal keep theirs.
-  return openDatabaseAsync(path.slice(slash + 1), { useNewConnection: true }, dir);
-}
-
-// Tables, rows and a SQL box for a .db / .sqlite file in the project. Free for everyone.
+// Tables, rows and a SQL box for a .db / .sqlite file in the project: edit
+// cells, add and delete rows, export CSV. Free for everyone.
 export function DatabasePane({ project, path }: { project: string; path: string }) {
   const styles = useStyles();
   const colors = useColors();
@@ -30,7 +26,10 @@ export function DatabasePane({ project, path }: { project: string; path: string 
   const [mode, setMode] = useState<'tables' | 'sql'>('tables');
   const [tables, setTables] = useState<TableInfo[] | null>(null);
   const [table, setTable] = useState<string | null>(null);
-  const [page, setPage] = useState<{ columns: string[]; rows: Row[]; done: boolean } | null>(null);
+  const [page, setPage] = useState<{ columns: string[]; rows: Row[]; done: boolean; editable: boolean } | null>(null);
+  const [editing, setEditing] = useState<{ row: Row; column: string } | null>(null);
+  const [rowMenu, setRowMenu] = useState<Row | null>(null);
+  const [adding, setAdding] = useState(false);
   const [sql, setSql] = useState('');
   const [result, setResult] = useState<QueryResult | null>(null);
   const [running, setRunning] = useState(false);
@@ -44,7 +43,7 @@ export function DatabasePane({ project, path }: { project: string; path: string 
 
   useEffect(() => {
     let closed = false;
-    openDb(project, path)
+    openProjectDb(project, path)
       .then(async (opened) => {
         if (closed) return opened.closeAsync();
         db.current = opened;
@@ -58,17 +57,44 @@ export function DatabasePane({ project, path }: { project: string; path: string 
     };
   }, [project, path, refreshTables]);
 
-  useEffect(() => {
+  const reloadPage = useCallback(() => {
     if (!table || !db.current) return setPage(null);
     tablePage(db.current, table, 0)
       .then((p) => setPage({ ...p, done: p.rows.length < PAGE_SIZE }))
       .catch((e) => setError(String(e?.message ?? e)));
-  }, [table, tables]);
+  }, [table]);
+  useEffect(reloadPage, [reloadPage, tables]);
 
   const loadMore = async () => {
     if (!table || !db.current || !page || page.done) return;
     const next = await tablePage(db.current, table, page.rows.length);
-    setPage({ columns: page.columns, rows: [...page.rows, ...next.rows], done: next.rows.length < PAGE_SIZE });
+    setPage({ ...page, rows: [...page.rows, ...next.rows], done: next.rows.length < PAGE_SIZE });
+  };
+
+  // Saves next to the database: users.csv, or query.csv for SQL results.
+  const exportCsv = async () => {
+    if (!db.current) return;
+    try {
+      const data = mode === 'sql' && result?.kind === 'rows' ? result : table ? await allRows(db.current, table) : null;
+      if (!data) return;
+      const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1) : '';
+      const name = `${dir}${mode === 'sql' ? 'query' : table}.csv`;
+      await workspace.writeBase64(project, name, toBase64(new TextEncoder().encode(toCsv(data.columns, data.rows))));
+      await projectsStore.getState().loadTree(project);
+      haptic('success');
+      Alert.alert('Exported', `${data.rows.length.toLocaleString()} rows saved to ${name}.`);
+    } catch (e) {
+      haptic('error');
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  // Edits change the file at once, like the SQL box.
+  const change = async (fn: (d: Db) => Promise<unknown>) => {
+    await fn(db.current!);
+    haptic('success');
+    await refreshTables();
+    reloadPage();
   };
 
   const run = async () => {
@@ -101,6 +127,9 @@ export function DatabasePane({ project, path }: { project: string; path: string 
             { value: 'sql', label: 'SQL' },
           ]}
         />
+        <View style={styles.flex} />
+        {mode === 'tables' && page?.editable && <IconButton icon="plus" label="Add a row" onPress={() => setAdding(true)} testID="database-add-row" />}
+        <IconButton icon="download" label="Export CSV" onPress={exportCsv} testID="database-export" />
       </View>
       {error && (
         <Text variant="error" style={styles.pad} selectable>
@@ -125,7 +154,16 @@ export function DatabasePane({ project, path }: { project: string; path: string 
               </Pressable>
             ))}
           </ScrollView>
-          {page && <Grid columns={page.columns} rows={page.rows} onEnd={loadMore} />}
+          {page && (
+            <Grid
+              columns={page.columns}
+              rows={page.rows}
+              onEnd={loadMore}
+              onCell={page.editable ? (row, column) => setEditing({ row, column }) : undefined}
+              onRow={page.editable ? setRowMenu : undefined}
+            />
+          )}
+          {page && !page.editable && <Text variant="muted" style={styles.pad}>Views and WITHOUT ROWID tables can be changed with SQL.</Text>}
         </>
       ) : (
         <>
@@ -159,11 +197,70 @@ export function DatabasePane({ project, path }: { project: string; path: string 
           {result?.kind === 'rows' && <Grid columns={result.columns} rows={result.rows} />}
         </>
       )}
+      <FormSheet
+        visible={editing !== null}
+        title={editing ? `Edit ${editing.column}` : ''}
+        confirmLabel="Save"
+        fields={[
+          {
+            key: 'value',
+            label: 'Value',
+            initial: editing ? (editing.row[editing.column] === null ? 'NULL' : String(editing.row[editing.column])) : '',
+            multiline: true,
+            mono: true,
+            hint: 'Type NULL for no value.',
+          },
+        ]}
+        onClose={() => setEditing(null)}
+        onSubmit={async ({ value }) => {
+          await change((d) => updateCell(d, table!, editing!.row[ROWID], editing!.column, value));
+          setEditing(null);
+        }}
+      />
+      <FormSheet
+        visible={adding}
+        title={`Add a row to ${table ?? ''}`}
+        description="Empty fields get the column's default."
+        confirmLabel="Add"
+        fields={(page?.columns ?? []).map((c) => ({ key: c, label: c, mono: true }))}
+        onClose={() => setAdding(false)}
+        onSubmit={async (values) => {
+          await change((d) => insertRow(d, table!, values));
+          setAdding(false);
+        }}
+      />
+      <ActionSheet
+        title={rowMenu ? 'Row' : null}
+        onClose={() => setRowMenu(null)}
+        actions={[
+          {
+            label: 'Delete row',
+            icon: 'trash-2',
+            destructive: true,
+            onPress: () => {
+              const row = rowMenu!;
+              change((d) => deleteRow(d, table!, row[ROWID])).catch((e) => setError(String(e?.message ?? e)));
+            },
+          },
+        ]}
+      />
     </View>
   );
 }
 
-function Grid({ columns, rows, onEnd }: { columns: string[]; rows: Row[]; onEnd?: () => void }) {
+function Grid({
+  columns,
+  rows,
+  onEnd,
+  onCell,
+  onRow,
+}: {
+  columns: string[];
+  rows: Row[];
+  onEnd?: () => void;
+  onCell?: (row: Row, column: string) => void;
+  onRow?: (row: Row) => void;
+}) {
   const styles = useStyles();
   const colors = useColors();
   const width = Math.max(1, columns.length) * CELL_WIDTH;
@@ -187,10 +284,26 @@ function Grid({ columns, rows, onEnd }: { columns: string[]; rows: Row[]; onEnd?
             <View style={[styles.gridRow, index % 2 === 1 && { backgroundColor: colors.secondary }]}>
               {columns.map((c) => {
                 const cell = formatCell(item[c]);
-                return (
-                  <Text key={c} numberOfLines={1} selectable style={[styles.cell, styles.value, cell.muted && { color: colors.mutedForeground }]}>
+                const text = (
+                  <Text numberOfLines={1} selectable={!onCell} style={[styles.value, cell.muted && { color: colors.mutedForeground }]}>
                     {cell.text}
                   </Text>
+                );
+                return onCell ? (
+                  <Pressable
+                    key={c}
+                    onPress={() => onCell(item, c)}
+                    onLongPress={() => onRow?.(item)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${c}: ${cell.text}. Tap to edit, hold for row actions.`}
+                    style={styles.cell}
+                  >
+                    {text}
+                  </Pressable>
+                ) : (
+                  <View key={c} style={styles.cell}>
+                    {text}
+                  </View>
                 );
               })}
             </View>
@@ -203,7 +316,7 @@ function Grid({ columns, rows, onEnd }: { columns: string[]; rows: Row[]; onEnd?
 
 const useStyles = makeStyles((colors) => ({
   screen: { backgroundColor: colors.background },
-  bar: { padding: spacing.sm, borderBottomWidth: borderWidth, borderColor: colors.border },
+  bar: { flexDirection: 'row', alignItems: 'center', padding: spacing.sm, borderBottomWidth: borderWidth, borderColor: colors.border },
   pad: { padding: spacing.sm, gap: spacing.sm },
   flex: { flex: 1 },
   chips: { flexGrow: 0, borderBottomWidth: borderWidth, borderColor: colors.border },

@@ -37,10 +37,10 @@ describe('database viewer', () => {
   });
 
   it('pages through a table with quoted names', async () => {
-    const { db, calls } = fakeDb({ 'PRAGMA table_info': [{ name: 'id' }, { name: 'name' }], 'SELECT * FROM': [{ id: 1, name: 'Ada' }] });
+    const { db, calls } = fakeDb({ 'PRAGMA table_info': [{ name: 'id' }, { name: 'name' }], '* FROM': [{ id: 1, name: 'Ada' }] });
     const page = await tablePage(db, 'my "odd" table', 200);
-    expect(page).toEqual({ columns: ['id', 'name'], rows: [{ id: 1, name: 'Ada' }] });
-    expect(calls[1]).toEqual({ sql: 'SELECT * FROM "my ""odd"" table" LIMIT ? OFFSET ?', params: [100, 200] });
+    expect(page).toEqual({ columns: ['id', 'name'], rows: [{ id: 1, name: 'Ada' }], editable: true });
+    expect(calls[1]).toEqual({ sql: 'SELECT rowid AS __tide_rowid__, * FROM "my ""odd"" table" LIMIT ? OFFSET ?', params: [100, 200] });
     expect(quoteIdent('a"b')).toBe('"a""b"');
   });
 
