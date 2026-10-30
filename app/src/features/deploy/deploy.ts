@@ -2,7 +2,22 @@ import * as SecureStore from 'expo-secure-store';
 
 import { workspace } from '../../state';
 import { RUN_CONFIG_FILE } from '../files/templates';
-import { DeployConfig, DeployResult, deployCloudflare, deployGitHubPages, deployNetlify, deployRender, deployVercel, Progress, ProviderId, SiteFile } from './providers';
+import { runTool } from '../../runtime/tool';
+import {
+  DeployConfig,
+  DeployResult,
+  deployCloudflare,
+  deployFirebase,
+  deployGitHubPages,
+  deployNetlify,
+  deployRender,
+  deployVercel,
+  googleAccessToken,
+  parseServiceAccount,
+  Progress,
+  ProviderId,
+  SiteFile,
+} from './providers';
 import { gitSettingsStore } from '../git/settings';
 
 export const PROVIDERS: { id: ProviderId; label: string; token: string | null; help: string }[] = [
@@ -10,6 +25,12 @@ export const PROVIDERS: { id: ProviderId; label: string; token: string | null; h
   { id: 'netlify', label: 'Netlify', token: 'Personal access token', help: 'Create a token at app.netlify.com → User settings → Applications.' },
   { id: 'vercel', label: 'Vercel', token: 'Access token', help: 'Create a token at vercel.com/account/settings/tokens.' },
   { id: 'cloudflare', label: 'Cloudflare Pages', token: 'API token', help: 'Create a token with "Cloudflare Pages: Edit" at dash.cloudflare.com → My Profile → API Tokens.' },
+  {
+    id: 'firebase',
+    label: 'Firebase Hosting',
+    token: 'Service account key (JSON)',
+    help: 'In the Firebase console: Project settings → Service accounts → Generate new private key, then paste the whole file. Give the account the Firebase Hosting Admin role.',
+  },
   { id: 'render', label: 'Render', token: null, help: 'Render builds from your Git repository. Push your changes, then Deploy triggers a build with your service’s Deploy Hook.' },
 ];
 
@@ -95,5 +116,19 @@ export async function deploy(project: string, config: DeployConfig, progress: Pr
     case 'cloudflare':
       if (!config.cloudflare?.accountId || !config.cloudflare.project) throw new Error('Enter your Cloudflare account ID and a project name.');
       return deployCloudflare(files, config.cloudflare, token, progress);
+    case 'firebase': {
+      const key = parseServiceAccount(token);
+      const site = config.firebase?.site || key.project_id;
+      if (!site) throw new Error('Enter the Firebase Hosting site (usually the project ID).');
+      progress('Signing in to Google');
+      // RSA signing happens in the Node runtime; the app's JavaScript engine has no RSA.
+      // Loaded here so screens that only show deploy status don't start it.
+      const { localRunner } = require('../../runtime') as typeof import('../../runtime');
+      const jwt = await runTool(localRunner, 'google-jwt', [], {
+        TIDE_GOOGLE: JSON.stringify({ client_email: key.client_email, private_key: key.private_key, scope: 'https://www.googleapis.com/auth/firebase.hosting' }),
+      });
+      const result = await deployFirebase(files, site, await googleAccessToken(jwt), progress);
+      return { ...result, config: { firebase: { site } } };
+    }
   }
 }

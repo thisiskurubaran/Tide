@@ -1,6 +1,6 @@
-import { unzipSync } from 'fflate';
+import { gunzipSync, unzipSync } from 'fflate';
 
-import { cloudflareHash, contentType, deployCloudflare, deployGitHubPages, deployNetlify, deployRender, deployVercel } from './providers';
+import { cloudflareHash, contentType, deployCloudflare, deployFirebase, deployGitHubPages, deployNetlify, deployRender, deployVercel, parseServiceAccount } from './providers';
 
 type Handler = (url: string, init: RequestInit) => { status?: number; body?: unknown };
 function fakeFetch(handler: Handler) {
@@ -108,5 +108,39 @@ describe('deploy providers', () => {
   it('knows common content types', () => {
     expect(contentType('a/b.woff2')).toBe('font/woff2');
     expect(contentType('x.unknown')).toBe('application/octet-stream');
+  });
+});
+
+describe('Firebase Hosting', () => {
+  it('uploads only missing files, gzipped and hashed, then finalizes and releases', async () => {
+    let required: string[] = [];
+    const { fetchImpl, calls } = fakeFetch((url, init) => {
+      if (url.endsWith('/sites/my-site/versions')) return { body: { name: 'sites/my-site/versions/v1' } };
+      if (url.endsWith(':populateFiles')) {
+        const hashes = Object.values(JSON.parse(init.body as string).files) as string[];
+        required = [hashes[1]];
+        return { body: { uploadRequiredHashes: required, uploadUrl: 'https://upload-firebasehosting.googleapis.com/upload/sites/my-site/versions/v1/files' } };
+      }
+      if (url.includes('/upload/')) return { body: {} };
+      if (url.includes('update_mask=status')) return { body: { status: 'FINALIZED' } };
+      if (url.includes('/releases?versionName=')) return { body: { name: 'r1' } };
+      throw new Error(url);
+    });
+    const r = await deployFirebase(files, 'my-site', 'ya29.token', noop, fetchImpl);
+    expect(r.url).toBe('https://my-site.web.app');
+    const listed = (calls.find((c) => c.url.endsWith(':populateFiles'))!.body as { files: Record<string, string> }).files;
+    expect(Object.keys(listed)).toEqual(['/index.html', '/css/site.css']);
+    const uploads = calls.filter((c) => c.url.includes('/upload/'));
+    expect(uploads).toHaveLength(1);
+    expect(uploads[0].url.endsWith(`/files/${required[0]}`)).toBe(true);
+    expect(new TextDecoder().decode(gunzipSync(uploads[0].body as Uint8Array))).toBe('h1{color:red}');
+    expect(calls.map((c) => c.method)).toEqual(['POST', 'POST', 'POST', 'PATCH', 'POST']);
+    expect(calls.at(-1)!.url).toContain('versionName=sites%2Fmy-site%2Fversions%2Fv1');
+  });
+
+  it('reads service account keys and explains other files', () => {
+    expect(parseServiceAccount('{"type":"service_account","client_email":"a@b","private_key":"k","project_id":"p"}').project_id).toBe('p');
+    expect(() => parseServiceAccount('{"type":"authorized_user"}')).toThrow('isn’t a service account key');
+    expect(() => parseServiceAccount('nope')).toThrow('paste the whole');
   });
 });

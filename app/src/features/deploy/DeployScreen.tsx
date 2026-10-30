@@ -103,7 +103,7 @@ export function DeployScreen() {
     haptic('select');
   };
 
-  const field = (label: string, value: string, onChange: (v: string) => void, placeholder?: string, hint?: string, secure = false) => (
+  const field = (label: string, value: string, onChange: (v: string) => void, placeholder?: string, hint?: string, secure = false, multiline = false) => (
     <View style={styles.field} key={label}>
       <Text variant="label">{label}</Text>
       <TextInput
@@ -115,8 +115,9 @@ export function DeployScreen() {
         autoCorrect={false}
         spellCheck={false}
         secureTextEntry={secure}
+        multiline={multiline}
         selectionColor={colors.brand}
-        style={styles.input}
+        style={[styles.input, multiline && styles.multiline]}
         testID={`deploy-${label.toLowerCase().replace(/\W+/g, '-')}`}
       />
       {hint ? <Text variant="muted">{hint}</Text> : null}
@@ -158,8 +159,13 @@ export function DeployScreen() {
           {field('Project name', config.cloudflare?.project ?? '', (p) => update({ cloudflare: { accountId: config.cloudflare?.accountId ?? '', project: p } }), 'my-site', 'Created on the first deploy if it doesn’t exist.')}
         </>
       )}
+      {config.provider === 'firebase' &&
+        field('Hosting site', config.firebase?.site ?? '', (site) => update({ firebase: { site } }), 'Empty uses the project ID', 'Your site is at <site>.web.app.')}
       {provider.token &&
-        field(provider.token, token, setTokenValue, hasToken ? 'Saved in the Keychain. Type to replace it.' : 'Paste it here', 'Kept in the Keychain and only sent to the service.', true)}
+        (config.provider === 'firebase'
+          ? // A key file is several lines, and iOS can't hide multi-line text, so a saved key is never shown back.
+            field(provider.token, token, setTokenValue, hasToken ? 'Saved in the Keychain. Paste a new key to replace it.' : '{ "type": "service_account", … }', 'Kept in the Keychain. Only a short-lived sign-in token is sent to Google.', false, true)
+          : field(provider.token, token, setTokenValue, hasToken ? 'Saved in the Keychain. Type to replace it.' : 'Paste it here', 'Kept in the Keychain and only sent to the service.', true))}
       {config.provider === 'render' &&
         field('Deploy Hook URL', token, setTokenValue, hasToken ? 'Saved in the Keychain. Type to replace it.' : 'https://api.render.com/deploy/srv-…', 'Settings → Deploy Hook in your Render service. Kept in the Keychain.', true)}
       {config.provider === 'github' && !hasToken && <Text variant="error">Sign in to GitHub first, in Settings → GitHub.</Text>}
@@ -265,6 +271,7 @@ const useStyles = makeStyles((colors) => ({
     fontFamily: fonts.mono.regular,
     fontSize: fontSizes.sm,
   },
+  multiline: { minHeight: 120, maxHeight: 200, paddingVertical: spacing.sm, textAlignVertical: 'top' },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' },
   historyRow: { flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start', paddingVertical: spacing.xs },
   done: { gap: spacing.sm, padding: spacing.md, borderRadius: radius.lg, borderWidth, borderColor: colors.success, backgroundColor: colors.successSoft },

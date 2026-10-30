@@ -1,12 +1,13 @@
 // Publishing a folder of the project as a website. Each provider talks to its
 // service's HTTP API with the user's own token; Tide has no server of its own.
 import { blake3 } from '@noble/hashes/blake3';
+import { sha256 } from '@noble/hashes/sha2';
 import { bytesToHex } from '@noble/hashes/utils';
-import { zipSync } from 'fflate';
+import { gzipSync, zipSync } from 'fflate';
 
 import { fromBase64 } from '../backup/zip';
 
-export type ProviderId = 'github' | 'netlify' | 'vercel' | 'cloudflare' | 'render';
+export type ProviderId = 'github' | 'netlify' | 'vercel' | 'cloudflare' | 'firebase' | 'render';
 
 export interface SiteFile {
   // Relative to the published folder, with forward slashes.
@@ -24,6 +25,8 @@ export interface DeployConfig {
   netlify?: { siteId: string };
   vercel?: { project: string };
   cloudflare?: { accountId: string; project: string };
+  // The Hosting site, usually the Firebase project ID.
+  firebase?: { site: string };
 }
 
 export interface DeployResult {
@@ -235,6 +238,75 @@ export async function deployCloudflare(
   form.append('manifest', JSON.stringify(Object.fromEntries(hashed.map((f) => [`/${f.path}`, f.hash]))));
   await call(`${account}/${encodeURIComponent(target.project)}/deployments`, { method: 'POST', headers: auth, body: form });
   return { url: `https://${target.project}.pages.dev` };
+}
+
+// Firebase Hosting through its REST API: a new version, the files listed by
+// the SHA-256 of their gzipped bytes, only the ones Firebase lacks uploaded,
+// then the version finalized and released. `accessToken` is a Google OAuth
+// token for a service account with Firebase Hosting Admin.
+export async function deployFirebase(
+  files: SiteFile[],
+  site: string,
+  accessToken: string,
+  progress: Progress,
+  fetchImpl: typeof fetch = (...a) => fetch(...a),
+): Promise<DeployResult> {
+  const api = `https://firebasehosting.googleapis.com/v1beta1/sites/${encodeURIComponent(site)}`;
+  const auth = { Authorization: `Bearer ${accessToken}` };
+  const call = async (url: string, init: RequestInit = {}) => json(await fetchImpl(url, { ...init, headers: { ...auth, 'Content-Type': 'application/json', ...init.headers } }), 'Firebase');
+  progress('Creating a version');
+  const version = await call(`${api}/versions`, { method: 'POST', body: '{}' });
+  const gzipped = files.map((f) => {
+    const gz = gzipSync(fromBase64(f.base64), { level: 9, mtime: 0 });
+    return { path: `/${f.path}`, gz, hash: bytesToHex(sha256(gz)) };
+  });
+  const populated = await call(`https://firebasehosting.googleapis.com/v1beta1/${version.name}:populateFiles`, {
+    method: 'POST',
+    body: JSON.stringify({ files: Object.fromEntries(gzipped.map((f) => [f.path, f.hash])) }),
+  });
+  const required = new Set<string>(populated.uploadRequiredHashes ?? []);
+  const uploads = [...new Map(gzipped.filter((f) => required.has(f.hash)).map((f) => [f.hash, f])).values()];
+  let done = 0;
+  await pool(uploads, 4, async (f) => {
+    await json(
+      await fetchImpl(`${populated.uploadUrl}/${f.hash}`, { method: 'POST', headers: { ...auth, 'Content-Type': 'application/octet-stream' }, body: f.gz as unknown as BodyInit }),
+      'Firebase',
+    );
+    progress(`Uploading files (${++done}/${uploads.length})`);
+  });
+  progress('Releasing');
+  await call(`https://firebasehosting.googleapis.com/v1beta1/${version.name}?update_mask=status`, { method: 'PATCH', body: JSON.stringify({ status: 'FINALIZED' }) });
+  await call(`${api}/releases?versionName=${encodeURIComponent(version.name)}`, { method: 'POST', body: '{}' });
+  return { url: `https://${site}.web.app` };
+}
+
+// A service account key (the JSON file from Google Cloud) for Firebase Hosting.
+export interface ServiceAccount {
+  client_email: string;
+  private_key: string;
+  project_id?: string;
+}
+
+export function parseServiceAccount(text: string): ServiceAccount {
+  let key: Partial<ServiceAccount> & { type?: string };
+  try {
+    key = JSON.parse(text);
+  } catch {
+    throw new Error('Firebase: paste the whole service account key file (JSON).');
+  }
+  if (key.type !== 'service_account' || !key.client_email || !key.private_key) throw new Error('Firebase: that isn’t a service account key. Create one in Project settings → Service accounts.');
+  return key as ServiceAccount;
+}
+
+// Trades the signed JWT for an hour-long access token.
+export async function googleAccessToken(signedJwt: string, fetchImpl: typeof fetch = (...a) => fetch(...a)): Promise<string> {
+  const res = await fetchImpl('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: `grant_type=${encodeURIComponent('urn:ietf:params:oauth:grant-type:jwt-bearer')}&assertion=${encodeURIComponent(signedJwt)}`,
+  });
+  const data = await json(res, 'Google sign-in');
+  return data.access_token as string;
 }
 
 // Render builds from the connected Git repository; Tide asks it to deploy now.
