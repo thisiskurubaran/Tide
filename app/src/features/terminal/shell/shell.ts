@@ -9,6 +9,7 @@ import { displayPath, PathError, resolvePath } from './paths';
 import type { ShellFs } from './shellFs';
 import { currentWord, escapeWord, ParseError, tokenize } from './tokenize';
 import { DEFAULT_CONFIG, parseTasks } from '../../project/tasks';
+import { dotCommand, formatResult, isComplete, runSql, SqliteHost, SqliteOutput } from './sqlite';
 
 export interface ShellOptions {
   project: string;
@@ -20,6 +21,8 @@ export interface ShellOptions {
   newId?: () => string;
   // Extra environment for built-in tools, read per run (git's token and identity).
   toolEnv?: () => Record<string, string>;
+  // Opens project databases for sqlite3; without it the command says it's unavailable.
+  sqlite?: SqliteHost;
 }
 
 class CommandError extends Error {}
@@ -52,6 +55,7 @@ const COMMAND_HELP: [string, string][] = [
   ['npm uninstall <pkg...>', 'remove packages and what only they needed'],
   ['pip install <pkg...>', 'install pure-Python packages into .pylibs'],
   ['git <command>', 'clone, status, add, commit, log, push, pull (git help)'],
+  ['sqlite3 <db> ["SQL"]', 'run SQL on a database file, or open a sqlite> prompt'],
   ['clear', 'clear the screen'],
   ['help', 'show this list'],
 ];
@@ -69,7 +73,9 @@ export class Shell {
   private cwd = '';
   private cols = 80;
   private editor: LineEditor;
-  private running: { id: string; stdin: LineEditor } | null = null;
+  private running: { id: string; stdin: LineEditor; entry: string; args: string[] } | null = null;
+  // A built-in that reads its own lines (the sqlite> prompt) while it runs.
+  private session: LineEditor | null = null;
   private busy = false;
   // Keys typed while a command is still finishing; replayed at the next prompt, like a real shell.
   private typeahead = '';
@@ -110,6 +116,10 @@ export class Shell {
   }
 
   input(data: string) {
+    if (this.session) {
+      this.typeahead += this.session.input(data);
+      return;
+    }
     if (this.running) {
       this.typeahead += this.running.stdin.input(data);
       return;
@@ -367,6 +377,7 @@ export class Shell {
       pip: (args) => this.startRun('node', 'tide:pip', args, this.cwd),
       pip3: (args) => this.startRun('node', 'tide:pip', args, this.cwd),
       git: (args) => this.startRun('node', 'tide:git', args, this.cwd, this.opts.toolEnv?.()),
+      sqlite3: (args, io) => this.sqlite3(args, io),
       run: async (args) => {
         const raw = await fs.readRunConfig();
         const { configs } = parseTasks(raw ? JSON.stringify(raw) : null);
@@ -377,6 +388,74 @@ export class Shell {
         await this.startRun(config.runtime, resolvePath('', config.entry), config.args, '');
       },
     };
+  }
+
+  private async sqlite3(args: string[], io: Io) {
+    const host = this.opts.sqlite;
+    if (!host) throw new CommandError('not available in this terminal');
+    const [file, ...sql] = args;
+    if (!file) throw new CommandError('usage: sqlite3 <database> ["SQL"]');
+    const path = this.resolve(file);
+    if ((await this.opts.fs.stat(path)) === 'dir') throw new CommandError(`${file}: is a directory`);
+    const db = await host.open(path);
+    const out: SqliteOutput = { headers: true, mode: 'table' };
+    try {
+      if (sql.length) {
+        io.out(formatResult(await runSql(db, sql.join(' ')), out));
+        return;
+      }
+      io.out(`${ansi.dim}SQLite on ${file}. End statements with ;  .help for commands, .quit to leave.${ansi.reset}\n`);
+      await this.readLines('sqlite> ', '   ...> ', async (statement) => {
+        if (statement.trim().startsWith('.')) {
+          const text = await dotCommand(db, statement, out);
+          if (text === null) return false;
+          io.out(text);
+          return true;
+        }
+        try {
+          io.out(formatResult(await runSql(db, statement), out));
+        } catch (e) {
+          io.err(`Error: ${errorMessage(e)}\n`);
+        }
+        return true;
+      });
+    } finally {
+      await db.closeAsync().catch(() => undefined);
+      // A new database file, or tables written from SQL, show up in the tree.
+      this.opts.fs.refresh().catch(() => undefined);
+    }
+  }
+
+  // Reads statements at a prompt until `handle` returns false. Lines join
+  // until the text is complete (ends with ;); dot commands are single lines.
+  private readLines(prompt: string, more: string, handle: (statement: string) => Promise<boolean>) {
+    return new Promise<void>((done) => {
+      let pending = '';
+      const session: LineEditor = new LineEditor({
+        write: (d) => this.write(d),
+        submit: async (line) => {
+          const text = pending ? `${pending}\n${line}` : line;
+          if (!text.trim()) return session.read(prompt);
+          if (!text.trim().startsWith('.') && !isComplete(text)) {
+            pending = text;
+            return session.read(more);
+          }
+          pending = '';
+          if (await handle(text)) return session.read(prompt);
+          session.stop();
+          this.session = null;
+          done();
+        },
+        interrupt: () => {
+          pending = '';
+          session.read(prompt);
+        },
+        clearScreen: () => this.write(ansi.clearScreen),
+        complete: async () => null,
+      });
+      this.session = session;
+      session.read(prompt);
+    });
   }
 
   private async runProgram(runtime: Runtime, args: string[]) {
@@ -401,7 +480,7 @@ export class Shell {
       clearScreen: () => this.write(ansi.clearScreen),
       complete: async () => null,
     });
-    this.running = { id, stdin };
+    this.running = { id, stdin, entry, args };
     stdin.read('');
 
     const root = this.opts.projectRoot;

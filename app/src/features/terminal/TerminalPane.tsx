@@ -8,6 +8,7 @@ import { PROJECTS_DIR } from '../files/workspace';
 import { useTerminalTheme } from '../../extensions/themes';
 
 import type { TerminalBackend } from './backend';
+import { openProjectDb } from '../database/open';
 import { parseFromTerminal, ToTerminal } from './bridge';
 import { gitEnv } from '../git/settings';
 import type { Shortcut } from '../project/shortcuts';
@@ -77,6 +78,7 @@ export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(functi
       write,
       projectRoot: `${PROJECTS_DIR}/${project}`,
       toolEnv: gitEnv,
+      sqlite: { open: (path) => openProjectDb(project, path) },
     });
   }
 
