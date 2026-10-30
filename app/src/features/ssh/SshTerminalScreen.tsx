@@ -9,7 +9,7 @@ import { useKeyboardHeight } from '../editor/useKeyboardHeight';
 import { TerminalKeyBar } from '../terminal/TerminalKeyBar';
 import { TerminalHandle, TerminalPane } from '../terminal/TerminalPane';
 import { SshBackend } from './client';
-import { connectionConfig, sshStore, useSsh } from './store';
+import { connectionConfig, rememberKey, sshStore, useSsh } from './store';
 
 export function SshTerminalScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -33,7 +33,7 @@ export function SshTerminalScreen() {
               `${host.username}@${host.host}`,
               () => connectionConfig(sshStore.getState().hosts.find((h) => h.id === id) ?? host),
               write,
-              (fingerprint) => sshStore.getState().trustHost(host.id, fingerprint),
+              (fingerprint, which) => rememberKey(host, fingerprint, which),
             )
           }
         />

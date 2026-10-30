@@ -8,16 +8,22 @@
 //   tide:ssh shell   interactive shell. stdin goes to the remote PTY as typed;
 //                    OSC "\x1b]tide-resize;COLS;ROWS\x07" in stdin resizes it.
 //   tide:ssh sftp    one JSON request per stdin line, one JSON reply per stdout line.
+//   tide:ssh forward local port forwarding: listens on 127.0.0.1:<localPort> and
+//                    tunnels each connection to <remoteHost>:<remotePort> on the
+//                    server (TIDE_SSH.forward), until stopped.
 //   tide:ssh keygen  prints a new ed25519 key pair as JSON.
 //   tide:ssh pubkey  prints the public key of TIDE_SSH.privateKey as JSON.
 //
 // The host key is checked against TIDE_SSH.fingerprint. When there isn't one
 // yet, the fingerprint is printed to stderr as "TIDE-HOSTKEY <sha256>" so the
 // app can remember it (trust on first use); a different key stops the connection.
+// With TIDE_SSH.jump (another server's settings) the connection goes through
+// that server first; its key is reported as "TIDE-HOSTKEY-JUMP <sha256>".
 'use strict';
 
 const { Client, utils } = require('./ssh2');
 const crypto = require('crypto');
+const net = require('net');
 const path = require('path');
 
 const mode = process.argv[2];
@@ -46,10 +52,43 @@ if (mode === 'pubkey') {
   process.exit(0);
 }
 
-if (mode !== 'shell' && mode !== 'sftp') fail(`usage: tide:ssh shell|sftp|keygen|pubkey`);
+if (mode !== 'shell' && mode !== 'sftp' && mode !== 'forward') fail(`usage: tide:ssh shell|sftp|forward|keygen|pubkey`);
 
 const conn = new Client();
 const fingerprint = (key) => `SHA256:${crypto.createHash('sha256').update(key).digest('base64').replace(/=+$/, '')}`;
+
+/** Checks a server's host key against the saved one; reports a first one under `tag`. */
+function verifier(/** @type {any} */ server, /** @type {string} */ tag) {
+  return (/** @type {Buffer} */ key) => {
+    const fp = fingerprint(key);
+    if (!server.fingerprint) {
+      process.stderr.write(`${tag} ${fp}\n`);
+      return true;
+    }
+    if (server.fingerprint === fp) return true;
+    process.stderr.write(
+      `The host key for ${server.host} has changed (now ${fp}). This can mean someone is intercepting the connection. If the server was reinstalled, remove the saved key in the host's settings and connect again.\n`,
+    );
+    return false;
+  };
+}
+
+/** Connection options shared by the server and a jump host. */
+function options(/** @type {any} */ server, /** @type {string} */ tag) {
+  return {
+    host: server.host,
+    port: Number(server.port) || 22,
+    username: server.username,
+    password: server.password || undefined,
+    privateKey: server.privateKey || undefined,
+    passphrase: server.passphrase || undefined,
+    readyTimeout: 20000,
+    keepaliveInterval: 15000,
+    // Needs WebAssembly, which nodejs-mobile on iOS doesn't have (see build-ssh.js).
+    algorithms: { cipher: { remove: 'chacha20-poly1305@openssh.com' } },
+    hostVerifier: verifier(server, tag),
+  };
+}
 
 conn.on('error', (e) => {
   const msg = /All configured authentication methods failed/.test(e.message)
@@ -64,32 +103,45 @@ conn.on('error', (e) => {
   fail(msg);
 });
 
-conn.on('ready', () => (mode === 'shell' ? shell() : sftp()));
+conn.on('ready', () => (mode === 'shell' ? shell() : mode === 'sftp' ? sftp() : forward()));
 
-conn.connect({
-  host: config.host,
-  port: Number(config.port) || 22,
-  username: config.username,
-  password: config.password || undefined,
-  privateKey: config.privateKey || undefined,
-  passphrase: config.passphrase || undefined,
-  readyTimeout: 20000,
-  // Needs WebAssembly, which nodejs-mobile on iOS doesn't have (see build-ssh.js).
-  algorithms: { cipher: { remove: 'chacha20-poly1305@openssh.com' } },
-  keepaliveInterval: 15000,
-  hostVerifier: (/** @type {Buffer} */ key) => {
-    const fp = fingerprint(key);
-    if (!config.fingerprint) {
-      process.stderr.write(`TIDE-HOSTKEY ${fp}\n`);
-      return true;
-    }
-    if (config.fingerprint === fp) return true;
-    process.stderr.write(
-      `The host key for ${config.host} has changed (now ${fp}). This can mean someone is intercepting the connection. If the server was reinstalled, remove the saved key in the host's settings and connect again.\n`,
-    );
-    return false;
-  },
-});
+if (config.jump) {
+  // Through the jump host: its connection carries a tunnel to the server's SSH port.
+  const jump = new Client();
+  jump.on('error', (e) => fail(`Jump host ${config.jump.host}: ${e.message}`));
+  jump.on('ready', () =>
+    jump.forwardOut('127.0.0.1', 0, config.host, Number(config.port) || 22, (err, sock) => {
+      if (err) fail(`Jump host ${config.jump.host} couldn't reach ${config.host}: ${err.message}`);
+      conn.connect({ ...options(config, 'TIDE-HOSTKEY'), sock });
+    }),
+  );
+  jump.connect(options(config.jump, 'TIDE-HOSTKEY-JUMP'));
+} else {
+  conn.connect(options(config, 'TIDE-HOSTKEY'));
+}
+
+function forward() {
+  const { localPort, remoteHost = '127.0.0.1', remotePort } = config.forward || {};
+  const server = net.createServer((sock) => {
+    conn.forwardOut('127.0.0.1', sock.remotePort || 0, remoteHost, Number(remotePort), (err, stream) => {
+      if (err) {
+        process.stderr.write(`Couldn't reach ${remoteHost}:${remotePort} on the server: ${err.message}\n`);
+        sock.destroy();
+        return;
+      }
+      sock.pipe(stream).pipe(sock);
+      stream.on('error', () => sock.destroy());
+      sock.on('error', () => stream.destroy());
+    });
+  });
+  server.on('error', (e) => fail(`Can't listen on port ${localPort}: ${e.message}`));
+  // The worker bootstrap reports the listening port, so the app can preview it.
+  server.listen(Number(localPort), '127.0.0.1', () => process.stdout.write(`Forwarding localhost:${localPort} to ${remoteHost}:${remotePort} on ${config.host}\n`));
+  conn.on('close', () => {
+    server.close();
+    process.exit(0);
+  });
+}
 
 function shell() {
   const cols = Number(config.cols) || 80;

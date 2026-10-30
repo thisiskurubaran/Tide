@@ -11,6 +11,8 @@ export interface SshHost {
   keyId?: string;
   // SHA256 fingerprint of the server's host key, saved the first time (trust on first use).
   fingerprint?: string;
+  // Another saved server to connect through (a jump host / bastion).
+  jumpId?: string;
 }
 
 export interface SshKey {
@@ -98,8 +100,12 @@ export const useSsh = <T>(selector: (s: SshState) => T) => {
 let loading: Promise<void> | null = null;
 
 // What tide:ssh needs to connect, secrets included. Only ever passed in a run's environment.
-export async function connectionConfig(host: SshHost, extra: Record<string, unknown> = {}) {
-  const base = { host: host.host, port: host.port, username: host.username, fingerprint: host.fingerprint, ...extra };
+// A jump host's settings ride along under `jump` (one level; its own jump is ignored).
+export async function connectionConfig(host: SshHost, extra: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
+  const jumpHost = host.jumpId ? sshStore.getState().hosts.find((h) => h.id === host.jumpId) : undefined;
+  if (host.jumpId && !jumpHost) throw new Error('The server to connect through was removed. Pick another in this server’s settings.');
+  const jump = jumpHost ? await connectionConfig({ ...jumpHost, jumpId: undefined }) : undefined;
+  const base = { host: host.host, port: host.port, username: host.username, fingerprint: host.fingerprint, ...(jump ? { jump } : {}), ...extra };
   if (host.auth === 'key') {
     if (!host.keyId) throw new Error('Choose a key for this host.');
     const privateKey = await SecureStore.getItemAsync(privateKeyKey(host.keyId));
@@ -110,3 +116,21 @@ export async function connectionConfig(host: SshHost, extra: Record<string, unkn
 }
 
 export const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+
+// Saves a host key reported on first connection, on the server or its jump host.
+export const rememberKey = (host: SshHost, fingerprint: string, which: 'server' | 'jump') =>
+  sshStore.getState().trustHost(which === 'jump' && host.jumpId ? host.jumpId : host.id, fingerprint);
+
+export interface Forward {
+  id: string;
+  hostId: string;
+  localPort: number;
+  remoteHost: string;
+  remotePort: number;
+  status: string;
+  stop(): void;
+}
+
+// Port forwards that are running, for the SSH screen (not saved; they end with the app).
+export const forwardsStore = createStore<{ forwards: Forward[] }>(() => ({ forwards: [] }));
+export const useForwards = () => useStore(forwardsStore, (s) => s.forwards);

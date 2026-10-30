@@ -4,6 +4,8 @@
 /// <reference types="node" />
 import { spawn } from 'child_process';
 import fs from 'fs';
+import http from 'http';
+import net from 'net';
 import os from 'os';
 import path from 'path';
 
@@ -18,7 +20,11 @@ const CLI = path.join(__dirname, '../../../nodejs-assets/nodejs-project/ssh/cli.
 const TRAP = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'tide-ssh-trap-')), 'trap.js');
 fs.writeFileSync(TRAP, "Object.defineProperty(globalThis, 'WebAssembly', { configurable: true, get() { throw new Error('WebAssembly is not available on the device'); } });");
 
-function run(mode: string, config: object, input: (write: (s: string) => void, stdout: () => string, end: () => void) => void = (_w, _o, end) => end()) {
+function run(
+  mode: string,
+  config: object,
+  input: (write: (s: string) => void, stdout: () => string, end: () => void, kill: () => void) => void = (_w, _o, end) => end(),
+) {
   return new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
     const child = spawn(process.execPath, ['-r', TRAP, CLI, mode], { env: { ...process.env, TIDE_SSH: JSON.stringify(config) } });
     let stdout = '';
@@ -26,7 +32,12 @@ function run(mode: string, config: object, input: (write: (s: string) => void, s
     child.stdout.on('data', (d) => (stdout += d));
     child.stderr.on('data', (d) => (stderr += d));
     child.on('close', (code) => resolve({ code: code ?? 1, stdout, stderr }));
-    input((s) => child.stdin.write(s), () => stdout, () => child.stdin.end());
+    input(
+      (s) => child.stdin.write(s),
+      () => stdout,
+      () => child.stdin.end(),
+      () => child.kill(),
+    );
   });
 }
 
@@ -46,6 +57,13 @@ describe('tide:ssh', () => {
       // Refusing a changed host key hangs up mid key exchange.
       client.on('error', () => undefined);
       client.on('authentication', (ctx: any) => (ctx.method === 'password' && ctx.username === 'ada' && ctx.password === 'pw' ? ctx.accept() : ctx.reject(['password'])));
+      // Tunnels, for port forwarding and jump hosts.
+      client.on('tcpip', (accept: any, _reject: any, info: any) => {
+        const stream = accept();
+        const sock = net.connect(info.destPort, info.destIP);
+        stream.pipe(sock).pipe(stream);
+        sock.on('error', () => stream.destroy());
+      });
       client.on('session', (accept: any) => {
         const session = accept();
         session.on('pty', (ok: any) => ok && ok());
@@ -111,6 +129,40 @@ describe('tide:ssh', () => {
     expect(r.code).toBe(1);
     expect(r.stderr).toContain('Sign-in was refused');
   }, 20000);
+
+  it('forwards a local port to a port on the server', async () => {
+    const web = http.createServer((_req, res) => res.end('hello through the tunnel'));
+    await new Promise<void>((r) => web.listen(0, '127.0.0.1', r));
+    const remotePort = (web.address() as net.AddressInfo).port;
+    const localPort = 20000 + Math.floor(Math.random() * 20000);
+    let body = '';
+    await run('forward', { ...base(), forward: { localPort, remotePort } }, async (_write, stdout, _end, kill) => {
+      await until(() => stdout().includes('Forwarding'));
+      body = await new Promise<string>((resolve, reject) =>
+        http.get(`http://127.0.0.1:${localPort}/`, (res) => {
+          let d = '';
+          res.on('data', (c) => (d += c));
+          res.on('end', () => resolve(d));
+        }).on('error', reject),
+      );
+      // Forwarding runs until stopped, like the app's Stop button.
+      kill();
+    });
+    web.close();
+    expect(body).toBe('hello through the tunnel');
+  }, 30000);
+
+  it('connects through a jump host and checks both host keys', async () => {
+    // The same test server is both the jump host and the target, reached through the tunnel.
+    const r = await run('shell', { ...base(), host: '127.0.0.1', jump: base() }, async (write, stdout, end) => {
+      await until(() => stdout().includes('welcome'));
+      write('exit\n');
+      end();
+    });
+    expect(r.stdout).toContain('welcome');
+    expect(r.stderr).toMatch(/^TIDE-HOSTKEY-JUMP SHA256:/m);
+    expect(r.stderr).toMatch(/^TIDE-HOSTKEY SHA256:/m);
+  }, 30000);
 
   it('browses, reads, writes, renames and removes files over SFTP', async () => {
     fs.writeFileSync(path.join(root, 'hello.txt'), 'hello');

@@ -13,7 +13,7 @@ import { localRunner } from '../../runtime';
 import { projectsStore, workspace } from '../../state';
 import { formatBytes } from '../editor/largeFiles';
 import { RemoteEntry, SftpSession } from './client';
-import { connectionConfig, SshHost, sshStore, useSsh } from './store';
+import { connectionConfig, rememberKey, SshHost, useSsh } from './store';
 
 const join = (dir: string, name: string) => (dir.endsWith('/') ? `${dir}${name}` : `${dir}/${name}`);
 const parentOf = (p: string) => p.slice(0, p.lastIndexOf('/')) || '/';
@@ -24,7 +24,7 @@ export function useSftp(host: SshHost | undefined) {
     if (!host) return null;
     const holder: { s: SftpSession | null; ready: Promise<SftpSession> } = { s: null, ready: Promise.resolve(null as never) };
     holder.ready = connectionConfig(host).then((config) => {
-      holder.s = new SftpSession(localRunner, config, (fp) => sshStore.getState().trustHost(host.id, fp));
+      holder.s = new SftpSession(localRunner, config, (fp, which) => rememberKey(host, fp, which));
       return holder.s;
     });
     return holder;

@@ -23,7 +23,9 @@ export function runSshTool(runner: Runner, mode: string, config: object): Promis
   });
 }
 
-const HOSTKEY = /^TIDE-HOSTKEY (\S+)$/;
+// "TIDE-HOSTKEY <fp>" for the server, "TIDE-HOSTKEY-JUMP <fp>" for the jump host.
+const HOSTKEY = /^TIDE-HOSTKEY(-JUMP)? (\S+)$/;
+export type HostKeyFor = 'server' | 'jump';
 
 // Lines tide:ssh writes to stderr: the host key line goes to `onHostKey`,
 // everything else is shown.
@@ -50,7 +52,7 @@ export class SshBackend implements TerminalBackend {
     private label: string,
     private config: () => Promise<object>,
     private write: (data: string) => void,
-    private onHostKey: (fingerprint: string) => void,
+    private onHostKey: (fingerprint: string, which: HostKeyFor) => void,
     private onExit?: () => void,
   ) {}
 
@@ -63,8 +65,8 @@ export class SshBackend implements TerminalBackend {
         const errors = stderrLines((line) => {
           const m = HOSTKEY.exec(line);
           if (m) {
-            this.onHostKey(m[1]);
-            this.write(`${ansi.dim}Host key ${m[1]} saved for next time.${ansi.reset}\r\n`);
+            this.onHostKey(m[2], m[1] ? 'jump' : 'server');
+            this.write(`${ansi.dim}${m[1] ? 'Jump host' : 'Host'} key ${m[2]} saved for next time.${ansi.reset}\r\n`);
           } else this.write(`${ansi.red}${line}${ansi.reset}\r\n`);
         });
         this.runner.run(
@@ -119,7 +121,7 @@ export class SftpSession {
   constructor(
     private runner: Runner,
     config: object,
-    onHostKey: (fingerprint: string) => void,
+    onHostKey: (fingerprint: string, which: HostKeyFor) => void,
   ) {
     let markReady: () => void = () => undefined;
     let fail: (e: Error) => void = () => undefined;
@@ -130,7 +132,7 @@ export class SftpSession {
     let errorText = '';
     const errors = stderrLines((line) => {
       const m = HOSTKEY.exec(line);
-      if (m) onHostKey(m[1]);
+      if (m) onHostKey(m[2], m[1] ? 'jump' : 'server');
       else errorText += `${line}\n`;
     });
     runner.run({ type: 'run', id: this.id, runtime: 'node', entry: 'tide:ssh', cwd: '', args: ['sftp'], env: { TIDE_SSH: JSON.stringify(config) }, limits: LIMITS }, (msg: RunnerMessage) => {
@@ -188,4 +190,30 @@ export class SftpSession {
     this.runner.send({ type: 'stdin', id: this.id, data: '{"op":"close"}\n' });
     setTimeout(() => this.runner.send({ type: 'kill', id: this.id }), 2000);
   }
+}
+
+// Local port forwarding: localhost:<localPort> on the device reaches
+// <remoteHost>:<remotePort> on the server, until stopped.
+export function startForward(
+  runner: Runner,
+  config: object,
+  forward: { localPort: number; remoteHost: string; remotePort: number },
+  on: { status(text: string): void; hostKey(fingerprint: string, which: HostKeyFor): void; exit(error: string | null): void },
+): () => void {
+  const id = runId('forward');
+  let errorText = '';
+  const errors = stderrLines((line) => {
+    const m = HOSTKEY.exec(line);
+    if (m) on.hostKey(m[2], m[1] ? 'jump' : 'server');
+    else errorText += `${line}\n`;
+  });
+  runner.run(
+    { type: 'run', id, runtime: 'node', entry: 'tide:ssh', cwd: '', args: ['forward'], env: { TIDE_SSH: JSON.stringify({ ...config, forward }) }, limits: LIMITS },
+    (msg: RunnerMessage) => {
+      if (msg.type === 'stdout') on.status(msg.data.trim());
+      else if (msg.type === 'stderr') errors(msg.data);
+      else if (msg.type === 'exit') on.exit(msg.code === 0 || msg.signal ? null : errorText.trim() || 'The connection closed.');
+    },
+  );
+  return () => runner.send({ type: 'kill', id });
 }
