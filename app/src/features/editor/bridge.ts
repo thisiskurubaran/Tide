@@ -3,7 +3,7 @@
 import type { EditorTheme } from '../../theme/editor';
 import type { Shortcut } from '../project/shortcuts';
 
-export type Language = 'javascript' | 'typescript' | 'jsx' | 'tsx' | 'python' | 'json' | 'html' | 'css' | 'markdown' | 'plain';
+export type Language = 'javascript' | 'typescript' | 'jsx' | 'tsx' | 'python' | 'json' | 'html' | 'css' | 'markdown' | 'lua' | 'ruby' | 'php' | 'sql' | 'plain';
 
 export type EditorKey = 'left' | 'right' | 'up' | 'down' | 'home' | 'end' | 'tab';
 
@@ -124,6 +124,10 @@ const EXTENSIONS: Record<string, Language> = {
   css: 'css',
   md: 'markdown',
   markdown: 'markdown',
+  lua: 'lua',
+  rb: 'ruby',
+  php: 'php',
+  sql: 'sql',
 };
 
 export function languageFor(path: string): Language {

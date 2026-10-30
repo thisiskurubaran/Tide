@@ -1,7 +1,8 @@
 // Messages spoken by every runner (local Node, local Python, remote). The
 // terminal UI only knows these types, never which runner is behind them.
 
-export type Runtime = 'node' | 'python';
+// Lua runs on the Node runtime (fengari); Ruby and PHP on WebAssembly in a web view.
+export type Runtime = 'node' | 'python' | 'lua' | 'ruby' | 'php';
 
 // Optional per-run caps. Local runners apply defaults when they are missing.
 export type RunLimits = { maxMemoryMb?: number; timeoutMs?: number };

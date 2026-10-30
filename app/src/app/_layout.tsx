@@ -16,6 +16,7 @@ import { useColors } from '../theme/theme';
 import { captureConsole } from '../features/support/logs';
 import { supportStore } from '../features/support/store';
 import { proStore, startPro } from '../features/pro';
+import { WasmHost } from '../runtime/wasm';
 
 // Before anything else logs, so bug reports include start-up warnings.
 captureConsole();
@@ -71,6 +72,9 @@ export default function RootLayout() {
   if (!ready) return null;
 
   return (
-    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }} />
+    <>
+      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }} />
+      <WasmHost />
+    </>
   );
 }

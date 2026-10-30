@@ -44,6 +44,9 @@ const COMMAND_HELP: [string, string][] = [
   ['cp [-r] <src...> <dest>', 'copy files, or folders with -r'],
   ['node <file> [args]', 'run a JavaScript file'],
   ['python <file> [args]', 'run a Python file'],
+  ['lua <file> [args]', 'run a Lua file (Lua 5.3)'],
+  ['ruby <file> [args]', 'run a Ruby file (Ruby 3.4)'],
+  ['php <file> [args]', 'run a PHP file (PHP 8.3)'],
   ['run [name]', 'run the project, or a named configuration (uses tide.json)'],
   ['npm install [pkg...]', 'install pure-JS packages into node_modules'],
   ['npm uninstall <pkg...>', 'remove packages and what only they needed'],
@@ -166,7 +169,7 @@ export class Shell {
       );
       return;
     }
-    if (parsed.redirect && ['node', 'python', 'python3', 'run', 'npm', 'pip', 'pip3', 'git'].includes(name)) {
+    if (parsed.redirect && ['node', 'python', 'python3', 'lua', 'ruby', 'php', 'run', 'npm', 'pip', 'pip3', 'git'].includes(name)) {
       io.err(`${name}: output redirection isn't supported for programs\n`);
       return;
     }
@@ -355,6 +358,9 @@ export class Shell {
       node: (args) => this.runProgram('node', args),
       python: (args) => this.runProgram('python', args),
       python3: (args) => this.runProgram('python', args),
+      lua: (args) => this.runProgram('lua', args),
+      ruby: (args) => this.runProgram('ruby', args),
+      php: (args) => this.runProgram('php', args),
       // Built into the Node supervisor; resolves packages from the registry without running scripts.
       npm: (args) => this.startRun('node', 'tide:npm', args, this.cwd),
       // pip runs in the Node supervisor next to npm, sharing its download and archive code.

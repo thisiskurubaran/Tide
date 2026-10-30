@@ -43,7 +43,8 @@ export interface ProjectTasks {
   error: string | null;
 }
 
-const isRuntime = (v: unknown): v is Runtime => v === 'node' || v === 'python';
+const RUNTIMES: Runtime[] = ['node', 'python', 'lua', 'ruby', 'php'];
+const isRuntime = (v: unknown): v is Runtime => RUNTIMES.includes(v as Runtime);
 const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
 const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v : undefined);
 
@@ -97,6 +98,6 @@ const quote = (s: string) => (/^[\w./:=@%+-]+$/.test(s) ? s : `'${s.replace(/'/g
 // itself (by name); remote bash gets the command spelled out.
 export function configLine(config: NamedConfig, mode: RunnerMode): string {
   if (mode === 'local') return config.name === DEFAULT_CONFIG ? 'run\r' : `run ${quote(config.name)}\r`;
-  const program = config.runtime === 'python' ? 'python3' : 'node';
+  const program = config.runtime === 'python' ? 'python3' : config.runtime;
   return `${[program, config.entry, ...config.args].map(quote).join(' ')}\r`;
 }
