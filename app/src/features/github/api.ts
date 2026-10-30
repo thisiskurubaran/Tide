@@ -94,6 +94,26 @@ export interface Comment {
   created_at: string;
 }
 
+// A comment on a line of a pull request's diff.
+export interface ReviewComment {
+  id: number;
+  user: { login: string };
+  body: string;
+  path: string;
+  // Line in the new file (side RIGHT) or the old one (LEFT); null when outdated.
+  line: number | null;
+  side: 'LEFT' | 'RIGHT';
+  created_at: string;
+}
+
+export interface Comparison {
+  status: 'ahead' | 'behind' | 'diverged' | 'identical';
+  ahead_by: number;
+  behind_by: number;
+  commits: { sha: string; commit: { message: string; author: { name: string; date: string } | null } }[];
+  files?: PullFile[];
+}
+
 export interface Review {
   id: number;
   user: { login: string };
@@ -174,6 +194,11 @@ export function createGitHub(token: string, fetchImpl: typeof fetch = (...a) => 
       request<{ merged: boolean; message: string }>('PUT', `${repoPath(owner, repo)}/pulls/${n}/merge`, { merge_method: method }),
     createPull: (owner: string, repo: string, p: { title: string; body: string; head: string; base: string; draft?: boolean }) =>
       request<Pull>('POST', `${repoPath(owner, repo)}/pulls`, p),
+    reviewComments: (owner: string, repo: string, n: number) => get<ReviewComment[]>(`${repoPath(owner, repo)}/pulls/${n}/comments?per_page=100`),
+    commentOnLine: (owner: string, repo: string, n: number, c: { body: string; commit_id: string; path: string; line: number; side: 'LEFT' | 'RIGHT' }) =>
+      request<ReviewComment>('POST', `${repoPath(owner, repo)}/pulls/${n}/comments`, c),
+    compare: (owner: string, repo: string, base: string, head: string) =>
+      get<Comparison>(`${repoPath(owner, repo)}/compare/${enc(base)}...${enc(head)}`),
     checks: (owner: string, repo: string, sha: string) => get<{ check_runs: CheckRun[] }>(`${repoPath(owner, repo)}/commits/${sha}/check-runs?per_page=100`).then((r) => r.check_runs),
 
     issues: (owner: string, repo: string, state: 'open' | 'closed' = 'open') =>

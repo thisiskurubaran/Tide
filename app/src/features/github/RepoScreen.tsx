@@ -37,14 +37,13 @@ export function RepoScreen() {
   const colors = useColors();
   const [tab, setTab] = useState<Tab>('pulls');
   const [state, setState] = useState<'open' | 'closed'>('open');
-  const [form, setForm] = useState<'issue' | 'pull' | null>(null);
+  const [form, setForm] = useState<'issue' | null>(null);
   const [cloning, setCloning] = useState(false);
   const info = useAsync(() => github().repo(owner, repo), [owner, repo]);
   const list = useAsync<unknown[]>(
     () => (tab === 'pulls' ? github().pulls(owner, repo, state) : tab === 'issues' ? github().issues(owner, repo, state) : github().runs(owner, repo)),
     [owner, repo, tab, state],
   );
-  const branches = useAsync(() => (form === 'pull' ? github().branches(owner, repo) : Promise.resolve([])), [form, owner, repo]);
 
   const clone = async () => {
     if (!info.value) return;
@@ -86,7 +85,7 @@ export function RepoScreen() {
       actions={
         <>
           <IconButton icon="external-link" label="Open on GitHub" onPress={() => info.value && Linking.openURL(info.value.html_url)} />
-          {tab !== 'actions' && <IconButton icon="plus" label={tab === 'pulls' ? 'New pull request' : 'New issue'} onPress={() => setForm(tab === 'pulls' ? 'pull' : 'issue')} testID="github-new" />}
+          {tab !== 'actions' && <IconButton icon="plus" label={tab === 'pulls' ? 'New pull request' : 'New issue'} onPress={() => (tab === 'pulls' ? router.push({ pathname: '/github/new-pull', params: { owner, repo } }) : setForm('issue'))} testID="github-new" />}
         </>
       }
     >
@@ -158,26 +157,6 @@ export function RepoScreen() {
           haptic('success');
           setForm(null);
           router.push(itemHref(owner, repo, issue.number, false));
-        }}
-      />
-      <FormSheet
-        visible={form === 'pull' && !!branches.value}
-        title="New pull request"
-        description="Push your branch first (Source control, or git push in the terminal)."
-        confirmLabel="Create pull request"
-        fields={[
-          { key: 'head', label: 'From branch', choices: (branches.value ?? []).filter((b) => b.name !== info.value?.default_branch).map((b) => ({ value: b.name, label: b.name })), required: true },
-          { key: 'base', label: 'Into', choices: (branches.value ?? []).map((b) => ({ value: b.name, label: b.name })).sort((a) => (a.value === info.value?.default_branch ? -1 : 1)) },
-          { key: 'title', label: 'Title', required: true },
-          { key: 'body', label: 'Description', multiline: true },
-          { key: 'draft', label: 'Open as', choices: [{ value: 'ready', label: 'Ready for review' }, { value: 'draft', label: 'Draft' }] },
-        ]}
-        onClose={() => setForm(null)}
-        onSubmit={async ({ head, base, title, body, draft }) => {
-          const pr = await github().createPull(owner, repo, { head, base, title: title.trim(), body, draft: draft === 'draft' });
-          haptic('success');
-          setForm(null);
-          router.push(itemHref(owner, repo, pr.number, true));
         }}
       />
     </Screen>

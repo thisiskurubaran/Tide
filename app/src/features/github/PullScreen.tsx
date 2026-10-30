@@ -14,8 +14,9 @@ import { useAsync } from '../../components/useAsync';
 import { makeStyles, useColors } from '../../theme/theme';
 import { borderWidth, spacing } from '../../theme/tokens';
 import { github } from './account';
-import { MergeMethod, ReviewEvent } from './api';
-import { conversationHtml, filesHtml } from './render';
+import { MergeMethod, PullFile, ReviewEvent } from './api';
+import { DiffList } from './DiffList';
+import { conversationHtml } from './render';
 import { runColor, runLabel } from './RepoScreen';
 
 type Tab = 'conversation' | 'files' | 'checks';
@@ -34,7 +35,12 @@ export function PullScreen() {
     const [pull, comments, reviews] = await Promise.all([gh.pull(owner, repo, n), gh.comments(owner, repo, n), gh.reviews(owner, repo, n)]);
     return { pull, comments, reviews };
   }, [owner, repo, n]);
-  const files = useAsync(() => (tab === 'files' ? github().pullFiles(owner, repo, n) : Promise.resolve(null)), [tab, owner, repo, n]);
+  const files = useAsync(async () => {
+    if (tab !== 'files') return null;
+    const [list, comments] = await Promise.all([github().pullFiles(owner, repo, n), github().reviewComments(owner, repo, n)]);
+    return { list, comments };
+  }, [tab, owner, repo, n]);
+  const [lineComment, setLineComment] = useState<{ file: PullFile; line: number; side: 'LEFT' | 'RIGHT'; text: string } | null>(null);
   const checks = useAsync(() => (tab === 'checks' && data.value ? github().checks(owner, repo, data.value.pull.head.sha) : Promise.resolve(null)), [tab, data.value]);
 
   const pull = data.value?.pull;
@@ -88,7 +94,21 @@ export function PullScreen() {
           </View>
           <View style={styles.flex}>
             {tab === 'conversation' && <HtmlView body={conversationHtml(pull, data.value!.comments, data.value!.reviews)} testID="pull-conversation" />}
-            {tab === 'files' && (files.value ? <HtmlView body={filesHtml(files.value)} testID="pull-files" /> : files.error ? <Text variant="error" style={styles.pad}>{files.error}</Text> : <Loading />)}
+            {tab === 'files' &&
+              (files.value ? (
+                <DiffList
+                  files={files.value.list}
+                  comments={files.value.comments}
+                  onLine={(file, target, text) => setLineComment({ file, ...target, text })}
+                  header={<Text variant="muted" style={styles.pad}>Tap a line to comment on it.</Text>}
+                />
+              ) : files.error ? (
+                <Text variant="error" style={styles.pad}>
+                  {files.error}
+                </Text>
+              ) : (
+                <Loading />
+              ))}
             {tab === 'checks' && (
               <View style={styles.pad}>
                 {checks.loading && <Loading />}
@@ -149,6 +169,21 @@ export function PullScreen() {
           haptic('success');
           setSheet(null);
           data.reload();
+        }}
+      />
+      <FormSheet
+        visible={lineComment !== null}
+        title={lineComment ? `${lineComment.file.filename.split('/').pop()}, line ${lineComment.line}` : ''}
+        description={lineComment?.text.trim() ? lineComment.text.trim() : undefined}
+        confirmLabel="Comment"
+        fields={[{ key: 'body', label: 'Comment', multiline: true, required: true, placeholder: 'Markdown is supported' }]}
+        onClose={() => setLineComment(null)}
+        onSubmit={async ({ body }) => {
+          const c = lineComment!;
+          await github().commentOnLine(owner, repo, n, { body, commit_id: pull!.head.sha, path: c.file.filename, line: c.line, side: c.side });
+          haptic('success');
+          setLineComment(null);
+          files.reload();
         }}
       />
       <ActionSheet
