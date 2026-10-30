@@ -1,4 +1,4 @@
-import { formatBody, isLocal, parseHttpFile, resolve, resolveRequest, send } from './http';
+import { formatBody, isLocal, parseEnvironments, parseHttpFile, resolve, resolveRequest, responseFileName, send } from './http';
 
 describe('.http files', () => {
   const file = `@base = http://localhost:3000
@@ -65,5 +65,17 @@ https://example.com/health
     await expect(send({ name: 'x', method: 'GET', url: 'http://localhost:1', headers: [], body: '', line: 1 }, failing)).rejects.toThrow(/^Network request failed$/);
     expect(isLocal('http://192.168.1.4:8080/x')).toBe(true);
     expect(isLocal('https://api.github.com')).toBe(false);
+  });
+});
+
+describe('environments and saved responses', () => {
+  it('merges the private file over the shared one, per environment', () => {
+    const envs = parseEnvironments('{"dev":{"base":"http://localhost:3000","token":"x"},"prod":{"base":"https://api.example.com"}}', '{"dev":{"token":"secret"}}', 'not json');
+    expect(envs).toEqual({ dev: { base: 'http://localhost:3000', token: 'secret' }, prod: { base: 'https://api.example.com' } });
+  });
+
+  it('names saved responses after the request', () => {
+    expect(responseFileName('List users!', [['content-type', 'application/json; charset=utf-8']])).toBe('responses/list-users.json');
+    expect(responseFileName('', [])).toBe('responses/response.txt');
   });
 });

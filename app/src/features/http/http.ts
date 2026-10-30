@@ -186,3 +186,47 @@ Content-Type: application/json
   "createdAt": {{$timestamp}}
 }
 `;
+
+// Environments, in the JetBrains HTTP Client format, next to the .http file or
+// at the project root: http-client.env.json, and http-client.private.env.json
+// for secrets (its values win). { "dev": { "base": "http://localhost:3000" } }
+export const ENV_FILE = 'http-client.env.json';
+export const PRIVATE_ENV_FILE = 'http-client.private.env.json';
+
+export type Environments = Record<string, Record<string, string>>;
+
+export function parseEnvironments(...texts: (string | null)[]): Environments {
+  const out: Environments = {};
+  for (const text of texts) {
+    if (!text) continue;
+    let json: unknown;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      continue;
+    }
+    if (!json || typeof json !== 'object') continue;
+    for (const [name, vars] of Object.entries(json as Record<string, unknown>)) {
+      if (!vars || typeof vars !== 'object' || Array.isArray(vars)) continue;
+      out[name] = { ...out[name], ...Object.fromEntries(Object.entries(vars).map(([k, v]) => [k, String(v)])) };
+    }
+  }
+  return out;
+}
+
+export const ENV_TEMPLATE = `${JSON.stringify(
+  {
+    dev: { base: 'http://localhost:3000' },
+    prod: { base: 'https://example.com' },
+  },
+  null,
+  2,
+)}\n`;
+
+// A file name for a saved response: the request's name, with the right extension.
+export function responseFileName(requestName: string, headers: [string, string][]): string {
+  const type = headers.find(([k]) => k.toLowerCase() === 'content-type')?.[1] ?? '';
+  const ext = /json/i.test(type) ? 'json' : /html/i.test(type) ? 'html' : /xml/i.test(type) ? 'xml' : /csv/i.test(type) ? 'csv' : 'txt';
+  const slug = requestName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'response';
+  return `responses/${slug}.${ext}`;
+}
