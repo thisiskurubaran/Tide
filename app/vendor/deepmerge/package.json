@@ -3,6 +3,6 @@
   "description": "deepmerge 4.3.1 with a fix for GHSA-gcqx-w48m-w2h4 (no patched release upstream yet)",
   "version": "4.3.1-tide.1",
   "license": "MIT",
-  "main": "dist/cjs.js",
+  "main": "index.js",
   "types": "index.d.ts"
 }
