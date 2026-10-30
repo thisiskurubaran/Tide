@@ -44,6 +44,8 @@ import { previewKind, viewerFirst, viewerOnly } from '../preview/render';
 import { DatabasePane } from '../database/DatabasePane';
 import { HttpPane } from '../http/HttpPane';
 import { HTTP_TEMPLATE } from '../http/http';
+import { autoDeployer, deployStore } from '../deploy';
+import { useDeployStatus } from '../deploy/auto';
 import { hasConflicts } from '../diff/conflicts';
 import { CompareView } from '../diff/CompareView';
 import type { CompareRequest } from '../diff/sources';
@@ -222,7 +224,17 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     editor.current?.reveal(path, line, column);
   };
 
-  const save = (path: string) => saveWithHooks(extensions, ctx, path);
+  const save = (path: string) =>
+    saveWithHooks(extensions, ctx, path).then(() => {
+      autoDeployer.onSave(project).catch(() => undefined);
+    });
+  const deployStatus = useDeployStatus(deployStore, project);
+  // A finished deploy's note goes away after a moment; failures stay until tapped.
+  useEffect(() => {
+    if (deployStatus?.state !== 'done') return;
+    const t = setTimeout(() => deployStore.getState().setStatus(project, undefined), 6000);
+    return () => clearTimeout(t);
+  }, [deployStatus, project]);
 
   const projectTasks = useProjectTasks(project);
   const chosenConfig = useRunner((s) => s.configs[project] ?? DEFAULT_CONFIG);
@@ -441,6 +453,19 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
         <IconButton icon="command" label="Commands" onPress={() => setPalette('commands')} testID="open-palette" />
       </View>
 
+      {deployStatus && (
+        <Pressable
+          onPress={() => (deployStatus.state === 'failed' ? router.push({ pathname: '/deploy', params: { project } }) : deployStore.getState().setStatus(project, undefined))}
+          accessibilityRole="button"
+          accessibilityLiveRegion="polite"
+          style={[styles.deployBar, deployStatus.state === 'failed' && styles.deployFailed]}
+          testID="deploy-status"
+        >
+          <Text variant="muted" numberOfLines={1} style={styles.deployText}>
+            {deployStatus.state === 'deploying' ? `Deploying · ${deployStatus.message}` : deployStatus.state === 'done' ? `Deployed · ${deployStatus.url ?? ''}` : `Deploy failed · ${deployStatus.message}`}
+          </Text>
+        </Pressable>
+      )}
       <View style={[styles.body, wide && styles.row]}>
         {wide && !sidebarHidden && (
           <View style={[styles.sidebar, { paddingBottom: insets.bottom }]} testID="sidebar">
@@ -614,6 +639,9 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
 }
 
 const useStyles = makeStyles((colors) => ({
+  deployBar: { paddingHorizontal: spacing.md, paddingVertical: spacing.xs + 2, backgroundColor: colors.brandSoft },
+  deployFailed: { backgroundColor: colors.destructiveSoft },
+  deployText: { color: colors.foreground },
   screen: { flex: 1, backgroundColor: colors.background },
   header: {
     flexDirection: 'row',

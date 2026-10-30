@@ -18,6 +18,8 @@ export interface SiteFile {
 export interface DeployConfig {
   provider: ProviderId;
   folder: string;
+  // Deploy on its own: after saving (once it goes quiet) or after each commit.
+  auto?: 'off' | 'save' | 'commit';
   github?: { owner: string; repo: string; branch: string };
   netlify?: { siteId: string };
   vercel?: { project: string };

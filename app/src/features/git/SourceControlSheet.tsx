@@ -6,6 +6,7 @@ import { Sheet } from '../../components/Sheet';
 import { Text } from '../../components/Text';
 import { localRunner } from '../../runtime';
 import { buffersStore, projectsStore, tabsStore } from '../../state';
+import { autoDeployer } from '../deploy';
 import { projectTabs } from '../../state/tabs';
 import { makeStyles, useColors } from '../../theme/theme';
 import { borderWidth, fonts, fontSizes, radius, spacing } from '../../theme/tokens';
@@ -80,7 +81,10 @@ export function SourceControlSheet({ visible, project, onClose }: { visible: boo
   async function commit() {
     // Unsaved editor text would otherwise be left out of the commit.
     await buffersStore.getState().flushProject(project);
-    if (await act('commit', [['add', '-A'], ['commit', '-m', message.trim()]])) setMessage('');
+    if (await act('commit', [['add', '-A'], ['commit', '-m', message.trim()]])) {
+      setMessage('');
+      autoDeployer.onCommit(project).catch(() => undefined);
+    }
   }
 
   const repo = status.state === 'repo' ? status : null;

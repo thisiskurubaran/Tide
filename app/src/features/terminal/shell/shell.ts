@@ -23,6 +23,8 @@ export interface ShellOptions {
   toolEnv?: () => Record<string, string>;
   // Opens project databases for sqlite3; without it the command says it's unavailable.
   sqlite?: SqliteHost;
+  // Told when a program ends, e.g. so a git commit can start an automatic deploy.
+  onRunExit?(entry: string, args: string[], code: number): void;
 }
 
 class CommandError extends Error {}
@@ -501,6 +503,7 @@ export class Shell {
         return this.write(`${ansi.red}${msg.data}${ansi.reset}`);
       case 'exit': {
         this.running.stdin.stop();
+        this.opts.onRunExit?.(this.running.entry, this.running.args, msg.code ?? 1);
         this.running = null;
         // Programs can create or delete files (npm install, scripts writing output).
         this.opts.fs.refresh().catch(() => undefined);

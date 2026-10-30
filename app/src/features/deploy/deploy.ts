@@ -40,6 +40,7 @@ export async function guessFolder(project: string): Promise<string> {
 }
 
 export async function readConfig(project: string): Promise<DeployConfig | null> {
+  // Also read by automatic deploys on every save; it's one small file.
   try {
     return (JSON.parse(await workspace.readFile(project, RUN_CONFIG_FILE)).deploy as DeployConfig) ?? null;
   } catch {

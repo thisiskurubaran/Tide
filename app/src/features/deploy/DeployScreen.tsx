@@ -1,6 +1,7 @@
 import * as Clipboard from 'expo-clipboard';
 import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
+import { useStore } from 'zustand';
 import { ActivityIndicator, Linking, Pressable, TextInput, View } from 'react-native';
 
 import { Button } from '../../components/Button';
@@ -10,9 +11,14 @@ import { Text } from '../../components/Text';
 import { workspace } from '../../state';
 import { makeStyles, useColors } from '../../theme/theme';
 import { borderWidth, fonts, fontSizes, radius, spacing } from '../../theme/tokens';
-import { parseRemote } from '../github/api';
+import { parseRemote, timeAgo } from '../github/api';
+import type { DeployRecord } from './auto';
+import { deployStore } from './index';
 import { deploy, getToken, guessFolder, PROVIDERS, readConfig, saveConfig, setToken } from './deploy';
 import { DeployConfig, ProviderId } from './providers';
+
+// One shared empty list: a new [] on every render would re-render forever.
+const NO_HISTORY: DeployRecord[] = [];
 
 // The GitHub repository a clone came from, from .git/config.
 async function githubRemote(project: string) {
@@ -38,6 +44,7 @@ export function DeployScreen() {
   const [error, setError] = useState<string | null>(null);
   const [url, setUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const history = useStore(deployStore, (s) => s.history[project] ?? NO_HISTORY);
 
   useEffect(() => {
     (async () => {
@@ -74,16 +81,26 @@ export function DeployScreen() {
       await saveConfig(project, next);
       setConfig(next);
       setUrl(result.url);
+      deployStore.getState().record(project, { at: Date.now(), provider: config.provider, trigger: 'manual', ok: true, url: result.url });
       setHasToken(true);
       setTokenValue('');
       haptic('success');
     } catch (e) {
       haptic('error');
-      setError(e instanceof Error ? e.message : String(e));
+      const message = e instanceof Error ? e.message : String(e);
+      setError(message);
+      deployStore.getState().record(project, { at: Date.now(), provider: config.provider, trigger: 'manual', ok: false, error: message });
     } finally {
       setBusy(false);
       setStatus(null);
     }
+  };
+
+  const setAuto = async (auto: 'off' | 'save' | 'commit') => {
+    const next = { ...config, auto };
+    setConfig(next);
+    await saveConfig(project, next);
+    haptic('select');
   };
 
   const field = (label: string, value: string, onChange: (v: string) => void, placeholder?: string, hint?: string, secure = false) => (
@@ -147,6 +164,37 @@ export function DeployScreen() {
         field('Deploy Hook URL', token, setTokenValue, hasToken ? 'Saved in the Keychain. Type to replace it.' : 'https://api.render.com/deploy/srv-…', 'Settings → Deploy Hook in your Render service. Kept in the Keychain.', true)}
       {config.provider === 'github' && !hasToken && <Text variant="error">Sign in to GitHub first, in Settings → GitHub.</Text>}
 
+      <View style={styles.field}>
+        <Text variant="label">Deploy automatically</Text>
+        <View style={styles.providers}>
+          {(
+            [
+              ['off', 'Off'],
+              ['save', 'When I save'],
+              ['commit', 'After each commit'],
+            ] as const
+          ).map(([value, label]) => (
+            <Pressable
+              key={value}
+              onPress={() => setAuto(value)}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: (config.auto ?? 'off') === value }}
+              style={[styles.chip, (config.auto ?? 'off') === value && styles.chipOn]}
+              testID={`deploy-auto-${value}`}
+            >
+              <Text variant="label">{label}</Text>
+            </Pressable>
+          ))}
+        </View>
+        <Text variant="muted">
+          {config.auto === 'save'
+            ? 'Deploys 15 seconds after you stop saving, while the project is open.'
+            : config.auto === 'commit'
+              ? 'Deploys after each commit from Source Control or git commit in the terminal.'
+              : 'Deploy with the button below.'}
+        </Text>
+      </View>
+
       <Button title={busy ? 'Deploying…' : 'Deploy'} icon="upload-cloud" onPress={run} disabled={busy} testID="deploy-run" />
       {status && (
         <View style={styles.row}>
@@ -172,6 +220,31 @@ export function DeployScreen() {
           </View>
         </View>
       )}
+      {history.length > 0 && (
+        <View style={styles.field}>
+          <Text variant="label">Recent deploys</Text>
+          {history.map((h) => (
+            <Pressable
+              key={h.at}
+              onPress={() => h.url && Linking.openURL(h.url)}
+              disabled={!h.url}
+              accessibilityRole={h.url ? 'link' : undefined}
+              style={styles.historyRow}
+            >
+              <Text style={{ color: h.ok ? colors.success : colors.destructive }}>{h.ok ? '✓' : '✕'}</Text>
+              <View style={{ flex: 1 }}>
+                <Text variant="label" numberOfLines={1}>
+                  {PROVIDERS.find((p) => p.id === h.provider)?.label ?? h.provider} · {h.trigger === 'manual' ? 'by hand' : h.trigger === 'save' ? 'after saving' : 'after a commit'}
+                </Text>
+                <Text variant="muted" numberOfLines={2}>
+                  {timeAgo(new Date(h.at).toISOString())}
+                  {h.ok ? (h.url ? ` · ${h.url}` : '') : ` · ${h.error}`}
+                </Text>
+              </View>
+            </Pressable>
+          ))}
+        </View>
+      )}
     </Screen>
   );
 }
@@ -193,5 +266,6 @@ const useStyles = makeStyles((colors) => ({
     fontSize: fontSizes.sm,
   },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' },
+  historyRow: { flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start', paddingVertical: spacing.xs },
   done: { gap: spacing.sm, padding: spacing.md, borderRadius: radius.lg, borderWidth, borderColor: colors.success, backgroundColor: colors.successSoft },
 }));
