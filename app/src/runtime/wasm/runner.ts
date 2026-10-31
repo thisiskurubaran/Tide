@@ -46,7 +46,7 @@ export class WasmRunner implements Runner {
       this.urls ??= await this.resolveUrls();
       this.page.send({ type: 'init', ...this.urls });
       const files = await this.files.read(project);
-      this.page.send({ type: 'run', id: req.id, runtime: req.runtime as WasmRuntime, entry, cwd, args: req.args, files, stdin: '' });
+      this.page.send({ type: 'run', id: req.id, runtime: req.runtime as WasmRuntime, entry, cwd, args: req.args, env: req.env ?? {}, files, stdin: '' });
     })().catch((e) => {
       on({ type: 'stderr', id: req.id, data: `${e instanceof Error ? e.message : String(e)}\n` });
       this.finish(req.id, 1);

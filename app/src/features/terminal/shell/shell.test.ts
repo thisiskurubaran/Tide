@@ -30,7 +30,7 @@ class FakeRunner implements Runner {
   }
 }
 
-async function setup() {
+async function setup(projectEnv?: { values: Record<string, string>; secrets: string[] }) {
   const memfs = createMemoryFs();
   const workspace = createWorkspace(memfs);
   await workspace.createProject('demo', 'node-hello');
@@ -47,6 +47,7 @@ async function setup() {
     projectRoot: 'projects/demo',
     newId: () => 'r1',
     toolEnv: () => ({ TIDE_GIT_NAME: 'Ada' }),
+    ...(projectEnv ? { projectEnv: async () => projectEnv } : {}),
   });
   shell.start();
   await tick();
@@ -257,6 +258,31 @@ describe('shell', () => {
       args: ['commit', '-m', 'first try'],
       env: { TIDE_GIT_NAME: 'Ada' },
     });
+  });
+
+  it("gives programs the project's variables, and env shows them with secrets hidden", async () => {
+    const { run, runner } = await setup({ values: { PORT: '4000', API_KEY: 'sk-live', TIDE_GIT_NAME: 'Grace' }, secrets: ['API_KEY'] });
+    await run('node index.js');
+    expect(runner.requests[0].env).toEqual({ PORT: '4000', API_KEY: 'sk-live', TIDE_GIT_NAME: 'Grace' });
+    runner.listener?.({ type: 'exit', id: 'r1', code: 0 });
+    await run('git status');
+    // The tool's own settings win over a same-named project variable.
+    expect(runner.requests[1].env).toMatchObject({ PORT: '4000', TIDE_GIT_NAME: 'Ada' });
+    runner.listener?.({ type: 'exit', id: 'r1', code: 0 });
+    const out = await run('env');
+    expect(out).toContain('PORT=4000');
+    expect(out).toContain('API_KEY=•••••• (Keychain)');
+    expect(out).not.toContain('sk-live');
+    expect(await run('printenv PORT')).toContain('4000');
+    expect(await run('printenv NOPE')).toContain("NOPE isn't set");
+  });
+
+  it('sends no environment when the project has none', async () => {
+    const { run, runner } = await setup();
+    await run('node index.js');
+    expect(runner.requests[0].env).toBeUndefined();
+    runner.listener?.({ type: 'exit', id: 'r1', code: 0 });
+    expect(await run('env')).toContain('No variables yet');
   });
 
   it('kills the running program when disposed', async () => {

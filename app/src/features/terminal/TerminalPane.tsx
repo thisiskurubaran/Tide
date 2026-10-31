@@ -9,6 +9,7 @@ import { useTerminalTheme } from '../../extensions/themes';
 
 import type { TerminalBackend } from './backend';
 import { openProjectDb } from '../database/open';
+import { projectEnv, readSecrets } from '../env/store';
 import { autoDeployer } from '../deploy';
 import { parseFromTerminal, ToTerminal } from './bridge';
 import { gitEnv } from '../git/settings';
@@ -80,6 +81,10 @@ export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(functi
       projectRoot: `${PROJECTS_DIR}/${project}`,
       toolEnv: gitEnv,
       sqlite: { open: (path) => openProjectDb(project, path) },
+      projectEnv: async () => {
+        const [values, secrets] = await Promise.all([projectEnv(project), readSecrets(project)]);
+        return { values, secrets: Object.keys(secrets) };
+      },
       onRunExit: (entry, args, code) => {
         if (entry === 'tide:git' && args[0] === 'commit' && code === 0) autoDeployer.onCommit(project).catch(() => undefined);
       },

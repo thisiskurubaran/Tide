@@ -23,6 +23,8 @@ export interface ShellOptions {
   toolEnv?: () => Record<string, string>;
   // Opens project databases for sqlite3; without it the command says it's unavailable.
   sqlite?: SqliteHost;
+  // The project's .env and Keychain variables, given to every program it runs.
+  projectEnv?(): Promise<{ values: Record<string, string>; secrets: string[] }>;
   // Told when a program ends, e.g. so a git commit can start an automatic deploy.
   onRunExit?(entry: string, args: string[], code: number): void;
 }
@@ -57,6 +59,7 @@ const COMMAND_HELP: [string, string][] = [
   ['npm uninstall <pkg...>', 'remove packages and what only they needed'],
   ['pip install <pkg...>', 'install pure-Python packages into .pylibs'],
   ['git <command>', 'clone, status, add, commit, log, push, pull (git help)'],
+  ['env [NAME]', "show the project's environment variables (.env and Keychain)"],
   ['sqlite3 <db> ["SQL"]', 'run SQL on a database file, or open a sqlite> prompt'],
   ['clear', 'clear the screen'],
   ['help', 'show this list'],
@@ -367,6 +370,8 @@ export class Shell {
         }
       },
       clear: async () => this.write(ansi.clearScreen),
+      env: (args, io) => this.printEnv(args, io),
+      printenv: (args, io) => this.printEnv(args, io),
       node: (args) => this.runProgram('node', args),
       python: (args) => this.runProgram('python', args),
       python3: (args) => this.runProgram('python', args),
@@ -470,7 +475,25 @@ export class Shell {
     await this.startRun(runtime, entry, rest, this.cwd);
   }
 
-  private async startRun(runtime: Runtime, entry: string, args: string[], cwd: string, env?: Record<string, string>) {
+  private async printEnv(args: string[], io: Io) {
+    const env = (await this.opts.projectEnv?.().catch(() => null)) ?? { values: {}, secrets: [] };
+    const names = args.length ? args : Object.keys(env.values).sort();
+    for (const name of names) {
+      if (!(name in env.values)) {
+        if (args.length) throw new CommandError(`${name} isn't set`);
+        continue;
+      }
+      // Secrets stay hidden here; programs still get the real value.
+      const value = env.secrets.includes(name) ? '•••••• (Keychain)' : env.values[name];
+      io.out(args.length ? `${value}\n` : `${name}=${value}\n`);
+    }
+    if (!names.length) io.out('No variables yet. Add them in a .env file, or from the command palette: Environment variables.\n');
+  }
+
+  private async startRun(runtime: Runtime, entry: string, args: string[], cwd: string, toolEnv?: Record<string, string>) {
+    const projectEnv = (await this.opts.projectEnv?.().catch(() => null))?.values ?? {};
+    const merged = { ...projectEnv, ...toolEnv };
+    const env = Object.keys(merged).length ? merged : undefined;
     const id = this.nextId();
     const stdin = new LineEditor({
       write: (d) => this.write(d),

@@ -78,12 +78,12 @@ function fromTree(dir: Map<string, Inode>, prefix = '', out: Record<string, Uint
   return out;
 }
 
-async function runRuby(id: string, entry: string, cwd: string, args: string[], files: FileMap, stdin: string) {
+async function runRuby(id: string, entry: string, cwd: string, args: string[], env: Record<string, string>, files: FileMap, stdin: string) {
   const module = await compiled('ruby', id);
   const tree = toTree(files);
   const out = ConsoleStdout.lineBuffered((l) => lineWriter(id, 'stdout')(`${l}\n`));
   const err = ConsoleStdout.lineBuffered((l) => lineWriter(id, 'stderr')(`${l}\n`));
-  const wasi = new WASI([], ['HOME=/project', 'TERM=xterm-256color'], [new OpenFile(new File(encoder.encode(stdin))), out, err, new PreopenDirectory('/project', tree)]);
+  const wasi = new WASI([], ['HOME=/project', 'TERM=xterm-256color', ...Object.entries(env).map(([k, v]) => `${k}=${v}`)], [new OpenFile(new File(encoder.encode(stdin))), out, err, new PreopenDirectory('/project', tree)]);
   const { vm } = await RubyVM.instantiateModule({ module, wasip1: wasi, args: ['ruby.wasm', '-EUTF-8', '-e_=0'] });
   const q = (s: string) => JSON.stringify(s);
   // A script's exit status, uncaught exceptions printed like the ruby command does.
@@ -148,7 +148,7 @@ async function pump(stream: ReadableStream<Uint8Array>, write: (s: string) => vo
   }
 }
 
-async function runPHP(id: string, entry: string, cwd: string, args: string[], files: FileMap, stdin: string) {
+async function runPHP(id: string, entry: string, cwd: string, args: string[], env: Record<string, string>, files: FileMap, stdin: string) {
   const php = await newPHP(id);
   php.mkdir('/project');
   for (const [path, b64] of Object.entries(files)) {
@@ -159,7 +159,7 @@ async function runPHP(id: string, entry: string, cwd: string, args: string[], fi
   if (stdin) php.writeFile('/tmp/.tide-stdin', encoder.encode(stdin));
   php.chdir(`/project/${cwd}`.replace(/\/$/, ''));
   const rel = cwd ? entry.slice(cwd.length + 1) : entry;
-  const response = await php.cli(['php', rel, ...args]);
+  const response = await php.cli(['php', rel, ...args], { env });
   await Promise.all([pump(response.stdout, lineWriter(id, 'stdout')), pump(response.stderr, lineWriter(id, 'stderr'))]);
   const code = await response.exitCode;
   return { code, after: walkPHP(php, '/project') };
@@ -169,7 +169,7 @@ async function runPHP(id: string, entry: string, cwd: string, args: string[], fi
 
 async function run(msg: Extract<ToRuntime, { type: 'run' }>) {
   try {
-    const result = await (msg.runtime === 'ruby' ? runRuby : runPHP)(msg.id, msg.entry, msg.cwd, msg.args, msg.files, msg.stdin);
+    const result = await (msg.runtime === 'ruby' ? runRuby : runPHP)(msg.id, msg.entry, msg.cwd, msg.args, msg.env ?? {}, msg.files, msg.stdin);
     const changed: FileMap = {};
     for (const [path, bytes] of Object.entries(result.after)) {
       if (!(path in msg.files) || !same(bytes, fromBase64(msg.files[path]))) changed[path] = toBase64(bytes);

@@ -20,6 +20,7 @@ _lock = threading.Lock()
 # The app runs a script under the debugger by passing these first (see
 # pythonRunner.ts), and sends debugger commands as stdin with a prefix.
 _DEBUG_ARG = "--tide-debug"
+_ENV_ARG = "--tide-env"
 _DEBUG_PREFIX = "\x00tide-debug:"
 
 
@@ -182,6 +183,10 @@ def run(emit, run_id, entry, cwd, args, extra_paths=(), purge_root=None):
     state.emit = emit
     state.run_id = run_id
     _current.run = state
+    env = {}
+    if args and args[0] == _ENV_ARG:
+        env = json.loads(args[1])
+        args = list(args[2:])
     if args and args[0] == _DEBUG_ARG:
         from tide_debugger import Debugger
 
@@ -194,6 +199,9 @@ def run(emit, run_id, entry, cwd, args, extra_paths=(), purge_root=None):
     out = _Output(emit, run_id, "stdout")
     err = _Output(emit, run_id, "stderr")
     saved = (sys.stdout, sys.stderr, sys.stdin, sys.argv, list(sys.path), os.getcwd())
+    # Runs share one interpreter, so the project's variables are put back afterwards.
+    saved_env = {k: os.environ.get(k) for k in env}
+    os.environ.update(env)
     sys.stdout, sys.stderr, sys.stdin = out, err, _Input(state)
     sys.argv = [entry, *args]
     sys.path[0:0] = [os.path.dirname(entry), *extra_paths]
@@ -218,6 +226,11 @@ def run(emit, run_id, entry, cwd, args, extra_paths=(), purge_root=None):
         with _lock:
             _runs.pop(run_id, None)
         sys.stdout, sys.stderr, sys.stdin, sys.argv, sys.path[:], cwd_before = saved
+        for k, v in saved_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
         try:
             os.chdir(cwd_before)
         except OSError:

@@ -7,7 +7,7 @@ export type FileMap = Record<string, string>;
 
 export type ToRuntime =
   | { type: 'init'; ruby: string; php: string }
-  | { type: 'run'; id: string; runtime: WasmRuntime; entry: string; cwd: string; args: string[]; files: FileMap; stdin: string }
+  | { type: 'run'; id: string; runtime: WasmRuntime; entry: string; cwd: string; args: string[]; env: Record<string, string>; files: FileMap; stdin: string }
   | { type: 'kill'; id: string };
 
 export type FromRuntime =

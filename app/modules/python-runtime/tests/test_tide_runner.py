@@ -1,4 +1,5 @@
 # Host tests for tide_runner.py: `python3 -m unittest discover -s tests`.
+import json
 import os
 import sys
 import tempfile
@@ -64,6 +65,16 @@ class RunnerTest(unittest.TestCase):
         self.h.file("app/main.py", "import os, sys\nif __name__ == '__main__':\n    print(sys.argv[1:], os.path.basename(os.getcwd()))\n")
         self.assertEqual(self.h.run("r1", "app/main.py", ["a", "b"]), (0, False))
         self.assertEqual(self.h.text("r1"), f"['a', 'b'] {os.path.basename(self.h.root)}\n")
+
+    def test_env_is_set_for_the_run_and_restored(self):
+        os.environ.pop("TIDE_TEST_KEY", None)
+        os.environ["TIDE_TEST_KEEP"] = "before"
+        self.h.file("env.py", "import os\nprint(os.environ['TIDE_TEST_KEY'], os.environ['TIDE_TEST_KEEP'], __import__('sys').argv[1:])\n")
+        env = json.dumps({"TIDE_TEST_KEY": "secret", "TIDE_TEST_KEEP": "during"})
+        self.assertEqual(self.h.run("r1", "env.py", ["--tide-env", env, "x"]), (0, False))
+        self.assertEqual(self.h.text("r1"), "secret during ['x']\n")
+        self.assertNotIn("TIDE_TEST_KEY", os.environ)
+        self.assertEqual(os.environ["TIDE_TEST_KEEP"], "before")
 
     def test_input_reads_fed_lines(self):
         self.h.file("ask.py", "name = input('Name? ')\nprint(f'Hi {name}')\n")
