@@ -53,6 +53,7 @@ import {
 import { pinchToZoom } from '../pinch';
 import { languageExtension } from './languages';
 import { optionsExtension } from './options';
+import { snippetSource } from './snippets';
 import { buildTheme, FONT_FAMILY } from './theme';
 
 const CHANGE_DEBOUNCE_MS = 150;
@@ -81,7 +82,8 @@ let themeExtension: Extension = [];
 let theme: EditorTheme | null = null;
 let features: EditorFeatures = NO_FEATURES;
 let options: EditorOptions = { wordWrap: true, folding: true, indentGuides: true, minimap: false, keymap: 'standard' };
-const optionExtension = () => optionsExtension(options, theme);
+let currentLang: Language = 'plain';
+const optionExtension = () => optionsExtension(options, theme, currentLang);
 
 let currentPath: string | null = null;
 let pendingChange: ReturnType<typeof setTimeout> | null = null;
@@ -147,7 +149,7 @@ function baseExtensions(lang: Language): Extension[] {
     indentOnInput(),
     bracketMatching(),
     closeBrackets(),
-    autocompletion({ override: [completionSource(() => features.language, currentFile, requests.ask)] }),
+    autocompletion({ override: [snippetSource(() => currentLang, () => options.snippets ?? []), completionSource(() => features.language, currentFile, requests.ask)] }),
     EditorState.tabSize.of(2),
     indentUnit.of('  '),
     keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...completionKeymap]),
@@ -194,6 +196,7 @@ function open(path: string, content: string, lang: Language) {
   flushChange();
   if (currentPath !== null) states.set(currentPath, view.state);
   currentPath = path;
+  currentLang = lang;
   const cached = states.get(path);
   if (cached && cached.doc.toString() === content) {
     view.setState(cached);

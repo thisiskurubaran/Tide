@@ -22,6 +22,15 @@ export interface EditorFeatures {
 
 export type KeymapSetting = 'standard' | 'vim' | 'emacs';
 
+// A user snippet: typing `prefix` offers `body`, in VS Code syntax ($1, ${2:name}, $0).
+// No languages means every language.
+export interface Snippet {
+  prefix: string;
+  body: string;
+  description?: string;
+  languages?: Language[];
+}
+
 // View options from Settings, free for everyone.
 export interface EditorOptions {
   wordWrap: boolean;
@@ -29,6 +38,9 @@ export interface EditorOptions {
   indentGuides: boolean;
   minimap: boolean;
   keymap: KeymapSetting;
+  // Tide Pro; the app leaves these off for free accounts.
+  emmet?: boolean;
+  snippets?: Snippet[];
 }
 
 export const NO_FEATURES: EditorFeatures = { language: false, breakpoints: false, conflicts: false };

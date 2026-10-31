@@ -47,7 +47,9 @@ export function SettingsScreen() {
     folding: useSettings((s) => s.folding),
     indentGuides: useSettings((s) => s.indentGuides),
     minimap: useSettings((s) => s.minimap),
+    emmet: useSettings((s) => s.emmet),
   };
+  const snippetCount = useSettings((s) => s.snippets.length);
   const colors = useColors();
   const remote = useRemoteSettings((s) => s.settings);
   const git = useGitSettings((s) => s.settings);
@@ -138,6 +140,22 @@ export function SettingsScreen() {
               />
             </Row>
           ))}
+          <Row label="Emmet (Pro)">
+            <Switch
+              testID="editor-emmet"
+              value={editorOptions.emmet && pro}
+              onValueChange={(on) => {
+                if (!on || requirePro('snippets')) settings.setEditorOption('emmet', on);
+              }}
+              trackColor={{ true: colors.brand, false: colors.secondary }}
+            />
+          </Row>
+          <LinkRow
+            label="Snippets (Pro)"
+            detail={snippetCount ? `${snippetCount} saved` : 'Your own, with tab stops'}
+            onPress={() => router.push('/settings/snippets')}
+            testID="settings-snippets"
+          />
           <Row label="Key bindings">
             <Segmented<KeymapSetting>
               testID="editor-keymap"

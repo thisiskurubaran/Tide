@@ -8,11 +8,14 @@ import { showMinimap } from '@replit/codemirror-minimap';
 import { emacs } from '@replit/codemirror-emacs';
 import { vim } from '@replit/codemirror-vim';
 
-import type { EditorOptions } from '../../src/features/editor/bridge';
+import { emmetExtension } from './emmet';
+
+import type { EditorOptions, Language } from '../../src/features/editor/bridge';
 import type { EditorTheme } from '../../src/theme/editor';
 
-export function optionsExtension(options: EditorOptions, theme: EditorTheme | null): Extension[] {
+export function optionsExtension(options: EditorOptions, theme: EditorTheme | null, lang: Language = 'plain'): Extension[] {
   const out: Extension[] = [];
+  if (options.emmet) out.push(...emmetExtension(lang));
   // Ahead of the default keymaps so Vim and Emacs keys win; app shortcuts (Cmd) still come first.
   if (options.keymap === 'vim') out.push(Prec.high(vim()));
   else if (options.keymap === 'emacs') out.push(Prec.high(emacs()));
