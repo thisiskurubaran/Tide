@@ -31,7 +31,7 @@ export interface HttpResponse {
   truncated: boolean;
 }
 
-const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
+const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS', 'GRAPHQL'];
 const REQUEST_LINE = new RegExp(`^(${METHODS.join('|')})\\s+(\\S+)(?:\\s+HTTP/[\\d.]+)?\\s*$`, 'i');
 
 export function parseHttpFile(text: string): { requests: HttpRequest[]; variables: Record<string, string> } {
@@ -90,9 +90,13 @@ export function parseHttpFile(text: string): { requests: HttpRequest[]; variable
   return { requests, variables };
 }
 
-// {{name}} from @name = value lines; {{$timestamp}} and {{$uuid}} are built in.
+// The project's .env and Keychain variables, for {{$dotenv NAME}}.
+export const dotenvVariables = (env: Record<string, string>) => Object.fromEntries(Object.entries(env).map(([k, v]) => [`$dotenv.${k}`, v]));
+
+// {{name}} from @name = value lines; {{$timestamp}} and {{$uuid}} are built in,
+// and {{$dotenv NAME}} reads the project's environment (see dotenvVariables).
 export function resolve(text: string, variables: Record<string, string>, now = Date.now): string {
-  return text.replace(/\{\{\s*([$\w.-]+)\s*\}\}/g, (all, key: string) => {
+  return text.replace(/\{\{\s*\$dotenv\s+([\w.]+)\s*\}\}/g, (all, key: string) => variables[`$dotenv.${key}`] ?? all).replace(/\{\{\s*([$\w.-]+)\s*\}\}/g, (all, key: string) => {
     if (key === '$timestamp') return String(Math.floor(now() / 1000));
     if (key === '$uuid') return uuid();
     const value = variables[key];
@@ -113,6 +117,37 @@ export function resolveRequest(req: HttpRequest, variables: Record<string, strin
     url: resolve(req.url, variables),
     headers: req.headers.map(([k, v]) => [k, resolve(v, variables)]),
     body: resolve(req.body, variables),
+  };
+}
+
+// GraphQL, written either way the editors do: a GRAPHQL request line
+// (JetBrains) or an X-REQUEST-TYPE: GraphQL header (VS Code REST Client). The
+// body is the query, then optionally a blank line and the variables as JSON.
+export function isGraphQL(req: HttpRequest): boolean {
+  return req.method === 'GRAPHQL' || req.headers.some(([k, v]) => k.toLowerCase() === 'x-request-type' && v.toLowerCase() === 'graphql');
+}
+
+// The request as it goes over the wire: GraphQL becomes a JSON POST.
+export function toWire(req: HttpRequest): HttpRequest {
+  if (!isGraphQL(req)) return req;
+  const split = /\n\s*\n(?=\s*\{)/.exec(req.body);
+  const query = (split ? req.body.slice(0, split.index) : req.body).trim();
+  const rest = split ? req.body.slice(split.index).trim() : '';
+  let variables: unknown;
+  if (rest) {
+    try {
+      variables = JSON.parse(rest);
+    } catch {
+      throw new Error('The GraphQL variables after the query aren’t valid JSON.');
+    }
+  }
+  const operationName = /^\s*(?:query|mutation|subscription)\s+(\w+)/.exec(query)?.[1];
+  const headers = req.headers.filter(([k]) => !['x-request-type', 'content-type'].includes(k.toLowerCase()));
+  return {
+    ...req,
+    method: 'POST',
+    headers: [['Content-Type', 'application/json'], ...headers],
+    body: JSON.stringify({ query, ...(operationName ? { operationName } : {}), ...(variables !== undefined ? { variables } : {}) }),
   };
 }
 
@@ -185,6 +220,15 @@ Content-Type: application/json
   "name": "Example",
   "createdAt": {{$timestamp}}
 }
+
+### GraphQL: the query, then its variables
+GRAPHQL https://countries.trevorblades.com/
+
+query Country($code: ID!) {
+  country(code: $code) { name capital currency }
+}
+
+{ "code": "NZ" }
 `;
 
 // Environments, in the JetBrains HTTP Client format, next to the .http file or

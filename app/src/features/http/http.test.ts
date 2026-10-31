@@ -1,4 +1,4 @@
-import { formatBody, isLocal, parseEnvironments, parseHttpFile, resolve, resolveRequest, responseFileName, send } from './http';
+import { dotenvVariables, formatBody, isLocal, parseEnvironments, parseHttpFile, resolve, resolveRequest, responseFileName, send } from './http';
 
 describe('.http files', () => {
   const file = `@base = http://localhost:3000
@@ -77,5 +77,12 @@ describe('environments and saved responses', () => {
   it('names saved responses after the request', () => {
     expect(responseFileName('List users!', [['content-type', 'application/json; charset=utf-8']])).toBe('responses/list-users.json');
     expect(responseFileName('', [])).toBe('responses/response.txt');
+  });
+});
+
+describe('{{$dotenv}}', () => {
+  it("reads the project's environment", () => {
+    const vars = { ...dotenvVariables({ API_KEY: 'k1' }), base: 'https://x.dev' };
+    expect(resolve('{{base}}/a?key={{$dotenv API_KEY}}&x={{ $dotenv  MISSING }}', vars)).toBe('https://x.dev/a?key=k1&x={{ $dotenv  MISSING }}');
   });
 });

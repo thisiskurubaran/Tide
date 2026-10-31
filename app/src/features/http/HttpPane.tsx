@@ -1,8 +1,9 @@
 import Feather from '@expo/vector-icons/Feather';
+import * as Clipboard from 'expo-clipboard';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
-import { Button } from '../../components/Button';
+import { Button, IconButton } from '../../components/Button';
 import { announce } from '../../components/a11y';
 import { haptic } from '../../components/haptics';
 import { Text } from '../../components/Text';
@@ -13,6 +14,7 @@ import { bufferKey } from '../../state/buffers';
 import { makeStyles, useColors } from '../../theme/theme';
 import { borderWidth, fonts, fontSizes, radius, spacing } from '../../theme/tokens';
 import {
+  dotenvVariables,
   ENV_FILE,
   ENV_TEMPLATE,
   Environments,
@@ -25,7 +27,11 @@ import {
   resolveRequest,
   responseFileName,
   send,
+  toWire,
 } from './http';
+import { parseCurl, toCurl, toHttpText } from './curl';
+import { projectEnv } from '../env/store';
+import { takeSend } from './pending';
 
 type Result = { response: HttpResponse } | { error: string } | 'sending';
 
@@ -58,6 +64,12 @@ export function HttpPane({ project, path }: { project: string; path: string }) {
   const [envs, setEnvs] = useState<{ envs: Environments; dir: string }>({ envs: {}, dir: '' });
   const [env, setEnv] = useState<string | null>(() => picked.get(`${project}/${path}`) ?? null);
   const [saving, setSaving] = useState<number | null>(null);
+  const [pasting, setPasting] = useState<string | null>(null);
+  const [dotenv, setDotenv] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    projectEnv(project).then((e) => setDotenv(dotenvVariables(e)), () => undefined);
+  }, [project, content]);
 
   useEffect(() => {
     loadEnvironments(project, path).then((e) => {
@@ -76,8 +88,8 @@ export function HttpPane({ project, path }: { project: string; path: string }) {
   const parsed = useMemo(() => {
     const p = parseHttpFile(content ?? '');
     // The environment's values win over the file's @ variables.
-    return { ...p, variables: { ...p.variables, ...(env ? envs.envs[env] : {}) } };
-  }, [content, env, envs]);
+    return { ...p, variables: { ...dotenv, ...p.variables, ...(env ? envs.envs[env] : {}) } };
+  }, [content, env, envs, dotenv]);
   const envNames = Object.keys(envs.envs);
 
   const addEnvironments = async () => {
@@ -89,10 +101,9 @@ export function HttpPane({ project, path }: { project: string; path: string }) {
   };
 
   const sendAt = async (i: number) => {
-    const req = resolveRequest(parsed.requests[i], parsed.variables);
     setResults((r) => ({ ...r, [i]: 'sending' }));
     try {
-      const response = await send(req);
+      const response = await send(toWire(resolveRequest(parsed.requests[i], parsed.variables)));
       setResults((r) => ({ ...r, [i]: { response } }));
       haptic(response.status < 400 ? 'success' : 'error');
       announce(`${response.status} ${response.statusText}`);
@@ -102,6 +113,29 @@ export function HttpPane({ project, path }: { project: string; path: string }) {
     }
   };
 
+  const copyCurl = async (i: number) => {
+    try {
+      await Clipboard.setStringAsync(toCurl(toWire(resolveRequest(parsed.requests[i], parsed.variables))));
+      haptic('success');
+      announce('Copied as cURL');
+    } catch (e) {
+      setResults((r) => ({ ...r, [i]: { error: e instanceof Error ? e.message : String(e) } }));
+    }
+  };
+
+  const startPaste = async () => {
+    const text = await Clipboard.getStringAsync().catch(() => '');
+    setPasting(/^\s*(\$\s+)?curl\s/.test(text) ? text : '');
+  };
+
+  // A link (the Send HTTP Request action in Shortcuts) asked to send one.
+  useEffect(() => {
+    const i = takeSend(project, path, parsed.requests.map((r) => r.name));
+    if (i !== null) sendAt(i);
+    // sendAt is rebuilt every render; this runs when the requests are read.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project, path, parsed.requests]);
+
   const savingResult = saving === null ? undefined : results[saving];
   const savingResponse = savingResult && savingResult !== 'sending' && 'response' in savingResult ? savingResult.response : null;
 
@@ -110,6 +144,13 @@ export function HttpPane({ project, path }: { project: string; path: string }) {
   return (
     <View style={[StyleSheet.absoluteFill, styles.screen]} testID="http">
       <ScrollView contentContainerStyle={styles.list} keyboardShouldPersistTaps="handled">
+        {content !== undefined && (
+          <View style={styles.envs}>
+            <Pressable onPress={startPaste} accessibilityRole="button" style={styles.envChip} testID="http-paste-curl">
+              <Text variant="muted">+ Paste cURL</Text>
+            </Pressable>
+          </View>
+        )}
         {parsed.requests.length > 0 && (
           <View style={styles.envs} accessibilityRole="radiogroup" accessibilityLabel="Environment">
             {envNames.length ? (
@@ -158,6 +199,7 @@ export function HttpPane({ project, path }: { project: string; path: string }) {
                     {req.url}
                   </Text>
                 </View>
+                <IconButton icon="clipboard" label="Copy as cURL" onPress={() => copyCurl(i)} testID={`http-curl-${i}`} />
                 <Button title={result === 'sending' ? 'Sending…' : 'Send'} icon="send" onPress={() => sendAt(i)} disabled={result === 'sending'} testID={`http-send-${i}`} />
               </View>
               {result && result !== 'sending' && 'error' in result && (
@@ -208,6 +250,25 @@ export function HttpPane({ project, path }: { project: string; path: string }) {
           );
         })}
       </ScrollView>
+      <FormSheet
+        visible={pasting !== null}
+        title="Add a request from cURL"
+        description="Paste a curl command, from API docs or a browser's Copy as cURL. It's added to the end of this file."
+        confirmLabel="Add"
+        fields={[
+          { key: 'command', label: 'curl command', mono: true, multiline: true, required: true, initial: pasting ?? '', placeholder: "curl https://api.example.com/items -H 'Accept: application/json'" },
+          { key: 'name', label: 'Name', placeholder: 'e.g. List items' },
+        ]}
+        onClose={() => setPasting(null)}
+        onSubmit={async ({ command, name }) => {
+          const req = parseCurl(command);
+          const text = toHttpText(req, name.trim() || `${req.method} ${req.url}`);
+          const current = content ?? '';
+          buffersStore.getState().edit(project, path, `${current}${current && !current.endsWith('\n') ? '\n' : ''}${current ? '\n' : ''}${text}`);
+          haptic('success');
+          setPasting(null);
+        }}
+      />
       <FormSheet
         visible={saving !== null}
         title="Save the response"
