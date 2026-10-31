@@ -40,6 +40,7 @@
     "zustand": "^5.0.16"
   },
   "devDependencies": {
+    "@bacons/apple-targets": "^5.0.0",
     "@bjorn3/browser_wasi_shim": "^0.4.2",
     "@codemirror/autocomplete": "^6.20.4",
     "@codemirror/commands": "^6.11.1",
@@ -57,6 +58,7 @@
     "@codemirror/search": "^6.7.2",
     "@codemirror/state": "^6.7.6",
     "@codemirror/view": "^6.43.15",
+    "@emmetio/codemirror6-plugin": "^0.4.2",
     "@eslint/js": "^10.0.1",
     "@lezer/highlight": "^1.2.5",
     "@php-wasm/universal": "^3.1.61",
@@ -85,6 +87,8 @@
     "isomorphic-git": "1.44.8",
     "jest": "^30.5.2",
     "jest-expo": "^58.0.13",
+    "mysql2": "^3.24.6",
+    "pg": "^8.23.1",
     "prettier": "^3.9.10",
     "ssh2": "^1.17.0",
     "typescript": "~6.0.3",
@@ -106,7 +110,8 @@
     "build:ssh": "node scripts/build-ssh.js",
     "build:lua": "node scripts/build-lua.js",
     "build:runtimes": "node scripts/build-runtimes.js --page",
-    "test:runtimes": "node scripts/test-runtimes.js"
+    "test:runtimes": "node scripts/test-runtimes.js",
+    "build:sql": "node scripts/build-sql.js"
   },
   "private": true,
   "jest": {
@@ -127,6 +132,12 @@
     "nodejs-mobile-react-native": {
       "xcode": "^4.0.0"
     },
-    "deepmerge": "$deepmerge"
+    "deepmerge": "$deepmerge",
+    "glob": "^14.0.3",
+    "minimatch": "^11.0.3",
+    "test-exclude": "^7.0.2",
+    "@bacons/xcode": {
+      "@expo/plist": "^0.10.1"
+    }
   }
 }
