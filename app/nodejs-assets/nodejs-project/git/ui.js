@@ -5,6 +5,7 @@
 'use strict';
 
 const fs = require('fs');
+const { blame } = require('./blame');
 const path = require('path');
 
 // Merge state isomorphic-git doesn't keep: the commit being merged (as real
@@ -273,6 +274,48 @@ function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure,
       const parent = commit.parent[0];
       const r = texts([parent ? await blobAt(dir, parent, filepath) : null, await blobAt(dir, oid, filepath)]);
       return r.binary ? { binary: true } : { binary: false, before: r.sides[0], after: r.sides[1] };
+    },
+
+    // Commits that changed a file, newest first.
+    async 'file-log'(dir, [filepath, n]) {
+      let entries;
+      try {
+        entries = await git.log({ fs, dir, filepath, depth: Number(n) || 100 });
+      } catch {
+        return [];
+      }
+      return entries.map((/** @type {any} */ { oid, commit }) => ({
+        oid,
+        message: commit.message.trimEnd(),
+        author: commit.author.name,
+        timestamp: commit.author.timestamp,
+        parents: commit.parent,
+      }));
+    },
+
+    // Who last changed each line of the working copy: runs of lines with their
+    // commit, oid null for changes not committed yet. Lines older than the
+    // last `n` commits that touched the file are given to the oldest one.
+    async blame(dir, [filepath, n]) {
+      const work = fs.existsSync(path.join(dir, filepath)) ? fs.readFileSync(path.join(dir, filepath)) : null;
+      if (!work) throw new GitError(`${filepath} isn't in the working tree`);
+      if (isBinary(work)) return { binary: true };
+      let entries = [];
+      try {
+        entries = await git.log({ fs, dir, filepath, depth: Number(n) || 200 });
+      } catch {
+        // No commits yet: everything is uncommitted.
+      }
+      /** @type {{ oid: string | null, text: string }[]} */
+      const versions = [{ oid: null, text: work.toString('utf8') }];
+      for (const e of entries) {
+        const blob = await blobAt(dir, e.oid, filepath);
+        if (blob && !isBinary(blob)) versions.push({ oid: e.oid, text: blob.toString('utf8') });
+      }
+      const commits = Object.fromEntries(
+        entries.map((/** @type {any} */ { oid, commit }) => [oid, { oid, message: commit.message.trimEnd(), author: commit.author.name, timestamp: commit.author.timestamp }]),
+      );
+      return { binary: false, runs: blame(versions), commits, truncated: entries.length >= (Number(n) || 200) };
     },
 
     async push(dir) {

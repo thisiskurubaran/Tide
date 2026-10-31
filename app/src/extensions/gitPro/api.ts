@@ -33,6 +33,17 @@ export interface CommitInfo {
   parents: string[];
 }
 
+// Runs of lines by the commit that last changed them; oid null is uncommitted.
+export type Blame =
+  | { binary: true }
+  | {
+      binary: false;
+      runs: { oid: string | null; start: number; count: number }[];
+      commits: Record<string, Omit<CommitInfo, 'parents'>>;
+      // Older lines were given to the oldest commit looked at.
+      truncated: boolean;
+    };
+
 export interface MergeResult {
   conflicts: string[];
   fastForward: boolean;
@@ -88,6 +99,8 @@ export function createGitPro(run: RunGit) {
     log: (n = 50) => call<CommitInfo[]>('log', String(n)),
     commitFiles: (oid: string) => call<{ path: string; status: 'added' | 'deleted' | 'modified' }[]>('commit-files', oid),
     commitFile: (oid: string, path: string) => call<CommitFileVersions>('commit-file', oid, path),
+    fileLog: (path: string, n = 100) => call<CommitInfo[]>('file-log', path, String(n)),
+    blame: (path: string) => call<Blame>('blame', path),
     push: () => call<null>('push'),
     // Pull prints progress, not JSON; it's the porcelain command.
     async pull() {

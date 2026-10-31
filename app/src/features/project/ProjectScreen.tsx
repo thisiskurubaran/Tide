@@ -315,6 +315,12 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     { id: 'deploy', title: 'Deploy…', icon: 'upload-cloud', run: () => router.push({ pathname: '/deploy', params: { project } }) },
     { id: 'env', title: 'Environment variables…', icon: 'key', run: () => router.push({ pathname: '/env', params: { project } }) },
     { id: 'databases', title: 'Databases…', icon: 'database', run: () => router.push('/databases') },
+    ...(current
+      ? [
+          { id: 'git.blame', title: 'Git: blame this file', icon: 'user' as const, run: () => requirePro('blame') && router.push({ pathname: '/blame', params: { project, path: current } }) },
+          { id: 'git.file-history', title: 'Git: history of this file', icon: 'clock' as const, run: () => requirePro('blame') && router.push({ pathname: '/blame', params: { project, path: current, show: 'history' } }) },
+        ]
+      : []),
     { id: 'http.new', title: 'New HTTP requests file', icon: 'send', run: () => newHttpFile().catch((e) => Alert.alert('Could not create the file', String(e?.message ?? e))) },
     { id: 'find', title: 'Find in file', icon: 'search', hint: '⌘F', run: () => editor.current?.send({ type: 'find' }) },
     { id: 'goto-line', title: 'Go to line', icon: 'corner-down-right', hint: '⌘L', run: () => current && setGoingToLine(true) },
