@@ -23,8 +23,10 @@ test keeps the two in step.
 
 Pro unlocks linked folders, compare and merge, the test
 runner, preview dev tools, the split editor on iPad, up to 6 terminals
-(free: 2), 10 snapshots per project (free: 3), every extension and the
-Pro app icon. Remote mode is free at launch: it needs a server the user
+(free: 2), 10 snapshots per project (free: 3), every extension, the
+Pro app icon, snippets and Emmet, Git blame and file history, GitLab and
+Bitbucket, and the widget, deploy Live Activity and Siri and Shortcuts
+actions. Remote mode is free at launch: it needs a server the user
 hosts, so it can't be sold as part of Pro until Tide hosts one.
 
 Family Sharing, decided: subscriptions off (each person subscribes),
@@ -187,9 +189,12 @@ Paste into App Review Information > Notes (adjust as needed):
 
 > Tide is a code editor with a terminal. Tide Pro (monthly or yearly
 > subscription, or lifetime purchase) unlocks linked folders, compare and merge, the test runner, preview dev tools, the
-> split editor on iPad, more terminals and snapshots, and every
-> extension. The paywall opens from Settings > Tide Pro, or from any Pro
-> feature, e.g. Command palette > Run tests.
+> split editor on iPad, more terminals and snapshots, every extension,
+> snippets and Emmet, Git blame, GitLab and Bitbucket, a Home Screen
+> widget, a Live Activity for deploys and Siri and Shortcuts actions. The
+> paywall opens from Settings > Tide Pro, or from any Pro feature, e.g.
+> Command palette > Run tests. Without Pro, the widget and the Shortcuts
+> actions say they need Tide Pro.
 >
 > Extensions are sold individually as non-consumable in-app purchases.
 > Their code ships inside the app binary and a purchase only unlocks it;

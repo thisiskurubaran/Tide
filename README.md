@@ -23,13 +23,19 @@ app/                             Expo app (dev client, prebuild, New Architectur
   src/features/remote            Remote mode: server settings, file sync, remote shell, preview
   web/editor                     CodeMirror 6 editor bundle (Vite, single HTML file)
   web/terminal                   xterm.js terminal bundle (Vite, single HTML file)
-  nodejs-assets/nodejs-project   Supervisor inside nodejs-mobile: runs each script in a worker thread; npm, pip, git, ssh and lua built-ins
+  nodejs-assets/nodejs-project   Supervisor inside nodejs-mobile: runs each script in a worker thread; npm, pip, git, ssh, sql and lua built-ins
   src/features/git               Git settings, Source Control sheet, running git from the UI
   src/features/github            GitHub sign-in (device flow), repositories, pull requests, issues, Actions
   src/features/deploy            Publishing a folder to GitHub Pages, Firebase Hosting, Netlify, Vercel, Cloudflare Pages; Render deploy hooks
   src/features/ssh               SSH servers and keys, the SSH terminal backend, SFTP browsing and editing
-  src/features/http              .http request files: parsing, sending, environments, the request/response viewer
-  src/features/database          SQLite viewer (expo-sqlite): tables, rows, editing, running SQL, CSV export
+  src/features/http              .http request files: parsing, sending, environments, cURL and GraphQL, the request/response viewer
+  src/features/database          Database viewer for SQLite files (expo-sqlite) and PostgreSQL / MySQL servers (tide:sql, remote/)
+  src/features/env               Per-project environment variables: .env plus Keychain secrets, given to every run
+  src/features/hosts             GitLab and Bitbucket (Tide Pro): accounts, repositories, merge/pull requests, issues
+  src/features/widgets           Shares data with the widget and Shortcuts actions; deploy Live Activities (Tide Pro)
+  modules/tide-widgets           Expo module: app group data for the widget, ActivityKit for the deploy Live Activity
+  targets/widget                 Widget extension (@bacons/apple-targets): Recent Projects widget, deploy Live Activity
+  native/ios                     Siri and Shortcuts actions (App Intents), added to the app target by plugins/withAppIntents.js
   src/runtime/wasm               Ruby and PHP: a hidden web view running their WebAssembly builds (web/runtimes, assets/runtimes)
   src/features/privacy           Opt-in crash reports (Sentry) and the scrubbing applied to them
   .maestro                       End-to-end flows (Maestro)
@@ -141,7 +147,7 @@ The iOS privacy manifest is set in `app.json` (`ios.privacyManifests`) and decla
 
 ## Tide Pro
 
-Tide Pro is a monthly or yearly subscription (7-day free trial on yearly) or a lifetime purchase. It unlocks linked folders, compare and merge, the test runner, preview dev tools, the split editor on iPad, up to 6 terminals (free: 2), 10 snapshots per project (free: 3) and every extension. Remote mode is free at launch, since it needs a server the user hosts. The plans and limits are in `app/src/features/pro/plans.ts`; the paywall opens from Settings, the Extensions screen and any Pro feature.
+Tide Pro is a monthly or yearly subscription (7-day free trial on yearly) or a lifetime purchase. It unlocks linked folders, compare and merge, the test runner, preview dev tools, the split editor on iPad, up to 6 terminals (free: 2), 10 snapshots per project (free: 3), every extension, snippets and Emmet, Git blame and file history, GitLab and Bitbucket, and the widget, deploy Live Activity and Siri and Shortcuts actions. Remote mode is free at launch, since it needs a server the user hosts. The plans and limits are in `app/src/features/pro/plans.ts`; the paywall opens from Settings, the Extensions screen and any Pro feature.
 
 [appstore/pro.md](appstore/pro.md) covers setting up the products in App Store Connect, testing with `app/storekit/Tide.storekit` or sandbox, and the review notes. The privacy policy ([appstore/site/tide/privacy.md](appstore/site/tide/privacy.md)) and support page ([appstore/site/tide/support.md](appstore/site/tide/support.md)) are published with GitHub Pages at `https://thisiskurubaran.github.io/tide/privacy/` and `/tide/support/`. `appstore/site/` is the whole site, one directory per app, with a template for adding other apps; appstore/pro.md has the steps.
 
@@ -179,7 +185,7 @@ Other settings: `HOST`, `PORT` (8787), `TIDE_IMAGE`, `TIDE_IDLE_MINUTES` (15), `
 
 `git` in the Local terminal runs isomorphic-git in the Node supervisor. It supports `clone` (HTTPS, shallow, single branch), `init`, `status [-s]`, `add`, `rm`, `commit [-a] -m`, `log [--oneline]`, `diff` (a `--stat` summary only), `branch`, `checkout [-b]`, `remote [-v|add]`, `push` and `pull`. Anything else, such as rebase, stash or merge conflicts, needs the real git in Remote mode.
 
-Set a name, email and personal access token under Settings, Git. They are kept in the Keychain and passed to each git run as environment variables, never written into the project. The token is sent as the HTTPS password, which works for GitHub, GitLab and Gitea.
+Set a name, email and personal access token under Settings, Git. They are kept in the Keychain and passed to each git run as environment variables, never written into the project. The token is sent as the HTTPS password, which works for GitHub, GitLab and Gitea. Signed-in GitLab and Bitbucket accounts (Tide Pro) add their own token for their host, in `TIDE_GIT_HOSTS`. `git __tide blame` and `file-log` give Git Pro's blame and file history; isomorphic-git has no blame, so `git/blame.js` works it out from the file's versions.
 
 The branch icon in a project opens Source Control, which shows the changed files and can commit everything, push and pull. New project, Clone from Git clones a repository into a new project.
 
@@ -197,6 +203,10 @@ npm run build:ssh
 ```
 
 Lua is fengari (Lua 5.3 in plain JavaScript), bundled into `app/nodejs-assets/nodejs-project/lua/fengari.js` by `npm run build:lua` and run by the `tide:lua` built-in, which adds `io.read`, `io.lines` and `io.open`.
+
+PostgreSQL and MySQL go through `tide:sql`, which holds one connection open with pg and mysql2 bundled into `app/nodejs-assets/nodejs-project/sql/drivers.js` (`npm run build:sql`, committed). Through SSH, the app forwards a local port with `tide:ssh` first. `src/features/database/remote/dialect.test.ts` runs against real servers when `TIDE_TEST_POSTGRES` and `TIDE_TEST_MYSQL` are set (JSON connection settings), and skips otherwise.
+
+The widget, the deploy Live Activity and the Siri and Shortcuts actions are native: `targets/widget` is a widget extension made by `@bacons/apple-targets` at prebuild, `modules/tide-widgets` writes what it shows to the app group `group.com.thisiskurubaran.tide` and runs ActivityKit, and `native/ios/TideIntents.swift` (App Intents) is copied into the app target by `plugins/withAppIntents.js`. The actions open `tide://` links the app handles. The app group needs registering for both bundle IDs in the Apple Developer portal.
 
 Ruby (CRuby 3.4, ruby.wasm) and PHP (8.3, php-wasm) need WebAssembly, which neither Hermes nor nodejs-mobile has on iOS, so they run in a hidden web view (`src/runtime/wasm`). The page is `web/runtimes`, built into `app/assets/runtimes/runtime.html` by `npm run build:runtimes` and committed; `npm install` copies the interpreters (`ruby.wasm`, 31 MB, and `php.wasm`, 18 MB) next to it from node_modules, and they aren't committed. Each run copies the project into the interpreter's virtual disk and writes back what changed. Programs can't read the terminal (input ends at once). `npm run test:runtimes` checks the page in Chromium.
 
