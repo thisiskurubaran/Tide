@@ -88,6 +88,12 @@
               "public.zip-archive"
             ]
           }
+        ],
+        "NSSupportsLiveActivities": true
+      },
+      "entitlements": {
+        "com.apple.security.application-groups": [
+          "group.com.thisiskurubaran.tide"
         ]
       }
     },
@@ -188,7 +194,9 @@
             }
           }
         ]
-      ]
+      ],
+      "@bacons/apple-targets",
+      "./plugins/withAppIntents.js"
     ]
   }
 }

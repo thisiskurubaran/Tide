@@ -44,6 +44,7 @@ import { previewKind, viewerFirst, viewerOnly } from '../preview/render';
 import { DatabasePane } from '../database/DatabasePane';
 import { HttpPane } from '../http/HttpPane';
 import { HTTP_TEMPLATE } from '../http/http';
+import { requestSend } from '../http/pending';
 import { autoDeployer, deployStore } from '../deploy';
 import { useDeployStatus } from '../deploy/auto';
 import { hasConflicts } from '../diff/conflicts';
@@ -261,6 +262,8 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
   useEffect(() => {
     if (!launch) return;
     if (launch.file) {
+      // Sending a request from a link is a Shortcuts action (Tide Pro).
+      if (launch.send && requirePro('shortcuts')) requestSend(project, launch.file, launch.send);
       if (launch.line) openAt(launch.file, launch.line);
       else openFile(launch.file);
     }

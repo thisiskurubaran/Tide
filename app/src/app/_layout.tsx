@@ -7,6 +7,7 @@ import { breakpointsStore } from '../extensions/debugger/breakpoints';
 import { extensionsStore } from '../extensions/state';
 import { gitSettingsStore } from '../features/git/settings';
 import { accountsStore } from '../features/hosts/accounts';
+import { startWidgets } from '../features/widgets';
 import { linkedStore } from '../features/external';
 import { keyBarStore } from '../features/keybar/store';
 import { startQuickActions } from '../features/launch/quickActions';
@@ -64,6 +65,7 @@ export default function RootLayout() {
       startCrashReports(settingsStore);
       startQuickActions();
       startPro();
+      startWidgets();
       setReady(true);
       SplashScreen.hideAsync();
       // Prices and purchases made on another device; the cached list works until it answers.

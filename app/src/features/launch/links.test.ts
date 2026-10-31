@@ -19,3 +19,12 @@ describe('links into Tide', () => {
     expect(actions[1].params.href).toBe('/project/b');
   });
 });
+
+describe('send links', () => {
+  it('round-trips a request to send', () => {
+    expect(projectPath('demo', { file: 'api.http', send: 'List users' })).toBe('/project/demo?file=api.http&send=List+users');
+    expect(launchParams({ file: 'api.http', send: '1' })).toEqual({ file: 'api.http', line: undefined, run: false, send: '1' });
+    // Without a file there's nothing to send.
+    expect(launchParams({ send: '1', run: '1' })?.send).toBeUndefined();
+  });
+});
