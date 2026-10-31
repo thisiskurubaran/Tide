@@ -1,6 +1,8 @@
 import * as SecureStore from 'expo-secure-store';
 import { createStore, useStore } from 'zustand';
 
+import { gitCredentials } from '../hosts/accounts';
+
 export interface GitSettings {
   name: string;
   email: string;
@@ -40,5 +42,6 @@ export const useGitSettings = <T>(selector: (s: GitSettingsState) => T) => useSt
 // Environment for one git run; the supervisor never stores it.
 export function gitEnv(): Record<string, string> {
   const { name, email, token } = gitSettingsStore.getState().settings;
-  return { TIDE_GIT_NAME: name, TIDE_GIT_EMAIL: email, TIDE_GIT_TOKEN: token };
+  const hosts = gitCredentials();
+  return { TIDE_GIT_NAME: name, TIDE_GIT_EMAIL: email, TIDE_GIT_TOKEN: token, ...(Object.keys(hosts).length ? { TIDE_GIT_HOSTS: JSON.stringify(hosts) } : {}) };
 }

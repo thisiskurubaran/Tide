@@ -41,8 +41,32 @@ function author() {
   return { name: env.TIDE_GIT_NAME, email: env.TIDE_GIT_EMAIL };
 }
 
-// GitHub, GitLab and Gitea accept a personal access token as the password.
-function onAuth() {
+// Signed-in GitLab and Bitbucket accounts, as JSON {host: {username, password}}.
+const hostCredentials = (() => {
+  try {
+    return JSON.parse(env.TIDE_GIT_HOSTS || '{}');
+  } catch {
+    return {};
+  }
+})();
+
+/** @param {string} url */
+function hostOf(url) {
+  try {
+    return new URL(url).host;
+  } catch {
+    return '';
+  }
+}
+
+const canAuth = () => !!env.TIDE_GIT_TOKEN || Object.keys(hostCredentials).length > 0;
+
+// An account for the remote's host when there is one; otherwise the token from
+// Settings, which GitHub, GitLab and Gitea all accept as the password.
+/** @param {string} url */
+function onAuth(url) {
+  const account = hostCredentials[hostOf(url)];
+  if (account) return { username: account.username, password: account.password };
   if (!env.TIDE_GIT_TOKEN) throw new GitError('this remote needs a token: add one in Settings, Git');
   return { username: 'x-access-token', password: env.TIDE_GIT_TOKEN };
 }
@@ -158,7 +182,7 @@ const commands = {
       singleBranch: true,
       depth: 50,
       onProgress,
-      onAuth: env.TIDE_GIT_TOKEN ? onAuth : undefined,
+      onAuth: canAuth() ? onAuth : undefined,
       onAuthFailure,
     });
     endProgress();
@@ -406,7 +430,7 @@ const commands = {
       ref,
       singleBranch: true,
       author: author(),
-      onAuth: env.TIDE_GIT_TOKEN ? onAuth : undefined,
+      onAuth: canAuth() ? onAuth : undefined,
       onAuthFailure,
       onProgress,
     });

@@ -22,6 +22,7 @@ import { CHANGELOG, Release } from '../support/changelog';
 import { WhatsNewSheet } from '../support/WhatsNewSheet';
 import { Onboarding } from '../onboarding/Onboarding';
 import { requirePro, useIsPro, useProState } from '../pro';
+import { useAccounts } from '../hosts/accounts';
 import { iconsSupported, setProIcon, usingProIcon } from '../pro/appIcon';
 import { proStatus } from '../pro/store';
 
@@ -50,6 +51,7 @@ export function SettingsScreen() {
     emmet: useSettings((s) => s.emmet),
   };
   const snippetCount = useSettings((s) => s.snippets.length);
+  const hostCount = useAccounts((s) => s.accounts.length);
   const colors = useColors();
   const remote = useRemoteSettings((s) => s.settings);
   const git = useGitSettings((s) => s.settings);
@@ -197,6 +199,12 @@ export function SettingsScreen() {
             detail={githubUser ? `Signed in as ${githubUser.login}` : 'Repositories, pull requests, issues and Actions'}
             onPress={() => router.push('/github/account')}
             testID="settings-github"
+          />
+          <LinkRow
+            label="GitLab and Bitbucket (Pro)"
+            detail={hostCount ? `${hostCount} ${hostCount === 1 ? 'account' : 'accounts'}` : 'Clone, merge requests, pull requests and issues'}
+            onPress={() => requirePro('git-hosts') && router.push('/hosts')}
+            testID="settings-hosts"
           />
           <LinkRow
             label="Identity and token"

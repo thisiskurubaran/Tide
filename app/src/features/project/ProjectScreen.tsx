@@ -315,6 +315,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     { id: 'deploy', title: 'Deploy…', icon: 'upload-cloud', run: () => router.push({ pathname: '/deploy', params: { project } }) },
     { id: 'env', title: 'Environment variables…', icon: 'key', run: () => router.push({ pathname: '/env', params: { project } }) },
     { id: 'databases', title: 'Databases…', icon: 'database', run: () => router.push('/databases') },
+    { id: 'hosts', title: 'GitLab and Bitbucket…', icon: 'gitlab', run: () => requirePro('git-hosts') && router.push('/hosts') },
     ...(current
       ? [
           { id: 'git.blame', title: 'Git: blame this file', icon: 'user' as const, run: () => requirePro('blame') && router.push({ pathname: '/blame', params: { project, path: current } }) },

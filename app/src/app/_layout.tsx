@@ -6,6 +6,7 @@ import { Appearance } from 'react-native';
 import { breakpointsStore } from '../extensions/debugger/breakpoints';
 import { extensionsStore } from '../extensions/state';
 import { gitSettingsStore } from '../features/git/settings';
+import { accountsStore } from '../features/hosts/accounts';
 import { linkedStore } from '../features/external';
 import { keyBarStore } from '../features/keybar/store';
 import { startQuickActions } from '../features/launch/quickActions';
@@ -58,6 +59,7 @@ export default function RootLayout() {
       projectsStore.getState().refresh(),
       remoteSettingsStore.getState().load().catch(() => undefined),
       gitSettingsStore.getState().load().catch(() => undefined),
+      accountsStore.getState().load().catch(() => undefined),
     ]).finally(() => {
       startCrashReports(settingsStore);
       startQuickActions();
