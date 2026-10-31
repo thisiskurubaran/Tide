@@ -1,6 +1,7 @@
 // Publishing a folder of the project as a website. Each provider talks to its
 // service's HTTP API with the user's own token; Tide has no server of its own.
 import { blake3 } from '@noble/hashes/blake3.js';
+import { sha1 } from '@noble/hashes/legacy.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { gzipSync, zipSync } from 'fflate';
@@ -31,11 +32,25 @@ export interface DeployConfig {
 
 export interface DeployResult {
   url: string;
+  // A preview deploy: the live site was left alone.
+  preview?: boolean;
   // Settings the provider created (a new site's id); merged back into tide.json.
   config?: Partial<DeployConfig>;
 }
 
 export type Progress = (message: string) => void;
+
+// A preview's name, from the git branch: what Netlify aliases and Firebase
+// channels accept (lowercase letters, digits and hyphens).
+export function previewSlug(branch: string): string {
+  const slug = branch
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 37)
+    .replace(/-+$/, '');
+  return !slug || slug === 'live' ? 'preview' : slug;
+}
 
 const json = async (res: Response, service: string) => {
   const text = await res.text();
@@ -139,6 +154,7 @@ export async function deployNetlify(
   token: string,
   progress: Progress,
   fetchImpl: typeof fetch = (...a) => fetch(...a),
+  preview?: string,
 ): Promise<DeployResult> {
   const api = 'https://api.netlify.com/api/v1';
   const auth = { Authorization: `Bearer ${token}` };
@@ -148,16 +164,42 @@ export async function deployNetlify(
     const site = await json(await fetchImpl(`${api}/sites`, { method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' }, body: '{}' }), 'Netlify');
     id = site.id as string;
   }
-  progress('Uploading');
-  const zip = zipSync(Object.fromEntries(files.map((f) => [f.path, fromBase64(f.base64)])));
-  let deploy = await json(await fetchImpl(`${api}/sites/${id}/deploys`, { method: 'POST', headers: { ...auth, 'Content-Type': 'application/zip' }, body: zip as unknown as BodyInit }), 'Netlify');
+  let deploy: any;
+  if (preview) {
+    // A draft deploy at <branch>--<site>.netlify.app. Drafts take a file
+    // digest, then only the files Netlify doesn't have yet.
+    const bytes = new Map(files.map((f) => [`/${f.path}`, fromBase64(f.base64)]));
+    const digest = Object.fromEntries([...bytes].map(([path, b]) => [path, bytesToHex(sha1(b))]));
+    deploy = await json(
+      await fetchImpl(`${api}/sites/${id}/deploys`, {
+        method: 'POST',
+        headers: { ...auth, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files: digest, draft: true, branch: preview }),
+      }),
+      'Netlify',
+    );
+    const required = new Set<string>(deploy.required ?? []);
+    const uploads = [...new Map([...bytes].filter(([path]) => required.has(digest[path])).map(([path, b]) => [digest[path], { path, b }])).values()];
+    let done = 0;
+    await pool(uploads, 4, async ({ path, b }) => {
+      const encoded = path.split('/').map(encodeURIComponent).join('/');
+      await json(await fetchImpl(`${api}/deploys/${deploy.id}/files${encoded}`, { method: 'PUT', headers: { ...auth, 'Content-Type': 'application/octet-stream' }, body: b as unknown as BodyInit }), 'Netlify');
+      progress(`Uploading files (${++done}/${uploads.length})`);
+    });
+  } else {
+    progress('Uploading');
+    const zip = zipSync(Object.fromEntries(files.map((f) => [f.path, fromBase64(f.base64)])));
+    deploy = await json(await fetchImpl(`${api}/sites/${id}/deploys`, { method: 'POST', headers: { ...auth, 'Content-Type': 'application/zip' }, body: zip as unknown as BodyInit }), 'Netlify');
+  }
   for (let i = 0; i < 60 && !['ready', 'error'].includes(deploy.state); i++) {
     progress(`Netlify is processing (${deploy.state})`);
     await sleep(2000);
     deploy = await json(await fetchImpl(`${api}/deploys/${deploy.id}`, { headers: auth }), 'Netlify');
   }
   if (deploy.state === 'error') throw new Error(`Netlify: ${deploy.error_message ?? 'the deploy failed'}`);
-  return { url: deploy.ssl_url ?? deploy.url ?? deploy.deploy_ssl_url, config: { netlify: { siteId: id! } } };
+  const config = { netlify: { siteId: id! } };
+  if (preview) return { url: deploy.deploy_ssl_url ?? deploy.deploy_url, preview: true, config };
+  return { url: deploy.ssl_url ?? deploy.url ?? deploy.deploy_ssl_url, config };
 }
 
 // Vercel: the files go inline in one deployment request; no build step runs.
@@ -167,6 +209,7 @@ export async function deployVercel(
   token: string,
   progress: Progress,
   fetchImpl: typeof fetch = (...a) => fetch(...a),
+  preview?: string,
 ): Promise<DeployResult> {
   const auth = { Authorization: `Bearer ${token}` };
   progress('Uploading');
@@ -176,7 +219,8 @@ export async function deployVercel(
       headers: { ...auth, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: project,
-        target: 'production',
+        // Without a target, Vercel makes a preview deployment.
+        ...(preview ? { meta: { branch: preview } } : { target: 'production' }),
         files: files.map((f) => ({ file: f.path, data: f.base64, encoding: 'base64' })),
         projectSettings: { framework: null, buildCommand: null, installCommand: null, outputDirectory: null },
       }),
@@ -189,6 +233,7 @@ export async function deployVercel(
     d = await json(await fetchImpl(`https://api.vercel.com/v13/deployments/${d.id}`, { headers: auth }), 'Vercel');
   }
   if (d.readyState !== 'READY') throw new Error(`Vercel: the deployment ended as ${String(d.readyState).toLowerCase()}`);
+  if (preview) return { url: `https://${d.url}`, preview: true };
   const alias = (d.alias as string[] | undefined)?.find((a) => a.endsWith('.vercel.app') && !a.includes('-git-')) ?? d.url;
   return { url: `https://${alias}` };
 }
@@ -207,6 +252,7 @@ export async function deployCloudflare(
   token: string,
   progress: Progress,
   fetchImpl: typeof fetch = (...a) => fetch(...a),
+  preview?: string,
 ): Promise<DeployResult> {
   const api = 'https://api.cloudflare.com/client/v4';
   const account = `${api}/accounts/${encodeURIComponent(target.accountId)}/pages/projects`;
@@ -236,7 +282,10 @@ export async function deployCloudflare(
   progress('Creating the deployment');
   const form = new FormData();
   form.append('manifest', JSON.stringify(Object.fromEntries(hashed.map((f) => [`/${f.path}`, f.hash]))));
-  await call(`${account}/${encodeURIComponent(target.project)}/deployments`, { method: 'POST', headers: auth, body: form });
+  // Any branch other than the production one ("main") is a preview.
+  if (preview) form.append('branch', preview === 'main' ? 'preview' : preview);
+  const deployment = await call(`${account}/${encodeURIComponent(target.project)}/deployments`, { method: 'POST', headers: auth, body: form });
+  if (preview) return { url: deployment?.url ?? `https://${target.project}.pages.dev`, preview: true };
   return { url: `https://${target.project}.pages.dev` };
 }
 
@@ -250,6 +299,7 @@ export async function deployFirebase(
   accessToken: string,
   progress: Progress,
   fetchImpl: typeof fetch = (...a) => fetch(...a),
+  preview?: string,
 ): Promise<DeployResult> {
   const api = `https://firebasehosting.googleapis.com/v1beta1/sites/${encodeURIComponent(site)}`;
   const auth = { Authorization: `Bearer ${accessToken}` };
@@ -276,6 +326,15 @@ export async function deployFirebase(
   });
   progress('Releasing');
   await call(`https://firebasehosting.googleapis.com/v1beta1/${version.name}?update_mask=status`, { method: 'PATCH', body: JSON.stringify({ status: 'FINALIZED' }) });
+  if (preview) {
+    // A preview channel: its own URL, which Firebase deletes after a week.
+    const channelUrl = `${api}/channels/${encodeURIComponent(preview)}`;
+    const existing = await fetchImpl(channelUrl, { headers: auth });
+    const channel =
+      existing.status === 404 ? await call(`${api}/channels?channelId=${encodeURIComponent(preview)}`, { method: 'POST', body: JSON.stringify({ ttl: '604800s' }) }) : await json(existing, 'Firebase');
+    await call(`${channelUrl}/releases?versionName=${encodeURIComponent(version.name)}`, { method: 'POST', body: '{}' });
+    return { url: channel.url ?? `https://${site}--${preview}.web.app`, preview: true };
+  }
   await call(`${api}/releases?versionName=${encodeURIComponent(version.name)}`, { method: 'POST', body: '{}' });
   return { url: `https://${site}.web.app` };
 }

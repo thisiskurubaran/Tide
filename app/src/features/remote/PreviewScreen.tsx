@@ -67,7 +67,7 @@ export function PreviewScreen() {
         <IconButton icon="x" label="Close preview" onPress={() => router.back()} testID="preview-close" />
         <View style={styles.title}>
           <Text variant="title" numberOfLines={1}>
-            Port {port}
+            {port ? `Port ${port}` : (/^\w+:\/\/([^/]+)/.exec(url)?.[1] ?? url)}
           </Text>
           {path && path !== '/' && (
             <Text variant="muted" numberOfLines={1}>

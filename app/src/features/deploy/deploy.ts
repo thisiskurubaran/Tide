@@ -14,6 +14,7 @@ import {
   deployVercel,
   googleAccessToken,
   parseServiceAccount,
+  previewSlug,
   Progress,
   ProviderId,
   SiteFile,
@@ -100,7 +101,19 @@ export async function collectSite(project: string, folder: string, progress: Pro
   return files;
 }
 
-export async function deploy(project: string, config: DeployConfig, progress: Progress): Promise<DeployResult> {
+// Providers that can publish a preview without touching the live site.
+export const PREVIEWS: ProviderId[] = ['netlify', 'vercel', 'cloudflare', 'firebase'];
+
+// The checked-out branch, from .git/HEAD; null when there's no git or HEAD is detached.
+export async function currentBranch(project: string): Promise<string | null> {
+  const head = await workspace.readFile(project, '.git/HEAD').catch(() => '');
+  return /^ref: refs\/heads\/(.+)$/m.exec(head)?.[1].trim() ?? null;
+}
+
+// `preview` is a branch name: the deploy goes to a preview URL for it instead of the live site.
+export async function deploy(project: string, config: DeployConfig, progress: Progress, preview?: string): Promise<DeployResult> {
+  if (preview && !PREVIEWS.includes(config.provider)) throw new Error(`${PROVIDERS.find((p) => p.id === config.provider)!.label} has no preview deploys.`);
+  const slug = preview ? previewSlug(preview) : undefined;
   const token = await getToken(config.provider, project);
   if (!token) throw new Error(config.provider === 'github' ? 'Sign in to GitHub first (Settings → GitHub).' : config.provider === 'render' ? 'Add your Deploy Hook URL first.' : `Add your ${PROVIDERS.find((p) => p.id === config.provider)!.label} token first.`);
   if (config.provider === 'render') return deployRender(token, progress);
@@ -110,12 +123,12 @@ export async function deploy(project: string, config: DeployConfig, progress: Pr
       if (!config.github?.owner || !config.github.repo) throw new Error('Choose the GitHub repository to publish to.');
       return deployGitHubPages(files, { ...config.github, branch: config.github.branch || 'gh-pages' }, token, progress);
     case 'netlify':
-      return deployNetlify(files, config.netlify?.siteId || undefined, token, progress);
+      return deployNetlify(files, config.netlify?.siteId || undefined, token, progress, undefined, slug);
     case 'vercel':
-      return deployVercel(files, config.vercel?.project || project.toLowerCase().replace(/[^a-z0-9-]/g, '-'), token, progress);
+      return deployVercel(files, config.vercel?.project || project.toLowerCase().replace(/[^a-z0-9-]/g, '-'), token, progress, undefined, slug);
     case 'cloudflare':
       if (!config.cloudflare?.accountId || !config.cloudflare.project) throw new Error('Enter your Cloudflare account ID and a project name.');
-      return deployCloudflare(files, config.cloudflare, token, progress);
+      return deployCloudflare(files, config.cloudflare, token, progress, undefined, preview);
     case 'firebase': {
       const key = parseServiceAccount(token);
       const site = config.firebase?.site || key.project_id;
@@ -127,7 +140,7 @@ export async function deploy(project: string, config: DeployConfig, progress: Pr
       const jwt = await runTool(localRunner, 'google-jwt', [], {
         TIDE_GOOGLE: JSON.stringify({ client_email: key.client_email, private_key: key.private_key, scope: 'https://www.googleapis.com/auth/firebase.hosting' }),
       });
-      const result = await deployFirebase(files, site, await googleAccessToken(jwt), progress);
+      const result = await deployFirebase(files, site, await googleAccessToken(jwt), progress, undefined, slug);
       return { ...result, config: { firebase: { site } } };
     }
   }

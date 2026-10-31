@@ -16,12 +16,16 @@ export interface DeployRecord {
   ok: boolean;
   url?: string;
   error?: string;
+  // Published to a preview URL; the live site was left alone.
+  preview?: boolean;
 }
 
 export interface DeployStatus {
   state: 'deploying' | 'done' | 'failed';
   message: string;
   url?: string;
+  // The service's label, for the Live Activity.
+  provider?: string;
 }
 
 const HISTORY = 20;
@@ -78,14 +82,15 @@ export function createAutoDeployer(deps: Deps) {
       const cfg = config ?? (await deps.readConfig(project));
       if (!cfg) return;
       const { store } = deps;
-      store.getState().setStatus(project, { state: 'deploying', message: 'Deploying…' });
+      const provider = cfg.provider;
+      store.getState().setStatus(project, { state: 'deploying', message: 'Deploying…', provider });
       try {
-        const { url } = await deps.deploy(project, cfg, (message) => store.getState().setStatus(project, { state: 'deploying', message }));
-        store.getState().setStatus(project, { state: 'done', message: 'Deployed', url });
+        const { url } = await deps.deploy(project, cfg, (message) => store.getState().setStatus(project, { state: 'deploying', message, provider }));
+        store.getState().setStatus(project, { state: 'done', message: 'Deployed', url, provider });
         store.getState().record(project, { at: now(), provider: cfg.provider, trigger, ok: true, url });
       } catch (e) {
         const error = e instanceof Error ? e.message : String(e);
-        store.getState().setStatus(project, { state: 'failed', message: error });
+        store.getState().setStatus(project, { state: 'failed', message: error, provider });
         store.getState().record(project, { at: now(), provider: cfg.provider, trigger, ok: false, error });
       }
     })();

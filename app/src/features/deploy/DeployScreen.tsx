@@ -1,6 +1,6 @@
 import * as Clipboard from 'expo-clipboard';
-import { useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import { ActivityIndicator, Linking, Pressable, TextInput, View } from 'react-native';
 
@@ -12,9 +12,10 @@ import { workspace } from '../../state';
 import { makeStyles, useColors } from '../../theme/theme';
 import { borderWidth, fonts, fontSizes, radius, spacing } from '../../theme/tokens';
 import { parseRemote, timeAgo } from '../github/api';
-import type { DeployRecord } from './auto';
+import type { DeployRecord, DeployStatus } from './auto';
+import { requirePro } from '../pro';
 import { deployStore } from './index';
-import { deploy, getToken, guessFolder, PROVIDERS, readConfig, saveConfig, setToken } from './deploy';
+import { currentBranch, deploy, getToken, guessFolder, PREVIEWS, PROVIDERS, readConfig, saveConfig, setToken } from './deploy';
 import { DeployConfig, ProviderId } from './providers';
 
 // One shared empty list: a new [] on every render would re-render forever.
@@ -34,7 +35,8 @@ async function githubRemote(project: string) {
 // Publish a folder of the project to GitHub Pages, Netlify, Vercel, Cloudflare
 // Pages, or trigger a Render deploy. Free for everyone.
 export function DeployScreen() {
-  const { project } = useLocalSearchParams<{ project: string }>();
+  // go=1 comes from the Deploy Project action in Shortcuts (Tide Pro): deploy on opening.
+  const { project, go } = useLocalSearchParams<{ project: string; go?: string }>();
   const styles = useStyles();
   const colors = useColors();
   const [config, setConfig] = useState<DeployConfig | null>(null);
@@ -43,6 +45,8 @@ export function DeployScreen() {
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [url, setUrl] = useState<string | null>(null);
+  const [wasPreview, setWasPreview] = useState(false);
+  const [branch, setBranch] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const history = useStore(deployStore, (s) => s.history[project] ?? NO_HISTORY);
 
@@ -66,22 +70,44 @@ export function DeployScreen() {
     getToken(config.provider, project).then((t) => setHasToken(!!t));
   }, [config?.provider, project]);
 
+  useEffect(() => {
+    currentBranch(project).then(setBranch);
+  }, [project]);
+
+  const runRef = useRef<((preview?: boolean) => Promise<void>) | null>(null);
+  const autoRan = useRef(false);
+  useEffect(() => {
+    if (go !== '1' || !config || autoRan.current) return;
+    autoRan.current = true;
+    if (requirePro('shortcuts')) runRef.current?.();
+  }, [go, config]);
+
   if (!config) return <Screen title="Deploy" subtitle={project}><ActivityIndicator color={colors.mutedForeground} /></Screen>;
   const provider = PROVIDERS.find((p) => p.id === config.provider)!;
   const update = (patch: Partial<DeployConfig>) => setConfig({ ...config, ...patch });
 
-  const run = async () => {
+  // `preview` deploys to a preview URL for the current branch, leaving the live site alone.
+  const run = async (preview = false) => {
     setBusy(true);
     setError(null);
     setUrl(null);
+    setWasPreview(preview);
+    // Shared, for the project screen's status bar and the Live Activity.
+    const report = (s: Omit<DeployStatus, 'provider'>) => deployStore.getState().setStatus(project, { ...s, provider: config.provider });
+    const progress = (message: string) => {
+      setStatus(message);
+      report({ state: 'deploying', message });
+    };
     try {
       if (token.trim()) await setToken(config.provider, project, token);
-      const result = await deploy(project, config, setStatus);
+      progress('Deploying…');
+      const result = await deploy(project, config, progress, preview ? (branch ?? 'preview') : undefined);
+      report({ state: 'done', message: preview ? 'Preview published' : 'Deployed', url: result.url });
       const next = { ...config, ...result.config };
       await saveConfig(project, next);
       setConfig(next);
       setUrl(result.url);
-      deployStore.getState().record(project, { at: Date.now(), provider: config.provider, trigger: 'manual', ok: true, url: result.url });
+      deployStore.getState().record(project, { at: Date.now(), provider: config.provider, trigger: 'manual', ok: true, url: result.url, ...(preview ? { preview: true } : {}) });
       setHasToken(true);
       setTokenValue('');
       haptic('success');
@@ -89,12 +115,15 @@ export function DeployScreen() {
       haptic('error');
       const message = e instanceof Error ? e.message : String(e);
       setError(message);
-      deployStore.getState().record(project, { at: Date.now(), provider: config.provider, trigger: 'manual', ok: false, error: message });
+      report({ state: 'failed', message });
+      deployStore.getState().record(project, { at: Date.now(), provider: config.provider, trigger: 'manual', ok: false, error: message, ...(preview ? { preview: true } : {}) });
     } finally {
       setBusy(false);
       setStatus(null);
     }
   };
+
+  runRef.current = run;
 
   const setAuto = async (auto: 'off' | 'save' | 'commit') => {
     const next = { ...config, auto };
@@ -201,7 +230,13 @@ export function DeployScreen() {
         </Text>
       </View>
 
-      <Button title={busy ? 'Deploying…' : 'Deploy'} icon="upload-cloud" onPress={run} disabled={busy} testID="deploy-run" />
+      <Button title={busy ? 'Deploying…' : 'Deploy'} icon="upload-cloud" onPress={() => run()} disabled={busy} testID="deploy-run" />
+      {PREVIEWS.includes(config.provider) && (
+        <View style={styles.field}>
+          <Button title={`Deploy a preview${branch ? ` of ${branch}` : ''}`} variant="outline" icon="eye" onPress={() => run(true)} disabled={busy} testID="deploy-preview" />
+          <Text variant="muted">Publishes to its own link to check or share, without changing your live site.</Text>
+        </View>
+      )}
       {status && (
         <View style={styles.row}>
           <ActivityIndicator color={colors.mutedForeground} />
@@ -215,13 +250,18 @@ export function DeployScreen() {
       )}
       {url && (
         <View style={styles.done} testID="deploy-done">
-          <Text variant="label">{config.provider === 'render' ? 'Render is building your site' : 'Published'}</Text>
+          <Text variant="label">{config.provider === 'render' ? 'Render is building your site' : wasPreview ? 'Preview published' : 'Published'}</Text>
           <Text variant="mono" selectable>
             {url}
           </Text>
           {config.provider === 'github' && <Text variant="muted">GitHub Pages can take a minute to update.</Text>}
+          {wasPreview && <Text variant="muted">Your live site didn't change.{config.provider === 'firebase' ? ' Firebase deletes the preview after 7 days.' : ''}</Text>}
           <View style={styles.row}>
-            <Button title="Open" icon="external-link" onPress={() => Linking.openURL(url)} />
+            {wasPreview ? (
+              <Button title="Preview" icon="eye" onPress={() => router.push({ pathname: '/preview', params: { url, port: '', project } })} testID="deploy-open-preview" />
+            ) : (
+              <Button title="Open" icon="external-link" onPress={() => Linking.openURL(url)} />
+            )}
             <Button title="Copy link" variant="outline" icon="copy" onPress={() => Clipboard.setStringAsync(url).then(() => haptic('success'))} />
           </View>
         </View>
@@ -240,7 +280,8 @@ export function DeployScreen() {
               <Text style={{ color: h.ok ? colors.success : colors.destructive }}>{h.ok ? '✓' : '✕'}</Text>
               <View style={{ flex: 1 }}>
                 <Text variant="label" numberOfLines={1}>
-                  {PROVIDERS.find((p) => p.id === h.provider)?.label ?? h.provider} · {h.trigger === 'manual' ? 'by hand' : h.trigger === 'save' ? 'after saving' : 'after a commit'}
+                  {PROVIDERS.find((p) => p.id === h.provider)?.label ?? h.provider}
+                  {h.preview ? ' preview' : ''} · {h.trigger === 'manual' ? 'by hand' : h.trigger === 'save' ? 'after saving' : 'after a commit'}
                 </Text>
                 <Text variant="muted" numberOfLines={2}>
                   {timeAgo(new Date(h.at).toISOString())}

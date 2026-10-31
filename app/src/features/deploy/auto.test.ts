@@ -28,7 +28,7 @@ describe('automatic deploys', () => {
     timers[0].fn();
     await new Promise((r) => setTimeout(r, 0));
     expect(deploy).toHaveBeenCalledTimes(1);
-    expect(store.getState().status.site).toEqual({ state: 'done', message: 'Deployed', url: 'https://site.example' });
+    expect(store.getState().status.site).toEqual({ state: 'done', message: 'Deployed', url: 'https://site.example', provider: 'netlify' });
     expect(store.getState().history.site[0]).toMatchObject({ provider: 'netlify', trigger: 'save', ok: true });
   });
 
@@ -41,7 +41,7 @@ describe('automatic deploys', () => {
     expect(failing).not.toHaveBeenCalled();
     const on = setup('commit', failing);
     await on.deployer.onCommit('site');
-    expect(on.store.getState().status.site).toEqual({ state: 'failed', message: 'Netlify: Unauthorized (401)' });
+    expect(on.store.getState().status.site).toEqual({ state: 'failed', message: 'Netlify: Unauthorized (401)', provider: 'netlify' });
     expect(on.store.getState().history.site[0]).toMatchObject({ ok: false, trigger: 'commit', error: 'Netlify: Unauthorized (401)' });
   });
 

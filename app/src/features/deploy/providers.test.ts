@@ -1,6 +1,6 @@
 import { gunzipSync, unzipSync } from 'fflate';
 
-import { cloudflareHash, contentType, deployCloudflare, deployFirebase, deployGitHubPages, deployNetlify, deployRender, deployVercel, parseServiceAccount } from './providers';
+import { cloudflareHash, contentType, deployCloudflare, deployFirebase, deployGitHubPages, deployNetlify, deployRender, deployVercel, parseServiceAccount, previewSlug } from './providers';
 
 type Handler = (url: string, init: RequestInit) => { status?: number; body?: unknown };
 function fakeFetch(handler: Handler) {
@@ -142,5 +142,90 @@ describe('Firebase Hosting', () => {
     expect(parseServiceAccount('{"type":"service_account","client_email":"a@b","private_key":"k","project_id":"p"}').project_id).toBe('p');
     expect(() => parseServiceAccount('{"type":"authorized_user"}')).toThrow('isn’t a service account key');
     expect(() => parseServiceAccount('nope')).toThrow('paste the whole');
+  });
+});
+
+describe('preview deploys', () => {
+  it('names previews after the branch', () => {
+    expect(previewSlug('feature/New Login!')).toBe('feature-new-login');
+    expect(previewSlug('live')).toBe('preview');
+    expect(previewSlug('---')).toBe('preview');
+    expect(previewSlug('a'.repeat(50))).toHaveLength(37);
+  });
+
+  it('makes a Netlify draft from a digest and uploads only what it asks for', async () => {
+    const { fetchImpl, calls } = fakeFetch((url, init) => {
+      if (url.endsWith('/sites/s1/deploys')) return { body: { id: 'd1', state: 'prepared', required: ['ea8a3d0f8bb8c6c4b1cbf3a3b2dd0c9e3d0b1c6c'] } };
+      if (url.includes('/deploys/d1/files/')) return { body: {} };
+      if (url.endsWith('/deploys/d1')) return { body: { id: 'd1', state: 'ready', deploy_ssl_url: 'https://feature-x--site.netlify.app' } };
+      throw new Error(`${init.method} ${url}`);
+    });
+    const r = await deployNetlify(files, 's1', 'tok', noop, fetchImpl, 'feature-x');
+    expect(r).toEqual({ url: 'https://feature-x--site.netlify.app', preview: true, config: { netlify: { siteId: 's1' } } });
+    const create = calls[0].body as { files: Record<string, string>; draft: boolean; branch: string };
+    expect(create.draft).toBe(true);
+    expect(create.branch).toBe('feature-x');
+    expect(Object.keys(create.files).sort()).toEqual(files.map((f) => `/${f.path}`).sort());
+    for (const hash of Object.values(create.files)) expect(hash).toMatch(/^[0-9a-f]{40}$/);
+    // Only files whose hash Netlify asked for go up.
+    const wanted = Object.entries(create.files).filter(([, h]) => h === 'ea8a3d0f8bb8c6c4b1cbf3a3b2dd0c9e3d0b1c6c');
+    expect(calls.filter((c) => c.method === 'PUT')).toHaveLength(wanted.length);
+  });
+
+  it('uploads every file Netlify is missing, with the path in the URL', async () => {
+    let digest: Record<string, string> = {};
+    const { fetchImpl, calls } = fakeFetch((url, init) => {
+      if (url.endsWith('/sites/s1/deploys')) {
+        digest = JSON.parse(String(init.body)).files;
+        return { body: { id: 'd1', state: 'ready', required: Object.values(digest), deploy_ssl_url: 'https://p--site.netlify.app' } };
+      }
+      return { body: {} };
+    });
+    await deployNetlify(files, 's1', 'tok', noop, fetchImpl, 'p');
+    const puts = calls.filter((c) => c.method === 'PUT').map((c) => c.url.replace('https://api.netlify.com/api/v1/deploys/d1/files', ''));
+    expect(puts.sort()).toEqual(Object.keys(digest).sort());
+  });
+
+  it('makes a Vercel preview deployment', async () => {
+    const { fetchImpl, calls } = fakeFetch(() => ({ body: { id: 'dpl', readyState: 'READY', url: 'site-abc123.vercel.app', alias: ['site.vercel.app'] } }));
+    const r = await deployVercel(files, 'site', 'tok', noop, fetchImpl, 'feature-x');
+    expect(r).toEqual({ url: 'https://site-abc123.vercel.app', preview: true });
+    const body = calls[0].body as { target?: string; meta: unknown };
+    expect(body.target).toBeUndefined();
+    expect(body.meta).toEqual({ branch: 'feature-x' });
+  });
+
+  it('sends a Cloudflare preview to a non-production branch', async () => {
+    let form: FormData | null = null;
+    const { fetchImpl } = fakeFetch((url, init) => {
+      if (url.endsWith('/projects/site')) return { body: { result: { name: 'site' } } };
+      if (url.endsWith('/upload-token')) return { body: { result: { jwt: 'jwt1' } } };
+      if (url.endsWith('/check-missing')) return { body: { result: [] } };
+      if (url.endsWith('/upsert-hashes')) return { body: { result: null } };
+      if (url.endsWith('/deployments')) {
+        form = init.body as FormData;
+        return { body: { result: { url: 'https://abc.site.pages.dev' } } };
+      }
+      throw new Error(url);
+    });
+    const r = await deployCloudflare(files, { accountId: 'acc', project: 'site' }, 'tok', noop, fetchImpl, 'feature/x');
+    expect(r).toEqual({ url: 'https://abc.site.pages.dev', preview: true });
+    expect(form!.get('branch')).toBe('feature/x');
+  });
+
+  it('releases to a Firebase preview channel, creating it the first time', async () => {
+    const { fetchImpl, calls } = fakeFetch((url) => {
+      if (url.endsWith('/sites/my-site/versions')) return { body: { name: 'sites/my-site/versions/v1' } };
+      if (url.endsWith(':populateFiles')) return { body: { uploadRequiredHashes: [], uploadUrl: 'https://upload' } };
+      if (url.includes('versions/v1?update_mask')) return { body: {} };
+      if (url.endsWith('/channels/feature-x')) return { status: 404, body: { error: { message: 'not found' } } };
+      if (url.includes('/channels?channelId=feature-x')) return { body: { name: 'sites/my-site/channels/feature-x', url: 'https://my-site--feature-x-abc.web.app' } };
+      if (url.includes('/channels/feature-x/releases?versionName=')) return { body: {} };
+      throw new Error(url);
+    });
+    const r = await deployFirebase(files, 'my-site', 'at', noop, fetchImpl, 'feature-x');
+    expect(r).toEqual({ url: 'https://my-site--feature-x-abc.web.app', preview: true });
+    expect(calls.find((c) => c.url.includes('channelId='))!.body).toEqual({ ttl: '604800s' });
+    expect(calls.some((c) => /\/sites\/my-site\/releases/.test(c.url))).toBe(false);
   });
 });
