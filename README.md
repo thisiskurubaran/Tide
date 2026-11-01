@@ -30,6 +30,10 @@ app/                             Expo app (dev client, prebuild, New Architectur
   src/features/ssh               SSH servers and keys, the SSH terminal backend, SFTP browsing and editing
   src/features/http              .http request files: parsing, sending, environments, cURL and GraphQL, the request/response viewer
   src/features/database          Database viewer for SQLite files (expo-sqlite) and PostgreSQL / MySQL servers (tide:sql, remote/)
+  src/features/todos             The TODO / FIXME list
+  src/features/outline           File outline and Go to Symbol (symbols read line by line, per language)
+  src/features/notebook          Running Jupyter notebook cells with the device's Python (Tide Pro)
+  src/features/ai                AI assistant (Tide Pro): Claude through @anthropic-ai/sdk with the user's own key
   src/features/env               Per-project environment variables: .env plus Keychain secrets, given to every run
   src/features/hosts             GitLab and Bitbucket (Tide Pro): accounts, repositories, merge/pull requests, issues
   src/features/widgets           Shares data with the widget and Shortcuts actions; deploy Live Activities (Tide Pro)
