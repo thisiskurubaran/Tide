@@ -30,6 +30,8 @@ import { Command, CommandPalette } from '../search/CommandPalette';
 import { SearchPanel } from '../search/SearchPanel';
 import { TodosPanel } from '../todos/TodosPanel';
 import { OutlinePanel } from '../outline/OutlinePanel';
+import { NotebookBar } from '../notebook/NotebookBar';
+import { AiMode, AiSheet } from '../ai/AiSheet';
 import { projectLink, ProjectLinkOptions } from '../launch/links';
 import { configLine, DEFAULT_CONFIG, NamedConfig, taskLine, Task } from './tasks';
 import { useProjectTasks } from './useProjectTasks';
@@ -105,6 +107,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
   const [searching, setSearching] = useState(false);
   const [todos, setTodos] = useState(false);
   const [outline, setOutline] = useState(false);
+  const [ai, setAi] = useState<AiMode | null>(null);
   const [goingToLine, setGoingToLine] = useState(false);
   const [terminalHidden, setTerminalHidden] = useState(false);
   const [sidebarHidden, setSidebarHidden] = useState(false);
@@ -133,6 +136,14 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
       <DatabasePane project={project} path={path!} />
     ) : previewKind(path!) === 'http' ? (
       <HttpPane project={project} path={path!} />
+    ) : previewKind(path!) === 'notebook' ? (
+      // Notebooks get a bar to run their Python cells (Tide Pro).
+      <View style={StyleSheet.absoluteFill}>
+        <NotebookBar project={project} path={path!} />
+        <View style={styles.flexFill}>
+          <PreviewPane project={project} path={path!} />
+        </View>
+      </View>
     ) : (
       <PreviewPane project={project} path={path!} />
     ));
@@ -320,6 +331,14 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     { id: 'search', title: 'Search in project', icon: 'search', hint: '⇧⌘F', run: () => setSearching(true) },
     { id: 'todos', title: 'TODOs in project', icon: 'check-square', run: () => setTodos(true) },
     { id: 'symbols', title: 'Go to symbol (outline)', icon: 'list', hint: '⇧⌘O', run: () => setOutline(true) },
+    ...(current
+      ? (['explain', 'fix', 'ask'] as const).map((m) => ({
+          id: `ai.${m}`,
+          title: m === 'explain' ? 'AI: explain this file' : m === 'fix' ? 'AI: fix bugs in this file' : 'AI: ask about this file…',
+          icon: 'cpu' as const,
+          run: () => requirePro('ai') && setAi(m),
+        }))
+      : []),
     { id: 'github', title: 'GitHub', icon: 'github', run: () => router.push('/github') },
     { id: 'deploy', title: 'Deploy…', icon: 'upload-cloud', run: () => router.push({ pathname: '/deploy', params: { project } }) },
     { id: 'env', title: 'Environment variables…', icon: 'key', run: () => router.push({ pathname: '/env', params: { project } }) },
@@ -637,6 +656,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
       ))}
       <SearchPanel visible={searching} project={project} onOpen={openAt} onClose={() => setSearching(false)} />
       <TodosPanel visible={todos} project={project} onOpen={openAt} onClose={() => setTodos(false)} />
+      <AiSheet mode={ai} project={project} path={current ?? null} onClose={() => setAi(null)} />
       <OutlinePanel visible={outline} project={project} path={current ?? null} onOpen={openAt} onClose={() => setOutline(false)} />
       <ShortcutsSheet visible={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       <SnapshotsSheet project={showSnapshots ? project : null} onClose={() => setShowSnapshots(false)} />
@@ -659,6 +679,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
 }
 
 const useStyles = makeStyles((colors) => ({
+  flexFill: { flex: 1 },
   deployBar: { paddingHorizontal: spacing.md, paddingVertical: spacing.xs + 2, backgroundColor: colors.brandSoft },
   deployFailed: { backgroundColor: colors.destructiveSoft },
   deployText: { color: colors.foreground },

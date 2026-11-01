@@ -23,6 +23,7 @@ import { WhatsNewSheet } from '../support/WhatsNewSheet';
 import { Onboarding } from '../onboarding/Onboarding';
 import { requirePro, useIsPro, useProState } from '../pro';
 import { useAccounts } from '../hosts/accounts';
+import { useAiSettings } from '../ai/settings';
 import { iconsSupported, setProIcon, usingProIcon } from '../pro/appIcon';
 import { proStatus } from '../pro/store';
 
@@ -51,6 +52,7 @@ export function SettingsScreen() {
     emmet: useSettings((s) => s.emmet),
   };
   const snippetCount = useSettings((s) => s.snippets.length);
+  const aiKey = useAiSettings((s) => s.hasKey);
   const hostCount = useAccounts((s) => s.accounts.length);
   const colors = useColors();
   const remote = useRemoteSettings((s) => s.settings);
@@ -152,6 +154,7 @@ export function SettingsScreen() {
               trackColor={{ true: colors.brand, false: colors.secondary }}
             />
           </Row>
+          <LinkRow label="AI assistant (Pro)" detail={aiKey ? 'Anthropic key saved' : 'Claude, with your own API key'} onPress={() => requirePro('ai') && router.push('/settings/ai')} testID="settings-ai" />
           <LinkRow
             label="Snippets (Pro)"
             detail={snippetCount ? `${snippetCount} saved` : 'Your own, with tab stops'}

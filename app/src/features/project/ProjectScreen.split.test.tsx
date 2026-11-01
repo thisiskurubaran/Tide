@@ -54,6 +54,8 @@ jest.mock('../../extensions/host', () => ({
 jest.mock('../../extensions/gitPro', () => ({ GIT_PRO_PANEL: 'git-pro' }));
 jest.mock('./TerminalPanel', () => ({ TerminalPanel: () => null }));
 jest.mock('../git/SourceControlSheet', () => ({ SourceControlSheet: () => null }));
+jest.mock('../ai/AiSheet', () => ({ AiSheet: () => null }));
+jest.mock('../notebook/NotebookBar', () => ({ NotebookBar: () => null }));
 jest.mock('../search/SearchPanel', () => ({ SearchPanel: () => null }));
 jest.mock('../packages/PackagesSheet', () => ({ PackagesSheet: () => null }));
 jest.mock('../tests/TestsSheet', () => ({ TestsSheet: () => null }));

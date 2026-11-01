@@ -3,6 +3,7 @@
   "version": "2.0.0",
   "main": "expo-router/entry",
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.3.0",
     "@codemirror/merge": "^6.12.3",
     "@expo/vector-icons": "^15.0.2",
     "@noble/hashes": "^2.4.0",
