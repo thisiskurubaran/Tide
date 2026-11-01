@@ -32,6 +32,10 @@ import {
 import { parseCurl, toCurl, toHttpText } from './curl';
 import { projectEnv } from '../env/store';
 import { takeSend } from './pending';
+import { HistoryEntry, historyKey, restoreHeaders } from './history';
+import { HistorySheet } from './HistorySheet';
+import { httpHistory } from './store';
+import { useStore } from 'zustand';
 
 type Result = { response: HttpResponse } | { error: string } | 'sending';
 
@@ -66,6 +70,9 @@ export function HttpPane({ project, path }: { project: string; path: string }) {
   const [saving, setSaving] = useState<number | null>(null);
   const [pasting, setPasting] = useState<string | null>(null);
   const [dotenv, setDotenv] = useState<Record<string, string>>({});
+  const [historyFor, setHistoryFor] = useState<number | null>(null);
+  const history = useStore(httpHistory, (s) => s.entries);
+  const keyFor = (i: number) => historyKey(project, path, parsed.requests[i]?.name ?? String(i));
 
   useEffect(() => {
     projectEnv(project).then((e) => setDotenv(dotenvVariables(e)), () => undefined);
@@ -100,10 +107,14 @@ export function HttpPane({ project, path }: { project: string; path: string }) {
     haptic('success');
   };
 
-  const sendAt = async (i: number) => {
+  // `override` sends a request from the history instead of the file's.
+  const sendAt = async (i: number, override?: HistoryEntry) => {
     setResults((r) => ({ ...r, [i]: 'sending' }));
     try {
-      const response = await send(toWire(resolveRequest(parsed.requests[i], parsed.variables)));
+      const current = toWire(resolveRequest(parsed.requests[i], parsed.variables));
+      const req = override ? { ...current, ...override.request, headers: restoreHeaders(override.request.headers, current.headers) } : current;
+      const response = await send(req);
+      httpHistory.getState().add(keyFor(i), req, response);
       setResults((r) => ({ ...r, [i]: { response } }));
       haptic(response.status < 400 ? 'success' : 'error');
       announce(`${response.status} ${response.statusText}`);
@@ -199,6 +210,9 @@ export function HttpPane({ project, path }: { project: string; path: string }) {
                     {req.url}
                   </Text>
                 </View>
+                {!!history[keyFor(i)]?.length && (
+                  <IconButton icon="clock" label={`History, ${history[keyFor(i)].length} responses`} onPress={() => setHistoryFor(i)} testID={`http-history-open-${i}`} />
+                )}
                 <IconButton icon="clipboard" label="Copy as cURL" onPress={() => copyCurl(i)} testID={`http-curl-${i}`} />
                 <Button title={result === 'sending' ? 'Sending…' : 'Send'} icon="send" onPress={() => sendAt(i)} disabled={result === 'sending'} testID={`http-send-${i}`} />
               </View>
@@ -250,6 +264,13 @@ export function HttpPane({ project, path }: { project: string; path: string }) {
           );
         })}
       </ScrollView>
+      <HistorySheet
+        name={historyFor !== null ? (parsed.requests[historyFor]?.name ?? '') : ''}
+        entries={historyFor !== null ? (history[keyFor(historyFor)] ?? []) : null}
+        onResend={(entry) => historyFor !== null && sendAt(historyFor, entry)}
+        onClear={() => historyFor !== null && httpHistory.getState().clear(keyFor(historyFor))}
+        onClose={() => setHistoryFor(null)}
+      />
       <FormSheet
         visible={pasting !== null}
         title="Add a request from cURL"
@@ -311,6 +332,6 @@ const useStyles = makeStyles((colors) => ({
   envs: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs + 2 },
   envChip: { paddingHorizontal: spacing.sm + 2, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth, borderColor: colors.border },
   envChipOn: { borderColor: colors.brand, backgroundColor: colors.brandSoft },
-  saveRow: { flexDirection: 'row', justifyContent: 'flex-end' },
+  saveRow: { flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.sm },
   body: { fontFamily: fonts.mono.regular, fontSize: fontSizes.xs + 1, backgroundColor: colors.background, borderRadius: radius.sm, padding: spacing.sm },
 }));

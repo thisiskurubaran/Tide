@@ -28,6 +28,8 @@ import { TerminalKeyBar } from '../terminal/TerminalKeyBar';
 import { SourceControlSheet } from '../git/SourceControlSheet';
 import { Command, CommandPalette } from '../search/CommandPalette';
 import { SearchPanel } from '../search/SearchPanel';
+import { TodosPanel } from '../todos/TodosPanel';
+import { OutlinePanel } from '../outline/OutlinePanel';
 import { projectLink, ProjectLinkOptions } from '../launch/links';
 import { configLine, DEFAULT_CONFIG, NamedConfig, taskLine, Task } from './tasks';
 import { useProjectTasks } from './useProjectTasks';
@@ -101,6 +103,8 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [palette, setPalette] = useState<'files' | 'commands' | null>(null);
   const [searching, setSearching] = useState(false);
+  const [todos, setTodos] = useState(false);
+  const [outline, setOutline] = useState(false);
   const [goingToLine, setGoingToLine] = useState(false);
   const [terminalHidden, setTerminalHidden] = useState(false);
   const [sidebarHidden, setSidebarHidden] = useState(false);
@@ -314,6 +318,8 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
   const commands = uniqueById<Command>([
     { id: 'quick-open', title: 'Open file', icon: 'file', hint: '⌘P', run: () => setPalette('files') },
     { id: 'search', title: 'Search in project', icon: 'search', hint: '⇧⌘F', run: () => setSearching(true) },
+    { id: 'todos', title: 'TODOs in project', icon: 'check-square', run: () => setTodos(true) },
+    { id: 'symbols', title: 'Go to symbol (outline)', icon: 'list', hint: '⇧⌘O', run: () => setOutline(true) },
     { id: 'github', title: 'GitHub', icon: 'github', run: () => router.push('/github') },
     { id: 'deploy', title: 'Deploy…', icon: 'upload-cloud', run: () => router.push({ pathname: '/deploy', params: { project } }) },
     { id: 'env', title: 'Environment variables…', icon: 'key', run: () => router.push({ pathname: '/env', params: { project } }) },
@@ -630,6 +636,8 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
         <Panel key={id} ctx={ctx} visible={panel === id} onClose={() => setPanel((p) => (p === id ? null : p))} />
       ))}
       <SearchPanel visible={searching} project={project} onOpen={openAt} onClose={() => setSearching(false)} />
+      <TodosPanel visible={todos} project={project} onOpen={openAt} onClose={() => setTodos(false)} />
+      <OutlinePanel visible={outline} project={project} path={current ?? null} onOpen={openAt} onClose={() => setOutline(false)} />
       <ShortcutsSheet visible={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       <SnapshotsSheet project={showSnapshots ? project : null} onClose={() => setShowSnapshots(false)} />
       <LinkedFolderSheet project={showLinked ? project : null} onClose={() => setShowLinked(false)} />
