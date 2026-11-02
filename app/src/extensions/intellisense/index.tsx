@@ -3,7 +3,10 @@ import { Alert, Pressable, ScrollView } from 'react-native';
 import { PromptSheet } from '../../components/PromptSheet';
 import { Sheet } from '../../components/Sheet';
 import { Text } from '../../components/Text';
+import { classify } from '../../features/editor/largeFiles';
 import { localRunner } from '../../runtime';
+import { documentsPath } from '../../runtime/paths';
+import { pythonRuntime } from '../../runtime/python';
 import { buffersStore, workspace } from '../../state';
 import { bufferKey } from '../../state/buffers';
 import { makeStyles, useColors } from '../../theme/theme';
@@ -13,18 +16,36 @@ import { toDiagnostics } from '../formatLint/lintMessages';
 import { problemsCommand, problemsPanel } from '../ProblemsPanel';
 import type { Location, PanelProps, ProjectContext, TideExtension } from '../types';
 import { applyEdits, createTsClient, TS_FILE } from './client';
+import { createPyClient, PY_FILE } from './python';
 
 const ts = createTsClient(localRunner);
+const py = createPyClient((code) => pythonRuntime.snippet(code), documentsPath);
+
+// Each file goes to the service for its language; both take the same calls.
+const clientFor = (path: string) => (PY_FILE.test(path) ? py : ts);
+const supports = (path: string) => TS_FILE.test(path) || PY_FILE.test(path);
 
 const content = (project: string, path: string) => buffersStore.getState().buffers[bufferKey(project, path)]?.content;
+
+// Jedi reparses on every request, so large files (which open as plain text) are left alone.
+const tooLarge = (path: string, text: string) => PY_FILE.test(path) && classify(text) !== 'normal';
 
 // The symbol under the cursor, for the commands that act on it.
 function atCursor(ctx: ProjectContext) {
   const path = ctx.activePath();
   const offset = ctx.cursor();
   const text = path ? content(ctx.project, path) : undefined;
-  if (!path || offset === null || text === undefined || !TS_FILE.test(path)) return null;
+  if (!path || offset === null || text === undefined || !supports(path) || tooLarge(path, text)) return null;
   return { path, offset, text };
+}
+
+// Jedi reads other files from disk, so unsaved Python edits are saved first.
+async function savePython(project: string) {
+  const store = buffersStore.getState();
+  for (const [k, b] of Object.entries(store.buffers)) {
+    const [p, path] = k.split('\u0000');
+    if (p === project && PY_FILE.test(path) && b.content !== b.saved) await store.save(p, path);
+  }
 }
 
 // Results shared between the commands and their panels.
@@ -33,7 +54,7 @@ let references: Location[] = [];
 async function goToDefinition(ctx: ProjectContext) {
   const at = atCursor(ctx);
   if (!at) return;
-  const [target] = await ts.definition(ctx.project, at.path, at.text, at.offset);
+  const [target] = await clientFor(at.path).definition(ctx.project, at.path, at.text, at.offset);
   if (target) ctx.openFile(target.path, target.line, target.column);
   else Alert.alert('Go to definition', 'No definition found in this project.');
 }
@@ -41,7 +62,8 @@ async function goToDefinition(ctx: ProjectContext) {
 async function findReferences(ctx: ProjectContext) {
   const at = atCursor(ctx);
   if (!at) return;
-  references = await ts.references(ctx.project, at.path, at.text, at.offset);
+  if (PY_FILE.test(at.path)) await savePython(ctx.project);
+  references = await clientFor(at.path).references(ctx.project, at.path, at.text, at.offset);
   ctx.openPanel('intellisense.references');
 }
 
@@ -51,11 +73,12 @@ async function rename(ctx: ProjectContext, newName: string) {
   const at = atCursor(ctx);
   if (!at) throw new Error('Put the cursor on a symbol first');
   // Unsaved edits in other files must be what the service renames in.
+  if (PY_FILE.test(at.path)) await savePython(ctx.project);
   for (const [k, b] of Object.entries(buffersStore.getState().buffers)) {
     const [project, path] = k.split('\u0000');
     if (project === ctx.project && TS_FILE.test(path)) ts.sync(project, path, b.content);
   }
-  const files = await ts.rename(ctx.project, at.path, at.text, at.offset, newName);
+  const files = await clientFor(at.path).rename(ctx.project, at.path, at.text, at.offset, newName);
   for (const f of files) {
     const open = content(ctx.project, f.path);
     if (open !== undefined) buffersStore.getState().edit(ctx.project, f.path, applyEdits(open, f.edits));
@@ -108,7 +131,8 @@ function RenamePanel({ ctx, visible, onClose }: PanelProps) {
       confirmLabel="Rename"
       onClose={onClose}
       onSubmit={async (value) => {
-        if (!/^[A-Za-z_$][\w$]*$/.test(value)) throw new Error('Not a valid name');
+        // Jedi checks Python names itself (they may be Unicode).
+        if (at && TS_FILE.test(at.path) && !/^[A-Za-z_$][\w$]*$/.test(value)) throw new Error('Not a valid name');
         await rename(ctx, value);
       }}
     />
@@ -119,10 +143,12 @@ export const intellisenseExtension: TideExtension = {
   id: 'intellisense',
   editor: { language: true },
   language: {
-    supports: (path) => TS_FILE.test(path),
-    completion: ({ project, path, content: text, offset }) => ts.completions(project, path, text, offset),
-    hover: ({ project, path, content: text, offset }) => ts.hover(project, path, text, offset),
-    definition: ({ project, path, content: text, offset }) => ts.definition(project, path, text, offset),
+    supports,
+    completion: async ({ project, path, content: text, offset }) =>
+      tooLarge(path, text) ? null : clientFor(path).completions(project, path, text, offset),
+    hover: async ({ project, path, content: text, offset }) => (tooLarge(path, text) ? null : clientFor(path).hover(project, path, text, offset)),
+    definition: async ({ project, path, content: text, offset }) =>
+      tooLarge(path, text) ? [] : clientFor(path).definition(project, path, text, offset),
   },
   commands: (ctx) => [
     { id: 'intellisense.definition', title: 'Go to definition', icon: 'corner-up-right', hint: 'F12', run: () => goToDefinition(ctx) },
@@ -141,6 +167,7 @@ export const intellisenseExtension: TideExtension = {
   deactivate() {
     diagnosticsStore.getState().clearSource('ts');
     ts.stop();
+    py.stop();
   },
 };
 

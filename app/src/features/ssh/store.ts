@@ -13,6 +13,13 @@ export interface SshHost {
   fingerprint?: string;
   // Another saved server to connect through (a jump host / bastion).
   jumpId?: string;
+  // One-tap commands for this server (restart a service, tail a log…).
+  commands?: SshCommand[];
+}
+
+export interface SshCommand {
+  name: string;
+  command: string;
 }
 
 export interface SshKey {

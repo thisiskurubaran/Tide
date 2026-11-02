@@ -20,6 +20,8 @@ const supervisor = createSupervisor({
     ssh: path.join(__dirname, 'ssh', 'cli.js'),
     lua: path.join(__dirname, 'lua', 'cli.js'),
     sql: path.join(__dirname, 'sql', 'cli.js'),
+    redis: path.join(__dirname, 'redis', 'cli.js'),
+    mongo: path.join(__dirname, 'mongo', 'cli.js'),
     'google-jwt': path.join(__dirname, 'google', 'jwt.js'),
     format: path.join(__dirname, 'format', 'service.js'),
     intellisense: path.join(__dirname, 'intellisense', 'service.js'),

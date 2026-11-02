@@ -37,7 +37,18 @@ import {
 } from '@codemirror/view';
 
 import fontRegular from '../../assets/fonts/JetBrainsMono-Regular.ttf';
-import { EditorFeatures, EditorKey, EditorOptions, FromEditor, Language, NO_FEATURES, parseToEditor, SelectUnit, ToEditor } from '../../src/features/editor/bridge';
+import {
+  EditorDiagnostic,
+  EditorFeatures,
+  EditorKey,
+  EditorOptions,
+  FromEditor,
+  Language,
+  NO_FEATURES,
+  parseToEditor,
+  SelectUnit,
+  ToEditor,
+} from '../../src/features/editor/bridge';
 import type { EditorTheme } from '../../src/theme/editor';
 import { shortcutFor } from '../../src/features/project/shortcuts';
 import {
@@ -51,6 +62,7 @@ import {
   setBreakpoints,
 } from './features';
 import { pinchToZoom } from '../pinch';
+import { languageServices, ServiceHost, serviceCompletions, serviceKind } from './langservices';
 import { languageExtension } from './languages';
 import { optionsExtension } from './options';
 import { snippetSource } from './snippets';
@@ -94,7 +106,25 @@ const currentFile = () => currentPath;
 const featureExtension = () => featureExtensions(features, currentFile, post, requests.ask);
 
 // Per-file state the app pushes that has to outlive tab switches.
-const diagnostics = new Map<string, Extract<ToEditor, { type: 'diagnostics' }>['items']>();
+const diagnostics = new Map<string, EditorDiagnostic[]>();
+// What the built-in CSS/HTML/JSON services found, shown alongside the app's.
+const serviceDiagnostics = new Map<string, EditorDiagnostic[]>();
+
+function showDiagnostics(path: string) {
+  if (path !== currentPath) return;
+  view.dispatch(lintDiagnostics(view.state, [...(diagnostics.get(path) ?? []), ...(serviceDiagnostics.get(path) ?? [])]));
+}
+
+const services: ServiceHost = {
+  kind: () => serviceKind(currentLang),
+  path: currentFile,
+  diagnostics(path, items) {
+    const before = serviceDiagnostics.get(path) ?? [];
+    if (!items.length && !before.length) return;
+    serviceDiagnostics.set(path, items);
+    showDiagnostics(path);
+  },
+};
 const breakpointsByPath = new Map<string, number[]>();
 let execLine: { path: string; line: number } | null = null;
 
@@ -149,7 +179,13 @@ function baseExtensions(lang: Language): Extension[] {
     indentOnInput(),
     bracketMatching(),
     closeBrackets(),
-    autocompletion({ override: [snippetSource(() => currentLang, () => options.snippets ?? []), completionSource(() => features.language, currentFile, requests.ask)] }),
+    autocompletion({
+      override: [
+        snippetSource(() => currentLang, () => options.snippets ?? []),
+        serviceCompletions(services, completionSource(() => features.language, currentFile, requests.ask)),
+      ],
+    }),
+    languageServices(services),
     EditorState.tabSize.of(2),
     indentUnit.of('  '),
     keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...completionKeymap]),
@@ -178,7 +214,7 @@ function baseExtensions(lang: Language): Extension[] {
 
 // Reapplies what the app pushed for this file: diagnostics, breakpoints and the paused line.
 function restoreFileState(path: string) {
-  view.dispatch(lintDiagnostics(view.state, diagnostics.get(path) ?? []));
+  showDiagnostics(path);
   view.dispatch({
     effects: [setBreakpoints(breakpointsByPath.get(path) ?? []), execLineEffect(execLine?.path === path ? execLine.line : null)],
   });
@@ -343,8 +379,7 @@ function handle(msg: ToEditor) {
       return setContent(msg.path, msg.content, msg.base);
     case 'diagnostics':
       diagnostics.set(msg.path, msg.items);
-      if (msg.path === currentPath) view.dispatch(lintDiagnostics(view.state, msg.items));
-      return;
+      return showDiagnostics(msg.path);
     case 'response':
       return requests.settle(msg.id, msg.result);
     case 'breakpoints':

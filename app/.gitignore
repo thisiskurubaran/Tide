@@ -63,6 +63,10 @@ modules/python-runtime/python/autopep8.py
 modules/python-runtime/python/autopep8-*.dist-info/
 modules/python-runtime/python/pycodestyle.py
 modules/python-runtime/python/pycodestyle-*.dist-info/
+modules/python-runtime/python/jedi/
+modules/python-runtime/python/jedi-*.dist-info/
+modules/python-runtime/python/parso/
+modules/python-runtime/python/parso-*.dist-info/
 
 # Ruby and PHP interpreters, copied from node_modules by npm install (scripts/build-runtimes.js)
 assets/runtimes/*.wasm

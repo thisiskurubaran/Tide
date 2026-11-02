@@ -57,15 +57,16 @@ export const manifests: ExtensionManifest[] = [
   {
     id: 'intellisense',
     name: 'IntelliSense',
-    tagline: 'TypeScript-powered completions, errors and navigation for JS and TS.',
+    tagline: 'Completions, errors and navigation for JS, TS and Python.',
     icon: 'zap',
     features: [
       'Completions from the TypeScript language service, including your own modules',
+      'Python completions, hover and navigation from Jedi, including packages from pip',
       'Type errors inline as you type',
       'Hover for types and documentation',
       'Go to definition, find references and rename symbol across the project',
     ],
-    note: 'JavaScript and TypeScript. Runs on the device, no server needed.',
+    note: 'JavaScript and TypeScript (type errors too) and Python. Runs on the device, no server needed.',
   },
   {
     id: 'debugger',

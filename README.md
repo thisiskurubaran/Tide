@@ -21,7 +21,7 @@ app/                             Expo app (dev client, prebuild, New Architectur
   src/features/editor            Editor WebView, bridge types, generated editor HTML
   src/features/terminal          Terminal WebView, mini-shell, generated terminal HTML
   src/features/remote            Remote mode: server settings, file sync, remote shell, preview
-  web/editor                     CodeMirror 6 editor bundle (Vite, single HTML file)
+  web/editor                     CodeMirror 6 editor bundle (Vite, single HTML file); CSS/SCSS/LESS, HTML and JSON language services (web/editor/langservices) with bundled config-file schemas, built in and offline
   web/terminal                   xterm.js terminal bundle (Vite, single HTML file)
   nodejs-assets/nodejs-project   Supervisor inside nodejs-mobile: runs each script in a worker thread; npm, pip, git, ssh, sql and lua built-ins
   src/features/git               Git settings, Source Control sheet, running git from the UI
@@ -29,9 +29,12 @@ app/                             Expo app (dev client, prebuild, New Architectur
   src/features/deploy            Publishing a folder to GitHub Pages, Firebase Hosting, Netlify, Vercel, Cloudflare Pages; Render deploy hooks
   src/features/ssh               SSH servers and keys, the SSH terminal backend, SFTP browsing and editing
   src/features/http              .http request files: parsing, sending, environments, cURL and GraphQL, WebSockets, the request/response viewer
-  src/features/database          Database viewer for SQLite files (expo-sqlite) and PostgreSQL / MySQL servers (tide:sql, remote/); schema view
+  src/features/database          Database viewer for SQLite files (expo-sqlite), PostgreSQL / MySQL servers (tide:sql) and Redis / MongoDB servers (tide:redis, tide:mongo), in remote/; schema view
   src/features/tools             Developer tools: JSON, regex tester, YAML/CSV, Base64, URL, JWT, hashes, UUIDs, timestamps
   src/features/openapi           OpenAPI / Swagger viewer: endpoints with example bodies, added to a .http file
+  src/features/history           Local history: earlier versions of each file, kept on save under .tide/history
+  src/features/data              CSV, TSV and Parquet viewer (hyparquet): sort, filter, column stats, charts
+  src/features/docs              Offline docs downloaded from DevDocs, searched and read without a network
   src/features/todos             The TODO / FIXME list
   src/features/outline           File outline and Go to Symbol (symbols read line by line, per language)
   src/features/notebook          Running Jupyter notebook cells with the device's Python
@@ -191,7 +194,7 @@ Other settings: `HOST`, `PORT` (8787), `TIDE_IMAGE`, `TIDE_IDLE_MINUTES` (15), `
 
 ## Git
 
-`git` in the Local terminal runs isomorphic-git in the Node supervisor. It supports `clone` (HTTPS, shallow, single branch), `init`, `status [-s]`, `add`, `rm`, `commit [-a] -m`, `log [--oneline]`, `diff` (a `--stat` summary only), `branch`, `checkout [-b]`, `remote [-v|add]`, `push` and `pull`. Anything else, such as rebase, stash or merge conflicts, needs the real git in Remote mode.
+`git` in the Local terminal runs isomorphic-git in the Node supervisor. It supports `clone` (HTTPS, shallow, single branch), `init`, `status [-s]`, `add`, `rm`, `commit [-a] -m`, `log [--oneline]`, `diff` (a `--stat` summary only), `branch`, `checkout [-b]`, `remote [-v|add]`, `push [remote] [branch|tag] [--tags]`, `pull`, `stash [push [-u] [-m msg] | list | show | apply | pop | drop | clear]`, `tag [-l] | [-a] <name> [-m msg] [commit] | -d <name>`, `cherry-pick <commit> | --continue | --abort` and `rebase <upstream> | --continue | --skip | --abort` (`git/stash.js`, `git/sequencer.js`, with a line-level three-way merge in `git/merge3.js`). Conflicts are left as markers in the files. Interactive rebase, `--onto`, submodules and other commands need the real git in Remote mode.
 
 Set a name, email and personal access token under Settings, Git. They are kept in the Keychain and passed to each git run as environment variables, never written into the project. The token is sent as the HTTPS password, which works for GitHub, GitLab and Gitea. Signed-in GitLab and Bitbucket accounts add their own token for their host, in `TIDE_GIT_HOSTS`. `git __tide blame` and `file-log` give the blame and file history; isomorphic-git has no blame, so `git/blame.js` works it out from the file's versions.
 
@@ -212,7 +215,7 @@ npm run build:ssh
 
 Lua is fengari (Lua 5.3 in plain JavaScript), bundled into `app/nodejs-assets/nodejs-project/lua/fengari.js` by `npm run build:lua` and run by the `tide:lua` built-in, which adds `io.read`, `io.lines` and `io.open`.
 
-PostgreSQL and MySQL go through `tide:sql`, which holds one connection open with pg and mysql2 bundled into `app/nodejs-assets/nodejs-project/sql/drivers.js` (`npm run build:sql`, committed). Through SSH, the app forwards a local port with `tide:ssh` first. `src/features/database/remote/dialect.test.ts` runs against real servers when `TIDE_TEST_POSTGRES` and `TIDE_TEST_MYSQL` are set (JSON connection settings), and skips otherwise.
+PostgreSQL and MySQL go through `tide:sql`, which holds one connection open with pg and mysql2 bundled into `app/nodejs-assets/nodejs-project/sql/drivers.js` (`npm run build:sql`, committed). Through SSH, the app forwards a local port with `tide:ssh` first. `src/features/database/remote/dialect.test.ts` runs against real servers when `TIDE_TEST_POSTGRES` and `TIDE_TEST_MYSQL` are set (JSON connection settings), and skips otherwise. Redis goes through `tide:redis`, a small RESP client with no driver; MongoDB goes through `tide:mongo`, with the official driver (6.x, for Node 18) bundled into `mongo/driver.js` by the same `npm run build:sql`. `redis.test.ts` and `mongo.test.ts` use real servers when `TIDE_TEST_REDIS` / `TIDE_TEST_MONGO` are set; the Mongo tests also run against a built-in fake server that speaks the wire protocol.
 
 The widget, the deploy Live Activity and the Siri and Shortcuts actions are native: `targets/widget` is a widget extension made by `@bacons/apple-targets` at prebuild, `modules/tide-widgets` writes what it shows to the app group `group.com.thisiskurubaran.tide` and runs ActivityKit, and `native/ios/TideIntents.swift` (App Intents) is copied into the app target by `plugins/withAppIntents.js`. The actions open `tide://` links the app handles. The app group needs registering for both bundle IDs in the Apple Developer portal.
 
@@ -229,7 +232,7 @@ Extensions are free add-ons. Their code ships inside the app and installing one 
 | Themes & Icons Pack | Seven editor and terminal themes (Dracula, One Dark, Monokai, Nord, Solarized Dark and Light, GitHub Light) and file icons in the tree and tabs. Color theme in the command palette. |
 | Format & Lint | Format document (⇧⌥F) with Prettier for JS, TS, JSON, CSS, HTML, Markdown and YAML and autopep8 for Python, optionally on save. ESLint (recommended rules) and pyflakes warnings as you type, and a Problems panel. A JSON Prettier config in the project is used. |
 | Git Tools | Replaces the Source Control sheet: staged and unstaged changes, diffs, staging, unstaging and discarding a file or a single hunk, commit only what is staged, branches (create, switch, delete, merge), history with each commit's diff, and Accept current / incoming / both on conflict markers in the editor. |
-| IntelliSense | The TypeScript language service for JS and TS: completions, hover, go to definition (F12 or Cmd-click), find references, rename symbol and type errors inline. Uses the project's tsconfig.json or jsconfig.json. |
+| IntelliSense | Completions, hover, go to definition (F12 or Cmd-click), find references and rename symbol across the project. JavaScript and TypeScript use the TypeScript language service (with inline type errors and the project's tsconfig.json or jsconfig.json); Python uses Jedi (`python/tide_jedi.py`, one long-lived worker in the app's Python), including packages in `.pylibs` and the standard library. jedi and parso are checksum-pinned wheels fetched at `npm install`, without typeshed's third-party stubs. |
 | Debugger | Gutter breakpoints, Debug: start for the open JavaScript or Python file (or the tide.json entry), continue, pause, step over, into and out, variables, call stack, and a console for output, input and evaluating expressions. |
 
 How they run:

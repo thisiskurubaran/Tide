@@ -1,10 +1,12 @@
 import { defineConfig } from 'vite';
 import { viteSingleFile } from 'vite-plugin-singlefile';
 
+import { trimLanguageData } from './trimLanguageData.mjs';
+
 export default defineConfig({
   root: import.meta.dirname,
   base: './',
-  plugins: [viteSingleFile()],
+  plugins: [trimLanguageData(), viteSingleFile()],
   build: {
     outDir: 'dist',
     emptyOutDir: true,

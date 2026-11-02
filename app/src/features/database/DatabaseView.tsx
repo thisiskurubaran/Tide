@@ -26,7 +26,7 @@ interface DatabaseViewProps {
 // Tables, rows and a SQL box for a SQLite file or a database server: edit
 // cells, add and delete rows, export CSV. Free for everyone.
 export function DatabaseView({ open, openKey, saveCsv }: DatabaseViewProps) {
-  const styles = useStyles();
+  const styles = useDatabaseStyles();
   const colors = useColors();
   const db = useRef<DbSource | null>(null);
   const [notes, setNotes] = useState<Pick<DbSource, 'readOnlyNote' | 'sqlNote' | 'sqlPlaceholder'> | null>(null);
@@ -273,7 +273,8 @@ export function DatabaseView({ open, openKey, saveCsv }: DatabaseViewProps) {
   );
 }
 
-function Grid({
+// Also shows Redis hashes, lists, sets and sorted sets.
+export function Grid({
   columns,
   rows,
   onEnd,
@@ -286,7 +287,7 @@ function Grid({
   onCell?: (row: Row, column: string) => void;
   onRow?: (row: Row) => void;
 }) {
-  const styles = useStyles();
+  const styles = useDatabaseStyles();
   const colors = useColors();
   const width = Math.max(1, columns.length) * CELL_WIDTH;
   return (
@@ -339,7 +340,8 @@ function Grid({
   );
 }
 
-const useStyles = makeStyles((colors) => ({
+// Shared with the Redis and MongoDB views so all servers look alike.
+export const useDatabaseStyles = makeStyles((colors) => ({
   screen: { backgroundColor: colors.background },
   bar: { flexDirection: 'row', alignItems: 'center', padding: spacing.sm, borderBottomWidth: borderWidth, borderColor: colors.border },
   pad: { padding: spacing.sm, gap: spacing.sm },

@@ -1,9 +1,11 @@
-// Saved database servers. Like SSH servers, everything is in the Keychain: the
+// Saved database servers (Postgres, MySQL, Redis, MongoDB). Like SSH servers, everything is in the Keychain: the
 // list (no secrets) under one key, and each password under its own.
 import * as SecureStore from 'expo-secure-store';
 import { createStore, useStore } from 'zustand';
 
-import type { ServerKind } from './dialect';
+import type { SqlKind } from './dialect';
+
+export type ServerKind = SqlKind | 'redis' | 'mongo';
 
 export interface DbConnection {
   id: string;
@@ -11,15 +13,21 @@ export interface DbConnection {
   kind: ServerKind;
   host: string;
   port: number;
+  // Optional for Redis and MongoDB.
   user: string;
+  // Redis: the database index. MongoDB: the one to open first, and the auth database unless options say otherwise.
   database: string;
+  // TLS for Redis and MongoDB.
   ssl: 'off' | 'require' | 'verify';
+  // MongoDB: a mongodb+srv:// address, and the connection string's options (replicaSet=rs0&authSource=admin).
+  srv?: boolean;
+  options?: string;
   // A saved SSH server to tunnel through; host and port are then as seen from it.
   sshHostId?: string;
 }
 
-export const DEFAULT_PORT: Record<ServerKind, number> = { postgres: 5432, mysql: 3306 };
-export const KIND_LABEL: Record<ServerKind, string> = { postgres: 'PostgreSQL', mysql: 'MySQL' };
+export const DEFAULT_PORT: Record<ServerKind, number> = { postgres: 5432, mysql: 3306, redis: 6379, mongo: 27017 };
+export const KIND_LABEL: Record<ServerKind, string> = { postgres: 'PostgreSQL', mysql: 'MySQL', redis: 'Redis', mongo: 'MongoDB' };
 
 const LIST = 'tide.db.connections';
 const passwordKey = (id: string) => `tide.db.password.${id}`;

@@ -33,6 +33,9 @@ Tide keeps the following on your device, in its own storage:
   **snapshots** (automatic copies of a project you can restore).
 - **Settings**: theme, editor options, snippets, key bar layout, recent
   projects and similar preferences.
+- **Local history**: earlier versions of the files you save, so you can
+  compare and restore them.
+- **Offline docs** you download, and which ones.
 - **HTTP history**: the last responses to the requests you send from .http
   files, without credential headers such as Authorization and Cookie.
 - **Widget data**: the names of your projects and recent
@@ -42,7 +45,7 @@ Tide keeps the following on your device, in its own storage:
   access token (also used for GitHub when you sign in to it), the Remote
   server address and token, the tokens and keys you add for deploying
   (Netlify, Vercel, Cloudflare, a Firebase service account) and Render
-  deploy hook URLs, your SSH servers,
+  deploy hook URLs, your SSH servers and their saved commands,
   passwords and private keys, your database servers and their passwords,
   GitLab and Bitbucket tokens, your Anthropic API key, and environment variables you keep as
   secrets. SSH private keys never leave your device, and secret environment
@@ -67,12 +70,13 @@ handle it under their own privacy policies.
 | SSH and SFTP | Your username and password or a signature made with your key (the private key itself is never sent), your terminal input, the files you open, save or copy, and the traffic of ports you forward | The server you add, and the jump host you connect through, if any. They're run by you or whoever gave you access, not by me. |
 | HTTP and WebSocket requests (.http files) | The requests and messages you send, including any headers and bodies you write, and any environment variables you put in them | The address in each request |
 | AI assistant | Your Anthropic API key, the file you ask about, and your question | Anthropic (api.anthropic.com), under your own Anthropic account and its terms |
-| Databases (PostgreSQL and MySQL) | Your username and password, and the queries and changes you make | The database server you add, directly or through the SSH server you choose. It's run by you or whoever gave you access, not by me. |
+| Databases (PostgreSQL, MySQL, Redis and MongoDB) | Your username and password, and the queries and changes you make | The database server you add, directly or through the SSH server you choose. It's run by you or whoever gave you access, not by me. |
 | npm and pip installs | Names and versions of the packages you install | The npm registry (registry.npmjs.org) and PyPI (pypi.org) |
 | Packages screen | Your search terms, and the names of installed packages to check for updates | The npm registry and PyPI |
 | Remote mode | Your project's files, your terminal input, and the server token | The Tide server whose address you enter. That server is run by you or your organisation, not by me. |
 | Linked folders | Files copied to and from the folder | The folder you choose, e.g. in iCloud Drive or another app |
 | Previews | Whatever the page you preview requests | The page's own server and anything it loads |
+| Offline docs | Which documentation you download (e.g. JavaScript, Python) | DevDocs by freeCodeCamp (devdocs.io and documents.devdocs.io) |
 | Sharing and "Open in Tide" | The files you choose | The app or service you pick in the share sheet, or from the app that sent them |
 {: .sent }
 

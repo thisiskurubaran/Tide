@@ -7,37 +7,23 @@
 const fs = require('fs');
 const { blame } = require('./blame');
 const path = require('path');
+const { CONFLICTS, conflicts, gitFile, readGitFile, setConflicts } = require('./state');
 
 // Merge state isomorphic-git doesn't keep: the commit being merged (as real
-// git does) and which files had conflicts, until they are staged.
+// git does) and which files had conflicts, until they are staged (state.js).
 const MERGE_HEAD = 'MERGE_HEAD';
 const MERGE_MSG = 'MERGE_MSG';
-const CONFLICTS = 'TIDE_CONFLICTS';
 
 /** @param {Buffer | Uint8Array} buf */
 const isBinary = (buf) => buf.subarray(0, 8000).includes(0);
 
 /**
  * @param {{ git: any, http: any, findRoot(): Promise<string>, changes(dir: string, paths?: string[]): Promise<any[]>,
- *   author(): { name: string, email: string }, onAuth: any, onAuthFailure: any, GitError: any }} deps
+ *   author(): { name: string, email: string }, onAuth: any, onAuthFailure: any, GitError: any,
+ *   tree: ReturnType<typeof import('./tree').createTree>, stash: ReturnType<typeof import('./stash').createStash>,
+ *   sequencer: ReturnType<typeof import('./sequencer').createSequencer> }} deps
  */
-function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure, GitError }) {
-  const gitFile = (dir, name) => path.join(dir, '.git', name);
-  const readGitFile = (dir, name) => {
-    try {
-      return fs.readFileSync(gitFile(dir, name), 'utf8').trim();
-    } catch {
-      return null;
-    }
-  };
-  const conflicts = (dir) => {
-    const raw = readGitFile(dir, CONFLICTS);
-    return raw ? /** @type {string[]} */ (JSON.parse(raw)) : [];
-  };
-  const setConflicts = (dir, list) => {
-    if (list.length) fs.writeFileSync(gitFile(dir, CONFLICTS), JSON.stringify(list));
-    else fs.rmSync(gitFile(dir, CONFLICTS), { force: true });
-  };
+function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure, GitError, tree, stash, sequencer }) {
   const clearMerge = (dir) => {
     for (const name of [MERGE_HEAD, MERGE_MSG, CONFLICTS]) fs.rmSync(gitFile(dir, name), { force: true });
   };
@@ -95,6 +81,7 @@ function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure,
       return {
         branch: await git.currentBranch({ fs, dir }),
         merging: readGitFile(dir, MERGE_HEAD) ? readGitFile(dir, MERGE_MSG) || 'a merge' : null,
+        operation: await sequencer.progress(dir),
         changes: list.map((c) => ({ path: c.path, code: unmerged.has(c.path) ? 'UU' : c.code })),
       };
     },
@@ -156,6 +143,7 @@ function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure,
       const parent = merging && head ? [head, merging] : undefined;
       const oid = await git.commit({ fs, dir, message, author: author(), parent });
       clearMerge(dir);
+      sequencer.committed(dir);
       return { oid, files: staged.length };
     },
 
@@ -316,6 +304,91 @@ function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure,
         entries.map((/** @type {any} */ { oid, commit }) => [oid, { oid, message: commit.message.trimEnd(), author: commit.author.name, timestamp: commit.author.timestamp }]),
       );
       return { binary: false, runs: blame(versions), commits, truncated: entries.length >= (Number(n) || 200) };
+    },
+
+    // Stashes, newest first, with when each was made.
+    async stashes(dir) {
+      const out = [];
+      for (const s of stash.list(dir)) {
+        const { commit } = await git.readCommit({ fs, dir, oid: s.oid });
+        out.push({ ...s, timestamp: commit.author.timestamp, parents: commit.parent });
+      }
+      return out;
+    },
+
+    async 'stash-push'(dir, [base64, untracked]) {
+      return stash.push(dir, { message: Buffer.from(base64 ?? '', 'base64').toString('utf8'), untracked: untracked === '1' });
+    },
+
+    async 'stash-apply'(dir, [n]) {
+      return stash.apply(dir, Number(n) || 0);
+    },
+
+    async 'stash-pop'(dir, [n]) {
+      return stash.pop(dir, Number(n) || 0);
+    },
+
+    async 'stash-drop'(dir, [n]) {
+      await stash.drop(dir, Number(n) || 0);
+      return null;
+    },
+
+    // Tags with the commit each points at; annotated ones with their message.
+    async tags(dir) {
+      const out = [];
+      for (const name of await git.listTags({ fs, dir })) {
+        const oid = await git.resolveRef({ fs, dir, ref: `refs/tags/${name}` });
+        const { type, object } = await git.readObject({ fs, dir, oid });
+        out.push(
+          type === 'tag'
+            ? { name, oid: await tree.resolveCommit(dir, oid), annotated: true, message: String(object.message).trimEnd() }
+            : { name, oid, annotated: false, message: null },
+        );
+      }
+      return out.sort((a, b) => (a.name < b.name ? -1 : 1));
+    },
+
+    // An empty message makes a lightweight tag.
+    async 'create-tag'(dir, [name, base64, target]) {
+      const message = Buffer.from(base64 ?? '', 'base64').toString('utf8').trim();
+      const object = await tree.resolveCommit(dir, target || 'HEAD');
+      try {
+        if (message) {
+          const me = author();
+          await git.annotatedTag({ fs, dir, ref: name, object, message: `${message}\n`, tagger: { name: me.name, email: me.email } });
+        } else await git.tag({ fs, dir, ref: name, object });
+      } catch (e) {
+        const code = e && /** @type {any} */ (e).code;
+        if (code === 'AlreadyExistsError') throw new GitError(`tag ${name} already exists`);
+        if (code === 'InvalidRefNameError') throw new GitError(`${name} is not a valid tag name`);
+        throw e;
+      }
+      return null;
+    },
+
+    async 'delete-tag'(dir, [name]) {
+      await git.deleteTag({ fs, dir, ref: name });
+      return null;
+    },
+
+    async 'push-tag'(dir, [name]) {
+      const result = await git.push({ fs, http, dir, remote: 'origin', ref: `refs/tags/${name}`, onAuth, onAuthFailure });
+      if (!result.ok) throw new GitError(result.error || 'push failed');
+      return null;
+    },
+
+    'cherry-pick': (dir, [oid]) => sequencer.cherryPick(dir, oid),
+    'cherry-pick-continue': (dir) => sequencer.cherryPickContinue(dir),
+    async 'cherry-pick-abort'(dir) {
+      await sequencer.cherryPickAbort(dir);
+      return null;
+    },
+    rebase: (dir, [upstream]) => sequencer.rebase(dir, upstream),
+    'rebase-continue': (dir) => sequencer.rebaseContinue(dir),
+    'rebase-skip': (dir) => sequencer.rebaseSkip(dir),
+    async 'rebase-abort'(dir) {
+      await sequencer.rebaseAbort(dir);
+      return null;
     },
 
     async push(dir) {

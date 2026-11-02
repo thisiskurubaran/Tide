@@ -6,6 +6,8 @@ import { Appearance } from 'react-native';
 import { breakpointsStore } from '../extensions/debugger/breakpoints';
 import { extensionsStore } from '../extensions/state';
 import { startTips } from '../features/tips';
+// Keeps a local history of every file save.
+import '../features/history';
 import { gitSettingsStore } from '../features/git/settings';
 import { accountsStore } from '../features/hosts/accounts';
 import { startWidgets } from '../features/widgets';

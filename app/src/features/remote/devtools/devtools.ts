@@ -1,4 +1,7 @@
-// What the preview's dev tools keep: console lines and network requests.
+// What the preview's dev tools keep: console lines, network requests and the
+// latest page checks.
+import type { AuditCheck, AuditReport } from './audit';
+
 export type Level = 'log' | 'info' | 'warn' | 'error' | 'debug';
 
 export interface ConsoleEntry {
@@ -28,6 +31,7 @@ export interface DevtoolsState {
   requests: Request[];
   errors: number;
   url: string | null;
+  audit: AuditReport | null;
 }
 
 export type PageMessage =
@@ -36,11 +40,12 @@ export type PageMessage =
   | { kind: 'net'; phase: 'end'; id: string; status: number; ms: number; size: number | null; contentType: string | null; time: number }
   | { kind: 'net'; phase: 'error'; id: string; ms: number; error: string; time: number }
   | { kind: 'eval'; id: number; ok: boolean; text: string; time: number }
-  | { kind: 'page'; url: string; title: string; time: number };
+  | { kind: 'page'; url: string; title: string; time: number }
+  | { kind: 'audit'; id: number; url: string; checks: AuditCheck[]; time: number };
 
 export const MAX_ENTRIES = 500;
 
-export const emptyDevtools = (): DevtoolsState => ({ console: [], requests: [], errors: 0, url: null });
+export const emptyDevtools = (): DevtoolsState => ({ console: [], requests: [], errors: 0, url: null, audit: null });
 
 let nextKey = 0;
 
@@ -69,6 +74,8 @@ export function reduce(s: DevtoolsState, msg: PageMessage): DevtoolsState {
       const entry: ConsoleEntry = { key: ++nextKey, kind: 'result', level: msg.ok ? 'log' : 'error', text: msg.text, time: msg.time };
       return { ...s, console: capped([...s.console, entry]) };
     }
+    case 'audit':
+      return { ...s, audit: { url: msg.url, time: msg.time, checks: msg.checks } };
     case 'page':
       // A new page (navigation or reload) starts the network list afresh.
       return { ...s, url: msg.url, requests: [] };

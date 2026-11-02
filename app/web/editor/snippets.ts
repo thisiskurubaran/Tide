@@ -7,7 +7,7 @@ import type { Language, Snippet } from '../../src/features/editor/bridge';
 const FAMILY: Partial<Record<Language, Language[]>> = {
   javascript: ['javascript', 'jsx', 'typescript', 'tsx'],
   typescript: ['typescript', 'tsx'],
-  css: ['css', 'html'],
+  css: ['css', 'scss', 'less', 'html'],
 };
 
 export const snippetApplies = (s: Snippet, lang: Language) => !s.languages?.length || s.languages.some((l) => l === lang || FAMILY[l]?.includes(lang));

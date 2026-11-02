@@ -18,6 +18,10 @@ const { git, http } = require('./isogit');
 const { porcelainCode } = require('./status');
 const { lineStat } = require('./diffstat');
 const { createUi } = require('./ui');
+const { createTree } = require('./tree');
+const { createStash } = require('./stash');
+const { createSequencer } = require('./sequencer');
+const { createCommands } = require('./commands');
 
 const USAGE = `usage: git <command>
 
@@ -26,7 +30,11 @@ const USAGE = `usage: git <command>
   log [--oneline] [-n N]                      diff [--stat]
   branch [name]         checkout [-b] <branch>
   remote [-v] | remote add <name> <url>
-  push [remote] [branch]                      pull [remote] [branch]
+  push [remote] [branch|tag] [--tags]         pull [remote] [branch]
+  stash [push [-u] [-m msg] | list | show | apply | pop | drop | clear] [n]
+  tag [-l] | tag [-a] <name> [-m msg] [commit] | tag -d <name>
+  cherry-pick <commit> | --continue | --abort
+  rebase <upstream> | --continue | --skip | --abort
 
 Anything else needs Remote mode, which has the real git.`;
 
@@ -205,6 +213,7 @@ const commands = {
     }
     const branch = await git.currentBranch({ fs, dir });
     console.log(branch ? `On branch ${branch}` : 'HEAD detached');
+    for (const line of await extra.progressLines(dir)) console.log(line);
     const staged = list.filter((c) => c.code[0] !== ' ' && c.code !== '??');
     const unstaged = list.filter((c) => c.code[1] !== ' ' && c.code !== '??');
     const untracked = list.filter((c) => c.code === '??');
@@ -289,6 +298,7 @@ const commands = {
     }
     const oid = await git.commit({ fs, dir, message, author: author(), parent });
     if (parent) for (const f of ['MERGE_HEAD', 'MERGE_MSG', 'TIDE_CONFLICTS']) fs.rmSync(path.join(dir, '.git', f), { force: true });
+    sequencer.committed(dir);
     const branch = (await git.currentBranch({ fs, dir })) ?? 'HEAD';
     console.log(`[${branch} ${oid.slice(0, 7)}] ${message.split('\n')[0]}`);
     console.log(` ${staged.length} file${staged.length === 1 ? '' : 's'} changed`);
@@ -400,6 +410,8 @@ const commands = {
   async push(args) {
     const dir = await findRoot();
     takeFlag(args, '-u', '--set-upstream');
+    const tags = takeFlag(args, '--tags');
+    if (tags) return extra.pushTags(dir, args.find((a) => !a.startsWith('-')) ?? 'origin');
     const [remote = 'origin', ref = (await git.currentBranch({ fs, dir })) ?? undefined] = args.filter((a) => !a.startsWith('-'));
     let result;
     try {
@@ -456,6 +468,13 @@ async function indexOid(dir, filepath) {
   return found;
 }
 
+const tree = createTree({ git, changes, GitError });
+const stash = createStash({ git, author, changes, GitError, tree });
+const sequencer = createSequencer({ git, author, changes, GitError, tree });
+const extra = createCommands({ git, http, author, onAuth, onAuthFailure, GitError, findRoot, takeFlag, takeValue, stash, sequencer, tree });
+const { stash: stashCommand, tag, 'cherry-pick': cherryPick, rebase } = extra;
+Object.assign(commands, { stash: stashCommand, tag, 'cherry-pick': cherryPick, rebase });
+
 async function main(args) {
   const [command, ...rest] = args;
   if (!command || command === 'help' || command === '--help' || command === '-h') {
@@ -467,7 +486,7 @@ async function main(args) {
     return 0;
   }
   // JSON commands for Git Pro's screens; see ui.js.
-  if (command === '__tide') return createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure, GitError })(rest);
+  if (command === '__tide') return createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure, GitError, tree, stash, sequencer })(rest);
   const run = Object.prototype.hasOwnProperty.call(commands, command) ? commands[command] : null;
   if (!run) {
     console.error(`git ${command}: not available locally.\n\n${USAGE}`);

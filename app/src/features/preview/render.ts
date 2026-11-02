@@ -2,7 +2,7 @@
 // WebView. The page runs no scripts; local images are inlined by the caller.
 import { marked } from 'marked';
 
-export type PreviewKind = 'markdown' | 'notebook' | 'json' | 'sqlite' | 'http' | 'openapi';
+export type PreviewKind = 'markdown' | 'notebook' | 'json' | 'sqlite' | 'http' | 'openapi' | 'table' | 'parquet';
 
 export function previewKind(path: string): PreviewKind | null {
   if (/\.(md|markdown|mdx)$/i.test(path)) return 'markdown';
@@ -12,14 +12,16 @@ export function previewKind(path: string): PreviewKind | null {
   if (/\.(json|geojson|webmanifest)$/i.test(path)) return 'json';
   if (/\.(db|sqlite|sqlite3|db3)$/i.test(path)) return 'sqlite';
   if (/\.(http|rest)$/i.test(path)) return 'http';
+  if (/\.(csv|tsv)$/i.test(path)) return 'table';
+  if (/\.parquet$/i.test(path)) return 'parquet';
   return null;
 }
 
 // Files that only make sense in their viewer (binary), so there's no source to switch to.
-export const viewerOnly = (kind: PreviewKind | null) => kind === 'sqlite';
+export const viewerOnly = (kind: PreviewKind | null) => kind === 'sqlite' || kind === 'parquet';
 
 // Files that open in their viewer first; the rest open as source.
-export const viewerFirst = (kind: PreviewKind | null) => kind === 'notebook' || kind === 'http' || kind === 'openapi' || viewerOnly(kind);
+export const viewerFirst = (kind: PreviewKind | null) => kind === 'notebook' || kind === 'http' || kind === 'openapi' || kind === 'table' || viewerOnly(kind);
 
 // Big documents are cut off after this many values, so the page stays responsive.
 const JSON_MAX_NODES = 5000;

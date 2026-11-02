@@ -10,6 +10,8 @@ const EMMET: Partial<Record<Language, EmmetKnownSyntax>> = {
   html: EmmetKnownSyntax.html,
   php: EmmetKnownSyntax.html,
   css: EmmetKnownSyntax.css,
+  scss: EmmetKnownSyntax.scss,
+  less: EmmetKnownSyntax.less,
   jsx: EmmetKnownSyntax.jsx,
   tsx: EmmetKnownSyntax.tsx,
 };

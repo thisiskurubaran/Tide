@@ -11,11 +11,11 @@ import path from 'path';
 
 import { ROWID } from '../database';
 import type { SqlClient, SqlResult } from './client';
-import { remoteSource, ServerKind } from './dialect';
+import { remoteSource, SqlKind } from './dialect';
 
 const CLI = path.join(__dirname, '../../../../nodejs-assets/nodejs-project/sql/cli.js');
 
-function connect(kind: ServerKind, config: object): Promise<SqlClient> {
+function connect(kind: SqlKind, config: object): Promise<SqlClient> {
   const child: ChildProcess = spawn(process.execPath, [CLI], { env: { ...process.env, TIDE_SQL: JSON.stringify({ kind, ssl: 'off', ...config }) } });
   const waiting = new Map<number, { resolve: (r: SqlResult) => void; reject: (e: Error) => void }>();
   let seq = 0;
@@ -53,7 +53,7 @@ function connect(kind: ServerKind, config: object): Promise<SqlClient> {
   });
 }
 
-const servers: [ServerKind, string | undefined][] = [
+const servers: [SqlKind, string | undefined][] = [
   ['postgres', process.env.TIDE_TEST_POSTGRES],
   ['mysql', process.env.TIDE_TEST_MYSQL],
 ];

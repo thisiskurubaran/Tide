@@ -2,9 +2,11 @@ import { css } from '@codemirror/lang-css';
 import { html } from '@codemirror/lang-html';
 import { javascript } from '@codemirror/lang-javascript';
 import { json } from '@codemirror/lang-json';
+import { less } from '@codemirror/lang-less';
 import { markdown } from '@codemirror/lang-markdown';
 import { php } from '@codemirror/lang-php';
 import { python } from '@codemirror/lang-python';
+import { sass } from '@codemirror/lang-sass';
 import { sql } from '@codemirror/lang-sql';
 import { StreamLanguage } from '@codemirror/language';
 import { lua } from '@codemirror/legacy-modes/mode/lua';
@@ -32,6 +34,10 @@ export function languageExtension(lang: Language): Extension {
       return html();
     case 'css':
       return css();
+    case 'scss':
+      return sass();
+    case 'less':
+      return less();
     case 'markdown':
       return markdown();
     case 'lua':

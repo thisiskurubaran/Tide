@@ -118,6 +118,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
   const [showLinked, setShowLinked] = useState(false);
   const reduceMotion = useReduceMotion();
   const [compare, setCompare] = useState<CompareRequest | null>(null);
+  const [historyOf, setHistoryOf] = useState<string | null>(null);
   const [packagesOpen, setPackagesOpen] = useState(false);
   const [tests, setTests] = useState<TestsRequest | null>(null);
   // "Compare with file…" uses the file picker; the next pick is the other file.
@@ -138,6 +139,12 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
       <HttpPane project={project} path={path!} />
     ) : previewKind(path!) === 'openapi' ? (
       <OpenApiPane project={project} path={path!} />
+    ) : previewKind(path!) === 'table' || previewKind(path!) === 'parquet' ? (
+      (() => {
+        // Loaded on first use: Parquet support pulls in hyparquet.
+        const { DataPane } = require('../data/DataPane') as typeof import('../data/DataPane');
+        return <DataPane project={project} path={path!} />;
+      })()
     ) : previewKind(path!) === 'notebook' ? (
       // Notebooks get a bar to run their Python cells.
       <View style={StyleSheet.absoluteFill}>
@@ -344,6 +351,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     { id: 'env', title: 'Environment variables…', icon: 'key', run: () => router.push({ pathname: '/env', params: { project } }) },
     { id: 'databases', title: 'Databases…', icon: 'database', run: () => router.push('/databases') },
     { id: 'tools', title: 'Developer tools (JSON, regex, Base64, JWT…)', icon: 'tool', run: () => router.push('/tools') },
+    { id: 'docs', title: 'Search docs (offline)', icon: 'book', run: () => router.push('/docs') },
     { id: 'hosts', title: 'GitLab and Bitbucket…', icon: 'gitlab', run: () => router.push('/hosts') },
     ...(current
       ? [
@@ -382,6 +390,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
             ? [{ id: 'compare.saved', title: 'Compare with saved', icon: 'file-text' as const, run: () => setCompare({ path: current, with: 'saved' }) }]
             : []),
           { id: 'compare.head', title: 'Compare with last commit', icon: 'git-commit' as const, run: () => setCompare({ path: current, with: 'head' }) },
+          { id: 'history.local', title: 'Local history of this file', icon: 'clock' as const, run: () => setHistoryOf(current) },
           {
             id: 'compare.file',
             title: 'Compare with file…',
@@ -644,6 +653,12 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
         }}
       />
       <CompareView project={project} request={compare} onClose={() => setCompare(null)} />
+      {historyOf !== null &&
+        (() => {
+          // Loaded on first use, like the other sheets that pull in state at import.
+          const { LocalHistorySheet } = require('../history/LocalHistorySheet') as typeof import('../history/LocalHistorySheet');
+          return <LocalHistorySheet project={project} path={historyOf} onClose={() => setHistoryOf(null)} />;
+        })()}
       <TestsSheet
         project={project}
         request={tests}

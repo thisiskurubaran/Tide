@@ -2,7 +2,7 @@
 # warnings and autopep8 for formatting (both fetched next to this file on
 # install). The app calls handle() through tide_runner.snippet with a JSON
 # request and gets JSON back; nothing here touches sys.stdout, which may
-# belong to a running script.
+# belong to a running script. "jedi" requests go to tide_jedi (IntelliSense).
 import ast
 import json
 
@@ -47,6 +47,10 @@ def handle(raw):
             result = _lint(params["content"], params.get("path", "<file>"))
         elif method == "format":
             result = _format(params["content"])
+        elif method == "jedi":
+            import tide_jedi
+
+            result = tide_jedi.handle(params)
         else:
             raise ValueError(f"unknown method {method}")
         return json.dumps({"result": result})

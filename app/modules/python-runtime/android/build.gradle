@@ -30,6 +30,9 @@ chaquopy {
     pyc {
       src = false
     }
+    // Jedi lists typeshed's .pyi folders and parso opens its grammar files by
+    // path, which needs real files rather than APK assets.
+    extractPackages("jedi", "parso")
   }
   sourceSets {
     main {

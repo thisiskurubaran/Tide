@@ -3,7 +3,23 @@
 import type { EditorTheme } from '../../theme/editor';
 import type { Shortcut } from '../project/shortcuts';
 
-export type Language = 'javascript' | 'typescript' | 'jsx' | 'tsx' | 'python' | 'json' | 'html' | 'css' | 'markdown' | 'lua' | 'ruby' | 'php' | 'sql' | 'plain';
+export type Language =
+  | 'javascript'
+  | 'typescript'
+  | 'jsx'
+  | 'tsx'
+  | 'python'
+  | 'json'
+  | 'html'
+  | 'css'
+  | 'scss'
+  | 'less'
+  | 'markdown'
+  | 'lua'
+  | 'ruby'
+  | 'php'
+  | 'sql'
+  | 'plain';
 
 export type EditorKey = 'left' | 'right' | 'up' | 'down' | 'home' | 'end' | 'tab';
 
@@ -130,9 +146,12 @@ const EXTENSIONS: Record<string, Language> = {
   tsx: 'tsx',
   py: 'python',
   json: 'json',
+  jsonc: 'json',
   html: 'html',
   htm: 'html',
   css: 'css',
+  scss: 'scss',
+  less: 'less',
   md: 'markdown',
   markdown: 'markdown',
   lua: 'lua',
@@ -141,8 +160,12 @@ const EXTENSIONS: Record<string, Language> = {
   sql: 'sql',
 };
 
+// Config files that are JSON without a .json extension.
+const JSON_NAMES = new Set(['.prettierrc', '.eslintrc', '.babelrc', '.swcrc', '.jshintrc']);
+
 export function languageFor(path: string): Language {
   const name = path.slice(path.lastIndexOf('/') + 1);
+  if (JSON_NAMES.has(name)) return 'json';
   const dot = name.lastIndexOf('.');
   if (dot <= 0) return 'plain';
   return EXTENSIONS[name.slice(dot + 1).toLowerCase()] ?? 'plain';

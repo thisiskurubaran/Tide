@@ -7,9 +7,12 @@ import { View } from 'react-native';
 import { Screen } from '../../../components/Screen';
 import { DatabaseView } from '../DatabaseView';
 import { KIND_LABEL, useConnections } from './connections';
-import { openServer } from './open';
+import { MongoView } from './MongoView';
+import { openMongo, openRedis, openServer } from './open';
+import { RedisView } from './RedisView';
 
-// One saved server in the database viewer. Exports go to the share sheet.
+// One saved server: SQL ones in the database viewer (exports go to the share
+// sheet), Redis and MongoDB in views of their own.
 export function ServerScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const conn = useConnections((s) => s.connections.find((c) => c.id === id));
@@ -19,7 +22,26 @@ export function ServerScreen() {
   return (
     <Screen title={conn?.name ?? 'Database'} subtitle={version ?? (conn ? `Connecting to ${KIND_LABEL[conn.kind]}…` : loaded ? 'Not found' : '')} scroll={false} testID="db-server">
       <View style={{ flex: 1 }}>
-        {conn && (
+        {conn?.kind === 'redis' ? (
+          <RedisView
+            openKey={conn.id}
+            open={async () => {
+              const r = await openRedis(conn);
+              setVersion(r.version);
+              return r;
+            }}
+          />
+        ) : conn?.kind === 'mongo' ? (
+          <MongoView
+            openKey={conn.id}
+            database={conn.database || undefined}
+            open={async () => {
+              const r = await openMongo(conn);
+              setVersion(r.version);
+              return r.browser;
+            }}
+          />
+        ) : conn ? (
           <DatabaseView
             openKey={conn.id}
             open={async () => {
@@ -36,7 +58,7 @@ export function ServerScreen() {
               return null;
             }}
           />
-        )}
+        ) : null}
       </View>
     </Screen>
   );

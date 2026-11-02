@@ -4,7 +4,7 @@ import { ForeignKey, parseValue, QueryResult, Row, ROWID, SchemaTable, TableInfo
 import type { DbSource, Page } from '../source';
 import type { SqlClient, SqlResult } from './client';
 
-export type ServerKind = 'postgres' | 'mysql';
+export type SqlKind = 'postgres' | 'mysql';
 
 interface TableRef {
   schema: string | null;
@@ -14,7 +14,7 @@ interface TableRef {
 
 const toRows = (r: SqlResult): Row[] => r.rows.map((values) => Object.fromEntries(r.columns.map((c, i) => [c, values[i]])));
 
-export function remoteSource(client: SqlClient, kind: ServerKind): DbSource {
+export function remoteSource(client: SqlClient, kind: SqlKind): DbSource {
   const pg = kind === 'postgres';
   const quote = (id: string) => (pg ? `"${id.replace(/"/g, '""')}"` : `\`${id.replace(/`/g, '``')}\``);
   const p = (i: number) => (pg ? `$${i}` : '?');
