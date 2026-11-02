@@ -9,7 +9,8 @@ export const CHANGELOG: Release[] = [
   {
     version: '2.0.0',
     items: [
-      'Everything in Tide is free: every feature and every extension, with no subscription or in-app purchase',
+      'Everything in Tide is free: every feature and every extension, with no subscription',
+      'Support Tide with an optional tip, in Settings; tips unlock nothing',
       'Up to 6 terminals and 10 snapshots per project, for everyone',
       'New project templates: a static website, a React app, a Python web API, a Node CLI tool and a Lua game',
       'Lua, Ruby and PHP run on the device, offline, next to JavaScript and Python',

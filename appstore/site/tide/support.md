@@ -14,8 +14,10 @@ and attaches the details that help me fix things.
 ## Common questions
 
 **Does Tide cost anything?**
-No. Every feature and every extension is free, with no subscription or
-in-app purchase. Extensions are installed from the Extensions screen.
+No. Every feature and every extension is free, with no subscription.
+Extensions are installed from the Extensions screen. If you'd like to
+support Tide, Settings > Support Tide has optional tips; they unlock
+nothing.
 
 **What runs on the device?**
 JavaScript (Node.js), Python, Lua, Ruby and PHP run on the device, offline. npm and pip

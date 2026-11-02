@@ -5,6 +5,7 @@ import { Appearance } from 'react-native';
 
 import { breakpointsStore } from '../extensions/debugger/breakpoints';
 import { extensionsStore } from '../extensions/state';
+import { startTips } from '../features/tips';
 import { gitSettingsStore } from '../features/git/settings';
 import { accountsStore } from '../features/hosts/accounts';
 import { startWidgets } from '../features/widgets';
@@ -63,6 +64,7 @@ export default function RootLayout() {
       startCrashReports(settingsStore);
       startQuickActions();
       startWidgets();
+      startTips();
       setReady(true);
       SplashScreen.hideAsync();
     });

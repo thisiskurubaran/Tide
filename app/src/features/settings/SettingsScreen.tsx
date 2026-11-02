@@ -216,6 +216,7 @@ export function SettingsScreen() {
         </Section>
 
         <Section title="Help & feedback">
+          <LinkRow label="Support Tide" detail="Tide is free; tips help" onPress={() => router.push('/tip-jar')} testID="settings-tip-jar" />
           <LinkRow label="Report a problem" detail="Mail with device details and recent logs" onPress={() => support('bug')} testID="settings-report" />
           <LinkRow label="Suggest a feature" onPress={() => support('feature')} testID="settings-feature" />
           <LinkRow label="Rate Tide" onPress={() => rateApp().catch(() => undefined)} testID="settings-rate" />

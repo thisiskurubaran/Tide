@@ -84,10 +84,13 @@ to the programs you run on your device. The developer tools, OpenAPI
 viewer, Mermaid diagrams and PDF export work on your device; an exported
 PDF goes only where you send it from the share sheet.
 
-## Ratings
+## Tips and ratings
 
-Tide is free and sells nothing: there are no subscriptions or in-app
-purchases. If Tide asks you to rate it, the rating prompt is shown by
+Every feature in Tide is free. You can choose to leave a tip in
+**Settings > Support Tide**; tips unlock nothing. They're handled
+entirely by Apple: I don't receive your name, Apple Account or payment
+details. Tide only keeps a count of the tips given on this device, to say
+thank you. If Tide asks you to rate it, the rating prompt is shown by
 Apple, and I only see ratings and reviews as published on the App Store.
 
 ## Crash reports (optional, off by default)
