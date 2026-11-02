@@ -3,7 +3,10 @@
 /** @type {import('@bacons/apple-targets/app.plugin').ConfigFunction} */
 module.exports = (config) => ({
   type: 'widget',
-  name: 'TideWidgets',
+  // Not "TideWidgets": that is the native module's pod, and a target with the
+  // same name shadows its Swift module, so the app can't see TideWidgetsModule.
+  name: 'TideWidget',
+  bundleIdentifier: '.widget',
   displayName: 'Tide',
   deploymentTarget: '16.4',
   frameworks: ['SwiftUI', 'WidgetKit', 'ActivityKit'],
