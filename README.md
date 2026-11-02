@@ -115,7 +115,7 @@ The terminal has two modes, switched in its header. Local mode is a small built-
 
 Node scripts run in nodejs-mobile (Node 18), each in its own worker thread, so Ctrl-C stops a script without restarting Node. Each run is capped at 256 MB of heap. Leaving a project stops whatever its terminal was running.
 
-nodejs-mobile's Node is built without Intl: there is no `Intl` object and regular expressions with Unicode property escapes (`\p{...}`) fail. Packages that rely on either, such as Express 5, don't run locally; the Express template uses Express 4 for this reason.
+nodejs-mobile's Node is built without Intl: there is no `Intl` object and regular expressions with Unicode property escapes (`\p{...}`) fail. Packages that rely on either, such as Express 5, don't run locally; the Express template uses Express 4 for this reason. Likewise the Python web API template uses Bottle rather than Flask: Flask needs MarkupSafe, which has no pure-Python wheel, so `pip install flask` only works in Remote mode. The React template loads React from esm.sh with an import map, because Vite and esbuild are native binaries that can't run on the device.
 
 Python scripts run in the embedded CPython 3.15 (Chaquopy on Android), each on its own thread with `input()` wired to the terminal. Ctrl-C raises `KeyboardInterrupt` in the script. Project modules are reloaded on every run, and tracebacks show paths from the project root. On iOS the app ships the standard library without `tkinter`, `turtledemo`, `ensurepip`, CPython's own test modules and the `-O` bytecode, which saves about 28 MB.
 

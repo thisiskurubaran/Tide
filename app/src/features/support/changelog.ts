@@ -11,6 +11,7 @@ export const CHANGELOG: Release[] = [
     items: [
       'Everything in Tide is free: every feature and every extension, with no subscription or in-app purchase',
       'Up to 6 terminals and 10 snapshots per project, for everyone',
+      'New project templates: a static website, a React app, a Python web API, a Node CLI tool and a Lua game',
       'Lua, Ruby and PHP run on the device, offline, next to JavaScript and Python',
       'sqlite3 in the terminal: run SQL on a database file, or at a sqlite> prompt',
       'GitHub: sign in, browse and clone your repositories, review and merge pull requests, work on issues and follow Actions',
