@@ -11,7 +11,6 @@ import { settingsStore, useSettings } from '../../state';
 import { makeStyles } from '../../theme/theme';
 import { borderWidth, radius, spacing } from '../../theme/tokens';
 import type { Language, Snippet } from '../editor/bridge';
-import { requirePro, useIsPro } from '../pro';
 
 const LANGUAGES: { value: '' | Language; label: string }[] = [
   { value: '', label: 'Any' },
@@ -37,32 +36,30 @@ const EXAMPLES: Snippet[] = [
 const label = (s: Snippet) => LANGUAGES.find((l) => l.value === (s.languages?.[0] ?? ''))?.label ?? s.languages?.join(', ');
 
 // Your snippets: typing a prefix in the editor offers the body, with tab stops
-// ($1, ${2:name}, $0) as in VS Code. Tide Pro.
+// ($1, ${2:name}, $0) as in VS Code.
 export function SnippetsScreen() {
   const styles = useStyles();
   const snippets = useSettings((s) => s.snippets);
-  const pro = useIsPro();
   const [editing, setEditing] = useState<{ index: number | null } | null>(null);
   const [menu, setMenu] = useState<number | null>(null);
   const current = editing?.index !== null && editing ? snippets[editing.index] : null;
   const save = (next: Snippet[]) => settingsStore.getState().setSnippets(next);
-  const add = () => requirePro('snippets') && setEditing({ index: null });
+  const add = () => setEditing({ index: null });
 
   return (
     <Screen
       title="Snippets"
-      subtitle={pro ? 'Type a prefix in the editor' : 'Tide Pro'}
+      subtitle="Type a prefix in the editor"
       actions={<IconButton icon="plus" label="Add a snippet" onPress={add} testID="snippet-add" />}
       testID="snippets"
     >
       {snippets.length === 0 && (
-        <Empty title="No snippets yet" body="Type a snippet's prefix in the editor and pick it from the suggestions; Tab moves between its $1, $2 placeholders. Emmet, also in Pro, expands ul>li*3 and friends with Tab.">
+        <Empty title="No snippets yet" body="Type a snippet's prefix in the editor and pick it from the suggestions; Tab moves between its $1, $2 placeholders. Emmet expands ul>li*3 and friends with Tab.">
           <Button title="Add a snippet" icon="plus" onPress={add} />
           <Button
             title="Start with examples"
             variant="outline"
             onPress={() => {
-              if (!requirePro('snippets')) return;
               save(EXAMPLES);
               haptic('success');
             }}
@@ -90,7 +87,7 @@ export function SnippetsScreen() {
           menu === null
             ? []
             : [
-                { label: 'Edit', icon: 'edit-2', onPress: () => (setMenu(null), requirePro('snippets') && setEditing({ index: menu })) },
+                { label: 'Edit', icon: 'edit-2', onPress: () => (setMenu(null), setEditing({ index: menu })) },
                 {
                   label: 'Delete',
                   icon: 'trash-2',

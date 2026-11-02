@@ -21,7 +21,7 @@ export const KEEP = 10;
 const dirFor = (project: string) => joinPath(STATE_DIR, 'snapshots', project);
 
 export function createSnapshots(fs: FsAdapter, workspace: Workspace, now: () => number = Date.now) {
-  // How many to keep per project; Tide Pro raises it (setKeep).
+  // How many to keep per project (setKeep, for tests).
   let keep = KEEP;
   async function list(project: string): Promise<Snapshot[]> {
     const dir = dirFor(project);

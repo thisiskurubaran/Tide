@@ -6,7 +6,7 @@ permalink: /tide/privacy/
 
 # Tide Privacy Policy
 
-Effective 29 October 2026
+Effective 2 November 2026
 {: .meta}
 
 Tide is a code editor with a terminal for iPhone and iPad, made by
@@ -35,7 +35,7 @@ Tide keeps the following on your device, in its own storage:
   projects and similar preferences.
 - **HTTP history**: the last responses to the requests you send from .http
   files, without credential headers such as Authorization and Cookie.
-- **Widget data**: with Tide Pro, the names of your projects and recent
+- **Widget data**: the names of your projects and recent
   projects are shared with Tide's widget and Siri and Shortcuts actions
   through an app group on your device.
 - **Credentials**, kept in the iOS Keychain: your Git name, email and
@@ -47,8 +47,6 @@ Tide keeps the following on your device, in its own storage:
   GitLab and Bitbucket tokens, your Anthropic API key, and environment variables you keep as
   secrets. SSH private keys never leave your device, and secret environment
   variables are never written to your projects.
-- **Purchase status**: which Tide Pro plan or extensions your Apple Account
-  owns, so they keep working offline.
 
 Tide's storage is included in your device backups (iCloud Backup or a
 computer) like any app's data. Deleting Tide deletes it from the device.
@@ -64,11 +62,11 @@ handle it under their own privacy policies.
 |---|---|---|
 | Git (clone, pull, push) | Your repository's contents and history, your Git name and email (in commits), and your access token | The Git host you use, e.g. GitHub |
 | GitHub (sign-in, repositories, pull requests, issues, Actions) | Your GitHub access token, and what you do on those screens: comments, reviews, new issues and pull requests, merges, re-runs | GitHub (github.com and api.github.com) |
-| GitLab and Bitbucket (Tide Pro) | Your token (and for Bitbucket, your Atlassian account email), and what you do on those screens: comments, approvals, merges, new issues | GitLab (gitlab.com or the GitLab address you enter) or Bitbucket (bitbucket.org and api.bitbucket.org) |
+| GitLab and Bitbucket | Your token (and for Bitbucket, your Atlassian account email), and what you do on those screens: comments, approvals, merges, new issues | GitLab (gitlab.com or the GitLab address you enter) or Bitbucket (bitbucket.org and api.bitbucket.org) |
 | Deploy | The files in the folder you publish, the token you added for that service, and settings such as the site or project name and, for previews, the Git branch's name. For Firebase, a sign-in token signed on your device with your service account key; the key itself isn't sent. | The service you choose: GitHub Pages, Firebase Hosting (Google), Netlify, Vercel, Cloudflare Pages, or Render (only a request to your deploy hook) |
 | SSH and SFTP | Your username and password or a signature made with your key (the private key itself is never sent), your terminal input, the files you open, save or copy, and the traffic of ports you forward | The server you add, and the jump host you connect through, if any. They're run by you or whoever gave you access, not by me. |
 | HTTP and WebSocket requests (.http files) | The requests and messages you send, including any headers and bodies you write, and any environment variables you put in them | The address in each request |
-| AI assistant (Tide Pro) | Your Anthropic API key, the file you ask about, and your question | Anthropic (api.anthropic.com), under your own Anthropic account and its terms |
+| AI assistant | Your Anthropic API key, the file you ask about, and your question | Anthropic (api.anthropic.com), under your own Anthropic account and its terms |
 | Databases (PostgreSQL and MySQL) | Your username and password, and the queries and changes you make | The database server you add, directly or through the SSH server you choose. It's run by you or whoever gave you access, not by me. |
 | npm and pip installs | Names and versions of the packages you install | The npm registry (registry.npmjs.org) and PyPI (pypi.org) |
 | Packages screen | Your search terms, and the names of installed packages to check for updates | The npm registry and PyPI |
@@ -86,13 +84,10 @@ to the programs you run on your device. The developer tools, OpenAPI
 viewer, Mermaid diagrams and PDF export work on your device; an exported
 PDF goes only where you send it from the share sheet.
 
-## Purchases
+## Ratings
 
-Tide Pro and extensions are sold through the App Store. Payments are
-handled entirely by Apple. I don't receive your name, Apple Account or
-payment details; the App Store only tells Tide which products your account
-owns. Subscriptions are managed and cancelled in your Apple Account
-settings. If Tide asks you to rate it, the rating prompt is shown by
+Tide is free and sells nothing: there are no subscriptions or in-app
+purchases. If Tide asks you to rate it, the rating prompt is shown by
 Apple, and I only see ratings and reviews as published on the App Store.
 
 ## Crash reports (optional, off by default)

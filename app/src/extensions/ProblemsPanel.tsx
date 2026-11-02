@@ -10,7 +10,7 @@ import { Diagnostic, fileDiagnostics, useDiagnostics } from './diagnostics';
 import type { Panel, PanelProps, ProjectContext } from './types';
 
 // Every warning and error the extensions reported for the project's files.
-// Shared by Format & Lint and IntelliSense Pro; the host shows it once.
+// Shared by Format & Lint and IntelliSense; the host shows it once.
 export function ProblemsPanel({ ctx, visible, onClose }: PanelProps) {
   const styles = useStyles();
   const colors = useColors();

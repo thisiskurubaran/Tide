@@ -12,11 +12,11 @@ export type SelectUnit = 'word' | 'line' | 'all' | 'expand';
 // Editor behavior that paid extensions switch on. The code is always in the
 // bundle; these flags only enable it.
 export interface EditorFeatures {
-  // Completions, hover and go to definition answered by the app (IntelliSense Pro).
+  // Completions, hover and go to definition answered by the app (IntelliSense).
   language: boolean;
   // Gutter breakpoints and the paused-line highlight (Debugger).
   breakpoints: boolean;
-  // Accept current / incoming / both on merge conflict markers (Git Pro).
+  // Accept current / incoming / both on merge conflict markers (Git Tools).
   conflicts: boolean;
 }
 
@@ -38,7 +38,6 @@ export interface EditorOptions {
   indentGuides: boolean;
   minimap: boolean;
   keymap: KeymapSetting;
-  // Tide Pro; the app leaves these off for free accounts.
   emmet?: boolean;
   snippets?: Snippet[];
 }

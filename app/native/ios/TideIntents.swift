@@ -1,4 +1,4 @@
-// Siri and Shortcuts actions (Tide Pro): run a project, deploy it, send a
+// Siri and Shortcuts actions: run a project, deploy it, send a
 // request from a .http file, or open a project. Each opens Tide with a
 // tide:// link the app already handles; plugins/withAppIntents.js adds this
 // file to the app target, where iOS looks for App Intents.
@@ -8,21 +8,12 @@ import UIKit
 private let appGroup = "group.com.thisiskurubaran.tide"
 
 private struct TideShared: Codable {
-  var pro: Bool
   var projects: [String]
   var recent: [String]
 
   static func read() -> TideShared? {
     guard let json = UserDefaults(suiteName: appGroup)?.string(forKey: "tide.shared"), let data = json.data(using: .utf8) else { return nil }
     return try? JSONDecoder().decode(TideShared.self, from: data)
-  }
-}
-
-enum TideIntentError: Error, CustomLocalizedStringResourceConvertible {
-  case needsPro
-
-  var localizedStringResource: LocalizedStringResource {
-    "Siri and Shortcuts actions come with Tide Pro. Open Tide to subscribe."
   }
 }
 
@@ -57,7 +48,6 @@ private func query(_ s: String) -> String {
 
 @MainActor
 private func openTide(_ link: String) async throws {
-  guard TideShared.read()?.pro == true else { throw TideIntentError.needsPro }
   if let url = URL(string: link) { _ = await UIApplication.shared.open(url) }
 }
 

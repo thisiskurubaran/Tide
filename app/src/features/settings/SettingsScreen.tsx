@@ -21,11 +21,9 @@ import { appVersion, contactSupport, rateApp } from '../support/actions';
 import { CHANGELOG, Release } from '../support/changelog';
 import { WhatsNewSheet } from '../support/WhatsNewSheet';
 import { Onboarding } from '../onboarding/Onboarding';
-import { requirePro, useIsPro, useProState } from '../pro';
 import { useAccounts } from '../hosts/accounts';
 import { useAiSettings } from '../ai/settings';
-import { iconsSupported, setProIcon, usingProIcon } from '../pro/appIcon';
-import { proStatus } from '../pro/store';
+import { iconsSupported, setMidnightIcon, usingMidnightIcon } from './appIcon';
 
 export function SettingsScreen() {
   const styles = useStyles();
@@ -41,9 +39,7 @@ export function SettingsScreen() {
   useEffect(() => {
     accountStore.getState().refresh();
   }, []);
-  const pro = useIsPro();
-  const proDetail = useProState((s) => proStatus(s));
-  const [icon, setIcon] = useState<'standard' | 'pro'>(() => (usingProIcon() ? 'pro' : 'standard'));
+  const [icon, setIcon] = useState<'standard' | 'midnight'>(() => (usingMidnightIcon() ? 'midnight' : 'standard'));
   const editorOptions: Record<EditorOptionKey, boolean> = {
     wordWrap: useSettings((s) => s.wordWrap),
     folding: useSettings((s) => s.folding),
@@ -57,7 +53,7 @@ export function SettingsScreen() {
   const colors = useColors();
   const remote = useRemoteSettings((s) => s.settings);
   const git = useGitSettings((s) => s.settings);
-  const owned = useExtensions((s) => s.owned.length);
+  const installed = useExtensions((s) => s.installed.length);
   const settings = settingsStore.getState();
   const [whatsNew, setWhatsNew] = useState<Release[] | null>(null);
   const [tour, setTour] = useState(false);
@@ -70,29 +66,6 @@ export function SettingsScreen() {
         <Text variant="title">Settings</Text>
       </View>
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.lg }]}>
-        <Section title="Tide Pro">
-          <LinkRow label={pro ? 'Tide Pro' : 'Get Tide Pro'} detail={proDetail ?? 'Linked folders, compare and merge, every extension and more'} onPress={() => router.push('/pro')} testID="settings-pro" />
-          {iconsSupported() && (
-            <Row label="App icon">
-              <Segmented<'standard' | 'pro'>
-                testID="app-icon"
-                value={icon}
-                onChange={(next) => {
-                  if (next === 'pro' && !requirePro('app-icon')) return;
-                  setProIcon(next === 'pro').then(
-                    () => setIcon(usingProIcon() ? 'pro' : 'standard'),
-                    () => undefined,
-                  );
-                }}
-                options={[
-                  { value: 'standard', label: 'Standard' },
-                  { value: 'pro', label: 'Pro' },
-                ]}
-              />
-            </Row>
-          )}
-        </Section>
-
         <Section title="Appearance">
           <Row label="Theme">
             <Segmented<ThemeSetting>
@@ -106,6 +79,24 @@ export function SettingsScreen() {
               ]}
             />
           </Row>
+          {iconsSupported() && (
+            <Row label="App icon">
+              <Segmented<'standard' | 'midnight'>
+                testID="app-icon"
+                value={icon}
+                onChange={(next) =>
+                  setMidnightIcon(next === 'midnight').then(
+                    () => setIcon(usingMidnightIcon() ? 'midnight' : 'standard'),
+                    () => undefined,
+                  )
+                }
+                options={[
+                  { value: 'standard', label: 'Standard' },
+                  { value: 'midnight', label: 'Midnight' },
+                ]}
+              />
+            </Row>
+          )}
           <Row label="Contrast">
             <Segmented<ContrastSetting>
               testID="contrast"
@@ -144,19 +135,17 @@ export function SettingsScreen() {
               />
             </Row>
           ))}
-          <Row label="Emmet (Pro)">
+          <Row label="Emmet">
             <Switch
               testID="editor-emmet"
-              value={editorOptions.emmet && pro}
-              onValueChange={(on) => {
-                if (!on || requirePro('snippets')) settings.setEditorOption('emmet', on);
-              }}
+              value={editorOptions.emmet}
+              onValueChange={(on) => settings.setEditorOption('emmet', on)}
               trackColor={{ true: colors.brand, false: colors.secondary }}
             />
           </Row>
-          <LinkRow label="AI assistant (Pro)" detail={aiKey ? 'Anthropic key saved' : 'Claude, with your own API key'} onPress={() => requirePro('ai') && router.push('/settings/ai')} testID="settings-ai" />
+          <LinkRow label="AI assistant" detail={aiKey ? 'Anthropic key saved' : 'Claude, with your own API key'} onPress={() => router.push('/settings/ai')} testID="settings-ai" />
           <LinkRow
-            label="Snippets (Pro)"
+            label="Snippets"
             detail={snippetCount ? `${snippetCount} saved` : 'Your own, with tab stops'}
             onPress={() => router.push('/settings/snippets')}
             testID="settings-snippets"
@@ -190,7 +179,7 @@ export function SettingsScreen() {
         <Section title="Extensions">
           <LinkRow
             label="Extensions"
-            detail={owned ? `${owned} installed` : 'Themes, linting, Git Pro and more'}
+            detail={installed ? `${installed} installed` : 'Themes, linting, Git tools and more'}
             onPress={() => router.push('/extensions')}
             testID="settings-extensions"
           />
@@ -204,9 +193,9 @@ export function SettingsScreen() {
             testID="settings-github"
           />
           <LinkRow
-            label="GitLab and Bitbucket (Pro)"
+            label="GitLab and Bitbucket"
             detail={hostCount ? `${hostCount} ${hostCount === 1 ? 'account' : 'accounts'}` : 'Clone, merge requests, pull requests and issues'}
-            onPress={() => requirePro('git-hosts') && router.push('/hosts')}
+            onPress={() => router.push('/hosts')}
             testID="settings-hosts"
           />
           <LinkRow

@@ -17,7 +17,7 @@ export interface DbSource {
   insertRow(table: string, values: Record<string, string>): Promise<void>;
   allRows(table: string): Promise<{ columns: string[]; rows: Row[] }>;
   run(sql: string): Promise<QueryResult>;
-  // Tables with their columns, keys and foreign keys (Tide Pro's schema view).
+  // Tables with their columns, keys and foreign keys (the schema view).
   schema(): Promise<SchemaTable[]>;
   close(): Promise<void>;
   // Shown when a table can't be edited from the grid.

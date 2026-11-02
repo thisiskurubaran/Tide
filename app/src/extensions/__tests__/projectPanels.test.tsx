@@ -1,4 +1,4 @@
-// The Git Pro and Debugger screens rendered against a real git repository
+// The Git Tools and Debugger screens rendered against a real git repository
 // (the built-in CLI on the host's Node) and a fake runner.
 /// <reference types="node" />
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
@@ -71,7 +71,7 @@ const ctx: ProjectContext = {
 
 const settle = () => act(async () => new Promise((r) => setTimeout(r, 50)));
 
-describe('Git Pro panel', () => {
+describe('Git Tools panel', () => {
   beforeAll(() => {
     git(['init']);
     fs.writeFileSync(path.join(repoDir, 'a.txt'), 'one\ntwo\nthree\n');

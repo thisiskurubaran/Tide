@@ -176,20 +176,19 @@
           "faceIDPermission": false
         }
       ],
-      "expo-iap",
       "./plugins/withLocalPreview.js",
       [
         "expo-alternate-app-icons",
         [
           {
-            "name": "Pro",
+            "name": "Midnight",
             "ios": {
-              "light": "./assets/icons/ios-pro.png",
-              "dark": "./assets/icons/ios-pro-dark.png",
-              "tinted": "./assets/icons/ios-pro-tinted.png"
+              "light": "./assets/icons/ios-midnight.png",
+              "dark": "./assets/icons/ios-midnight-dark.png",
+              "tinted": "./assets/icons/ios-midnight-tinted.png"
             },
             "android": {
-              "foregroundImage": "./assets/icons/android-pro-foreground.png",
+              "foregroundImage": "./assets/icons/android-midnight-foreground.png",
               "backgroundColor": "#0b1022"
             }
           }

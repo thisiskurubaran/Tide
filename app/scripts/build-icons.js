@@ -15,9 +15,8 @@ const tileGradient = ['#3b5bdb', '#0e1a4d'];
 // Transparent dark icons, which iOS draws on its own dark background instead of the blue tile.
 const dark = { body: '#f1f3f2', accent: '#7c9bff' };
 
-// Tide Pro's alternate icon (offered to Pro members in Settings > App icon):
-// a midnight tile, a gold wave and a gold PRO badge in the top-right corner.
-const pro = { tile: 'url(#pro-tile)', body: '#ffffff', accent: 'url(#pro-gold)', badgeText: '#141a33' };
+// The Midnight alternate icon (Settings > App icon): a midnight tile and a gold wave.
+const midnight = { tile: 'url(#pro-tile)', body: '#ffffff', accent: 'url(#pro-gold)' };
 const proTile = ['#1c2347', '#05070f'];
 const proGold = ['#ffe08a', '#f5b942', '#d98a1c'];
 const FONT = path.join(root, 'assets', 'fonts', 'InstrumentSans-SemiBold.ttf');
@@ -54,21 +53,13 @@ function svg(size, inset, content, background) {
 }
 
 function render(source, px) {
-  // The PRO badge is text, set in the app's own font so it renders the same everywhere.
+  // Any text is set in the app's own font so it renders the same everywhere.
   return new Resvg(source, {
     fitTo: { mode: 'width', value: px },
     font: { fontFiles: [FONT], loadSystemFonts: false, defaultFontFamily: 'Instrument Sans' },
   }).render();
 }
 
-// In mark units, inside the iOS corner mask and clear of the chevron.
-function proBadge(fill, text) {
-  return (
-    `<rect x="18.6" y="5" width="9.4" height="4.6" rx="2.3" fill="${fill}"/>` +
-    `<text x="23.3" y="8.45" font-family="Instrument Sans" font-weight="600" font-size="3.3" letter-spacing="0.25" text-anchor="middle" fill="${text}">PRO</text>`
-  );
-}
-const proSymbol = (body, accent, badge, badgeText) => symbol(body, accent) + proBadge(badge, badgeText);
 
 // App Store icons must not have an alpha channel, so re-encode as 8-bit RGB.
 function opaquePng(image) {
@@ -130,12 +121,11 @@ const outputs = {
     render(svg(ANDROID, ANDROID_INSET, symbol(light.body, light.accent)), 1024).asPng(),
   'android-monochrome.png': () =>
     render(svg(ANDROID, ANDROID_INSET, symbol('#ffffff', '#ffffff')), 1024).asPng(),
-  // Tide Pro, with the same light / dark / tinted set as the main icon.
-  'ios-pro.png': () => opaquePng(render(svg(32, 0, proSymbol(pro.body, pro.accent, pro.accent, pro.badgeText), pro.tile), 1024)),
-  'ios-pro-dark.png': () => render(svg(32, 0, proSymbol(pro.body, pro.accent, pro.accent, pro.badgeText)), 1024).asPng(),
-  'ios-pro-tinted.png': () => render(svg(32, 0, proSymbol('#ffffff', '#b8b8b8', '#ffffff', '#000000')), 1024).asPng(),
-  'android-pro-foreground.png': () =>
-    render(svg(ANDROID, ANDROID_INSET, proSymbol(pro.body, pro.accent, pro.accent, pro.badgeText)), 1024).asPng(),
+  // Midnight, with the same light / dark / tinted set as the main icon.
+  'ios-midnight.png': () => opaquePng(render(svg(32, 0, symbol(midnight.body, midnight.accent), midnight.tile), 1024)),
+  'ios-midnight-dark.png': () => render(svg(32, 0, symbol(midnight.body, midnight.accent)), 1024).asPng(),
+  'ios-midnight-tinted.png': () => render(svg(32, 0, symbol('#ffffff', '#b8b8b8')), 1024).asPng(),
+  'android-midnight-foreground.png': () => render(svg(ANDROID, ANDROID_INSET, symbol(midnight.body, midnight.accent)), 1024).asPng(),
   // The blue tile reads on both light and dark backgrounds, so one splash image serves both.
   'splash.png': () => render(svg(32, 0, tile(light)), 512).asPng(),
   'favicon.png': () => render(svg(32, 0, tile(light)), 48).asPng(),

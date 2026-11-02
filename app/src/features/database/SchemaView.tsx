@@ -11,7 +11,7 @@ import type { DbSource } from './source';
 const target = (table: string, to: string) => (to ? `${table}.${to}` : table);
 
 // The database's tables as cards: columns with their types and keys, and
-// where each foreign key points. Tide Pro.
+// where each foreign key points.
 export function SchemaView({ source, onOpenTable }: { source: DbSource; onOpenTable(name: string): void }) {
   const styles = useStyles();
   const colors = useColors();

@@ -11,7 +11,7 @@ public class TideWidgetsModule: Module {
   public func definition() -> ModuleDefinition {
     Name("TideWidgets")
 
-    // JSON the widget and the Shortcuts actions read: {pro, projects, recent}.
+    // JSON the widget and the Shortcuts actions read: {projects, recent}.
     Function("setSharedData") { (json: String) in
       UserDefaults(suiteName: tideAppGroup)?.set(json, forKey: tideSharedKey)
       WidgetCenter.shared.reloadAllTimelines()

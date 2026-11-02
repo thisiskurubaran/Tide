@@ -29,16 +29,16 @@ app/                             Expo app (dev client, prebuild, New Architectur
   src/features/deploy            Publishing a folder to GitHub Pages, Firebase Hosting, Netlify, Vercel, Cloudflare Pages; Render deploy hooks
   src/features/ssh               SSH servers and keys, the SSH terminal backend, SFTP browsing and editing
   src/features/http              .http request files: parsing, sending, environments, cURL and GraphQL, WebSockets, the request/response viewer
-  src/features/database          Database viewer for SQLite files (expo-sqlite) and PostgreSQL / MySQL servers (tide:sql, remote/); schema view (Tide Pro)
+  src/features/database          Database viewer for SQLite files (expo-sqlite) and PostgreSQL / MySQL servers (tide:sql, remote/); schema view
   src/features/tools             Developer tools: JSON, regex tester, YAML/CSV, Base64, URL, JWT, hashes, UUIDs, timestamps
   src/features/openapi           OpenAPI / Swagger viewer: endpoints with example bodies, added to a .http file
   src/features/todos             The TODO / FIXME list
   src/features/outline           File outline and Go to Symbol (symbols read line by line, per language)
-  src/features/notebook          Running Jupyter notebook cells with the device's Python (Tide Pro)
-  src/features/ai                AI assistant (Tide Pro): Claude through @anthropic-ai/sdk with the user's own key
+  src/features/notebook          Running Jupyter notebook cells with the device's Python
+  src/features/ai                AI assistant: Claude through @anthropic-ai/sdk with the user's own key
   src/features/env               Per-project environment variables: .env plus Keychain secrets, given to every run
-  src/features/hosts             GitLab and Bitbucket (Tide Pro): accounts, repositories, merge/pull requests, issues
-  src/features/widgets           Shares data with the widget and Shortcuts actions; deploy Live Activities (Tide Pro)
+  src/features/hosts             GitLab and Bitbucket: accounts, repositories, merge/pull requests, issues
+  src/features/widgets           Shares data with the widget and Shortcuts actions; deploy Live Activities
   modules/tide-widgets           Expo module: app group data for the widget, ActivityKit for the deploy Live Activity
   targets/widget                 Widget extension (@bacons/apple-targets): Recent Projects widget, deploy Live Activity
   native/ios                     Siri and Shortcuts actions (App Intents), added to the app target by plugins/withAppIntents.js
@@ -46,7 +46,7 @@ app/                             Expo app (dev client, prebuild, New Architectur
   src/features/privacy           Opt-in crash reports (Sentry) and the scrubbing applied to them
   .maestro                       End-to-end flows (Maestro)
   modules/python-runtime         Expo module: Chaquopy on Android, CPython on iOS; python/tide_runner.py runs scripts
-  src/extensions                 Paid extensions: the extension API, in-app purchases, the Extensions screen and each extension
+  src/extensions                 Extensions: the extension API, the Extensions screen and each extension
 server/                          Remote mode server: one Docker container per project
 shared/protocol.ts               Runner message types, imported as @shared/protocol
 ```
@@ -151,11 +151,11 @@ The rating prompt is asked for at most once per version, after 5 runs and 3 days
 
 The iOS privacy manifest is set in `app.json` (`ios.privacyManifests`) and declares crash data and the required-reason APIs the app and its Node and Python runtimes use (user defaults, file timestamps, boot time and disk space). `ios.config.usesNonExemptEncryption` is false: the app only uses standard encryption.
 
-## Tide Pro
+## Pricing
 
-Tide Pro is a monthly or yearly subscription (7-day free trial on yearly) or a lifetime purchase. It unlocks linked folders, compare and merge, the test runner, preview dev tools, the split editor on iPad, up to 6 terminals (free: 2), 10 snapshots per project (free: 3), every extension, snippets and Emmet, Git blame and file history, GitLab and Bitbucket, and the widget, deploy Live Activity and Siri and Shortcuts actions. Remote mode is free at launch, since it needs a server the user hosts. The plans and limits are in `app/src/features/pro/plans.ts`; the paywall opens from Settings, the Extensions screen and any Pro feature.
+Tide is free: every feature and every extension, with no subscription, in-app purchase or sign-up. Limits that remain are there for performance: up to 6 terminals per project and 10 snapshots per project.
 
-[appstore/pro.md](appstore/pro.md) covers setting up the products in App Store Connect, testing with `app/storekit/Tide.storekit` or sandbox, and the review notes. The privacy policy ([appstore/site/tide/privacy.md](appstore/site/tide/privacy.md)) and support page ([appstore/site/tide/support.md](appstore/site/tide/support.md)) are published with GitHub Pages at `https://thisiskurubaran.github.io/tide/privacy/` and `/tide/support/`. `appstore/site/` is the whole site, one directory per app, with a template for adding other apps; appstore/pro.md has the steps.
+[appstore/release.md](appstore/release.md) covers the App Store Connect setup, the privacy label and the review notes. The privacy policy ([appstore/site/tide/privacy.md](appstore/site/tide/privacy.md)) and support page ([appstore/site/tide/support.md](appstore/site/tide/support.md)) are published with GitHub Pages at `https://thisiskurubaran.github.io/tide/privacy/` and `/tide/support/`. `appstore/site/` is the whole site, one directory per app, with a template for adding other apps; appstore/release.md has the steps.
 
 ## Remote mode
 
@@ -191,7 +191,7 @@ Other settings: `HOST`, `PORT` (8787), `TIDE_IMAGE`, `TIDE_IDLE_MINUTES` (15), `
 
 `git` in the Local terminal runs isomorphic-git in the Node supervisor. It supports `clone` (HTTPS, shallow, single branch), `init`, `status [-s]`, `add`, `rm`, `commit [-a] -m`, `log [--oneline]`, `diff` (a `--stat` summary only), `branch`, `checkout [-b]`, `remote [-v|add]`, `push` and `pull`. Anything else, such as rebase, stash or merge conflicts, needs the real git in Remote mode.
 
-Set a name, email and personal access token under Settings, Git. They are kept in the Keychain and passed to each git run as environment variables, never written into the project. The token is sent as the HTTPS password, which works for GitHub, GitLab and Gitea. Signed-in GitLab and Bitbucket accounts (Tide Pro) add their own token for their host, in `TIDE_GIT_HOSTS`. `git __tide blame` and `file-log` give Git Pro's blame and file history; isomorphic-git has no blame, so `git/blame.js` works it out from the file's versions.
+Set a name, email and personal access token under Settings, Git. They are kept in the Keychain and passed to each git run as environment variables, never written into the project. The token is sent as the HTTPS password, which works for GitHub, GitLab and Gitea. Signed-in GitLab and Bitbucket accounts add their own token for their host, in `TIDE_GIT_HOSTS`. `git __tide blame` and `file-log` give the blame and file history; isomorphic-git has no blame, so `git/blame.js` works it out from the file's versions.
 
 The branch icon in a project opens Source Control, which shows the changed files and can commit everything, push and pull. New project, Clone from Git clones a repository into a new project.
 
@@ -220,17 +220,15 @@ Markdown previews draw ```mermaid blocks as diagrams. `npm install` (via `build-
 
 ## Extensions
 
-Extensions are paid add-ons, each a separate one-time in-app purchase (non-consumable). Their code ships inside the app and a purchase only unlocks it, so nothing executable is downloaded. The Extensions screen (the package icon on the projects list, or Settings) shows each one with its store price, a Buy button, Restore purchases, an on/off switch for owned ones and their settings.
+Extensions are free add-ons. Their code ships inside the app and installing one only switches it on, so nothing executable is downloaded. The Extensions screen (Extensions on the projects list, or Settings) shows each one with what it adds, Install or Remove, and its settings once installed.
 
-| Extension | Product ID | What it adds |
-|---|---|---|
-| Themes & Icons Pack | `com.thisiskurubaran.tide.ext.themes` | Seven editor and terminal themes (Dracula, One Dark, Monokai, Nord, Solarized Dark and Light, GitHub Light) and file icons in the tree and tabs. Color theme in the command palette. |
-| Format & Lint | `com.thisiskurubaran.tide.ext.format_lint` | Format document (⇧⌥F) with Prettier for JS, TS, JSON, CSS, HTML, Markdown and YAML and autopep8 for Python, optionally on save. ESLint (recommended rules) and pyflakes warnings as you type, and a Problems panel. A JSON Prettier config in the project is used. |
-| Git Pro | `com.thisiskurubaran.tide.ext.git_pro` | Replaces the Source Control sheet: staged and unstaged changes, diffs, staging, unstaging and discarding a file or a single hunk, commit only what is staged, branches (create, switch, delete, merge), history with each commit's diff, and Accept current / incoming / both on conflict markers in the editor. |
-| IntelliSense Pro | `com.thisiskurubaran.tide.ext.intellisense` | The TypeScript language service for JS and TS: completions, hover, go to definition (F12 or Cmd-click), find references, rename symbol and type errors inline. Uses the project's tsconfig.json or jsconfig.json. |
-| Debugger | `com.thisiskurubaran.tide.ext.debugger` | Gutter breakpoints, Debug: start for the open JavaScript or Python file (or the tide.json entry), continue, pause, step over, into and out, variables, call stack, and a console for output, input and evaluating expressions. |
-
-Store setup: create the five product IDs above as non-consumable in-app products in App Store Connect and as one-time products in the Google Play Console, and sign the paid apps agreements. Prices come from the stores; the fallback prices in `src/extensions/manifests.ts` only show until the store answers. Test purchases with a Sandbox account on iOS and license testers on Android. Purchases go through expo-iap (its config plugin is in `app.json`), so run `npx expo prebuild --clean` after pulling this change. Purchases are checked on the device only; there is no server receipt validation yet.
+| Extension | What it adds |
+|---|---|
+| Themes & Icons Pack | Seven editor and terminal themes (Dracula, One Dark, Monokai, Nord, Solarized Dark and Light, GitHub Light) and file icons in the tree and tabs. Color theme in the command palette. |
+| Format & Lint | Format document (⇧⌥F) with Prettier for JS, TS, JSON, CSS, HTML, Markdown and YAML and autopep8 for Python, optionally on save. ESLint (recommended rules) and pyflakes warnings as you type, and a Problems panel. A JSON Prettier config in the project is used. |
+| Git Tools | Replaces the Source Control sheet: staged and unstaged changes, diffs, staging, unstaging and discarding a file or a single hunk, commit only what is staged, branches (create, switch, delete, merge), history with each commit's diff, and Accept current / incoming / both on conflict markers in the editor. |
+| IntelliSense | The TypeScript language service for JS and TS: completions, hover, go to definition (F12 or Cmd-click), find references, rename symbol and type errors inline. Uses the project's tsconfig.json or jsconfig.json. |
+| Debugger | Gutter breakpoints, Debug: start for the open JavaScript or Python file (or the tide.json entry), continue, pause, step over, into and out, variables, call stack, and a console for output, input and evaluating expressions. |
 
 How they run:
 
@@ -251,7 +249,7 @@ npm run build:web
 
 ## Icons
 
-App icons and splash images are generated from `app/assets/brand/tide-mark.svg`, including the Tide Pro alternate icon (midnight tile, gold wave, PRO badge in Instrument Sans), which Pro members can pick in Settings, App icon. After changing the mark:
+App icons and splash images are generated from `app/assets/brand/tide-mark.svg`, including the Midnight alternate icon (midnight tile, gold wave), which anyone can pick in Settings, Appearance, App icon. After changing the mark:
 
 ```bash
 cd app

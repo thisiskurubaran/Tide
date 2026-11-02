@@ -13,7 +13,6 @@ import { makeStyles, useColors } from '../../theme/theme';
 import { borderWidth, fonts, fontSizes, radius, spacing } from '../../theme/tokens';
 import { parseRemote, timeAgo } from '../github/api';
 import type { DeployRecord, DeployStatus } from './auto';
-import { requirePro } from '../pro';
 import { deployStore } from './index';
 import { currentBranch, deploy, getToken, guessFolder, PREVIEWS, PROVIDERS, readConfig, saveConfig, setToken } from './deploy';
 import { DeployConfig, ProviderId } from './providers';
@@ -35,7 +34,7 @@ async function githubRemote(project: string) {
 // Publish a folder of the project to GitHub Pages, Netlify, Vercel, Cloudflare
 // Pages, or trigger a Render deploy. Free for everyone.
 export function DeployScreen() {
-  // go=1 comes from the Deploy Project action in Shortcuts (Tide Pro): deploy on opening.
+  // go=1 comes from the Deploy Project action in Shortcuts: deploy on opening.
   const { project, go } = useLocalSearchParams<{ project: string; go?: string }>();
   const styles = useStyles();
   const colors = useColors();
@@ -79,7 +78,7 @@ export function DeployScreen() {
   useEffect(() => {
     if (go !== '1' || !config || autoRan.current) return;
     autoRan.current = true;
-    if (requirePro('shortcuts')) runRef.current?.();
+    runRef.current?.();
   }, [go, config]);
 
   if (!config) return <Screen title="Deploy" subtitle={project}><ActivityIndicator color={colors.mutedForeground} /></Screen>;

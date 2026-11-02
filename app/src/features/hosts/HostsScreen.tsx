@@ -10,7 +10,7 @@ import { Empty, ListRow, Screen } from '../../components/Screen';
 import type { HostKind } from './api';
 import { accountsStore, HOST_LABEL, useAccounts } from './accounts';
 
-// GitLab and Bitbucket accounts. Tide Pro (the entry points check).
+// GitLab and Bitbucket accounts.
 export function HostsScreen() {
   const accounts = useAccounts((s) => s.accounts);
   const [picking, setPicking] = useState(false);

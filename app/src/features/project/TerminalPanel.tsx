@@ -16,8 +16,6 @@ import type { Shortcut } from './shortcuts';
 import { addTab, closeTab, cycleTab, initialTabs, MAX_TERMINALS } from './terminalTabs';
 import { TerminalHandle, TerminalPane } from '../terminal/TerminalPane';
 import { makeStyles, useColors } from '../../theme/theme';
-import { requirePro } from '../pro';
-import { FREE_LIMITS } from '../pro/plans';
 
 // The panel's handle drives whichever terminal is showing, and manages tabs.
 export interface TerminalPanelHandle extends TerminalHandle {
@@ -55,8 +53,7 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>
     setQuery('');
     panes.current.forEach((p) => p.clearFind());
   };
-  // More than the free number of terminals is Pro.
-  const newTerminal = () => (tabs.ids.length < FREE_LIMITS.terminals || requirePro('terminals')) && setTabs(addTab);
+  const newTerminal = () => tabs.ids.length < MAX_TERMINALS && setTabs(addTab);
 
   useImperativeHandle(
     ref,

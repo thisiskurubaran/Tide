@@ -1,5 +1,5 @@
 // The widget extension: Recent Projects on the Home Screen, and the deploy
-// Live Activity on the Lock Screen and in the Dynamic Island (Tide Pro).
+// Live Activity on the Lock Screen and in the Dynamic Island.
 /** @type {import('@bacons/apple-targets/app.plugin').ConfigFunction} */
 module.exports = (config) => ({
   type: 'widget',

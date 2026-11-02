@@ -1,4 +1,4 @@
-// GitLab and Bitbucket behind one interface, for Tide Pro. Shapes that the
+// GitLab and Bitbucket behind one interface. Shapes that the
 // GitHub screens' diff list and conversation view already take are reused.
 import type { Comment, PullFile } from '../github/api';
 

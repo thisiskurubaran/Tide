@@ -4,16 +4,6 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 
 jest.mock('expo-router', () => ({ router: { back: jest.fn(), push: jest.fn() } }));
 jest.mock('@expo/vector-icons/Feather', () => 'Feather');
-// Pro is on unless a test turns it off; the paywall records what it was opened for.
-let mockPro = true;
-const mockPaywall: string[] = [];
-jest.mock('../pro', () => ({
-  requirePro: (feature: string) => {
-    if (!mockPro) mockPaywall.push(feature);
-    return mockPro;
-  },
-  currentlyPro: () => mockPro,
-}));
 jest.mock('react-native-safe-area-context', () => require('react-native-safe-area-context/jest/mock').default);
 jest.mock('react-native/Libraries/Utilities/useWindowDimensions', () => ({ __esModule: true, default: () => ({ width: 1024, height: 768, scale: 2, fontScale: 1 }) }));
 jest.mock('../../state', () => {
@@ -173,21 +163,4 @@ it('offers the merge editor for files with conflicts', async () => {
   expect(ids).not.toContain('compare.saved');
   await act(async () => mockCommands.find((c) => c.id === 'compare.merge')!.run());
   expect(mockCompare).toEqual({ path: 'a.txt', with: 'merge' });
-});
-
-it('sends free accounts to the paywall for Pro features', async () => {
-  mockPro = false;
-  mockCompare = null;
-  try {
-    tabsStore.getState().openTab('free', 'a.js');
-    await render(<ProjectScreen project="free" />);
-    await act(async () => mockCommands.find((c) => c.id === 'split')!.run());
-    expect(screen.queryByTestId('split-divider')).toBeNull();
-    await act(async () => mockCommands.find((c) => c.id === 'compare.head')!.run());
-    expect(mockCompare).toBeNull();
-    await act(async () => mockCommands.find((c) => c.id === 'tests')!.run());
-    expect(mockPaywall).toEqual(['split-editor', 'compare', 'tests']);
-  } finally {
-    mockPro = true;
-  }
 });

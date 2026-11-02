@@ -1,12 +1,11 @@
 // Recent projects on the Home Screen; tapping one opens it in Tide. The app
-// writes the list (and whether Tide Pro is on) to the shared app group.
+// writes the list to the shared app group.
 import SwiftUI
 import WidgetKit
 
 private let appGroup = "group.com.thisiskurubaran.tide"
 
 struct SharedData: Codable {
-  var pro: Bool
   var projects: [String]
   var recent: [String]
 
@@ -14,7 +13,7 @@ struct SharedData: Codable {
     guard let json = UserDefaults(suiteName: appGroup)?.string(forKey: "tide.shared"),
       let data = json.data(using: .utf8),
       let shared = try? JSONDecoder().decode(SharedData.self, from: data)
-    else { return SharedData(pro: false, projects: [], recent: []) }
+    else { return SharedData(projects: [], recent: []) }
     return shared
   }
 }
@@ -31,7 +30,7 @@ struct ProjectsEntry: TimelineEntry {
 
 struct ProjectsProvider: TimelineProvider {
   func placeholder(in context: Context) -> ProjectsEntry {
-    ProjectsEntry(date: Date(), shared: SharedData(pro: true, projects: [], recent: ["portfolio", "weather-cli", "habit-tracker"]))
+    ProjectsEntry(date: Date(), shared: SharedData(projects: [], recent: ["portfolio", "weather-cli", "habit-tracker"]))
   }
 
   func getSnapshot(in context: Context, completion: @escaping (ProjectsEntry) -> Void) {
@@ -55,11 +54,7 @@ struct RecentProjectsView: View {
         Image(systemName: "chevron.left.forwardslash.chevron.right").foregroundStyle(Color.accentColor)
         Text("Tide").font(.headline)
       }
-      if !entry.shared.pro {
-        Spacer(minLength: 0)
-        Text("Widgets come with Tide Pro.").font(.caption).foregroundStyle(.secondary)
-        Spacer(minLength: 0)
-      } else if names.isEmpty {
+      if names.isEmpty {
         Spacer(minLength: 0)
         Text("Your projects show up here.").font(.caption).foregroundStyle(.secondary)
         Spacer(minLength: 0)
@@ -76,7 +71,7 @@ struct RecentProjectsView: View {
       }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    .widgetURL(entry.shared.pro ? names.first.map(projectURL) : URL(string: "tide://pro"))
+    .widgetURL(names.first.map(projectURL))
     .tideWidgetBackground()
   }
 

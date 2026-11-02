@@ -100,7 +100,7 @@ export const SHORTCUT_HELP: { group: string; items: [keys: string, title: string
       ['⌘D', 'Select the next occurrence'],
       ['⇧⌘L', 'Select all occurrences'],
       ['⌥ drag', 'Column selection, one cursor per line'],
-      ['⌘ click', 'Add a cursor (go to definition with IntelliSense Pro)'],
+      ['⌘ click', 'Add a cursor (go to definition with IntelliSense)'],
       ['⌥↑  ⌥↓', 'Move line up / down'],
       ['⇧⌥↑  ⇧⌥↓', 'Copy line up / down'],
       ['⇧⌘K', 'Delete line'],

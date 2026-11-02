@@ -1,4 +1,4 @@
-// The AI assistant (Tide Pro): explains, fixes or changes the open file with
+// The AI assistant: explains, fixes or changes the open file with
 // Claude, through the official Anthropic SDK and the user's own API key. The
 // request goes straight from the device to Anthropic; Tide has no server.
 import Anthropic from '@anthropic-ai/sdk';

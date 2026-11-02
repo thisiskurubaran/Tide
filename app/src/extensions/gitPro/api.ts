@@ -1,4 +1,4 @@
-// Git Pro talks to the built-in git through `git __tide <command>`, which
+// Git Tools talks to the built-in git through `git __tide <command>`, which
 // prints JSON (nodejs-project/git/ui.js).
 import type { GitResult } from '../../features/git/runGit';
 import { lastLines } from '../../features/git/runGit';

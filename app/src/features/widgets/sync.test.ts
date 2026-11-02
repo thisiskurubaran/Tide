@@ -2,7 +2,7 @@ import { activitySteps, sharedData } from './sync';
 
 describe('widget data', () => {
   it('lists recent projects that still exist, newest first', () => {
-    expect(JSON.parse(sharedData(true, ['a', 'b', 'c'], ['c', 'gone', 'a']))).toEqual({ pro: true, projects: ['a', 'b', 'c'], recent: ['c', 'a'] });
+    expect(JSON.parse(sharedData(['a', 'b', 'c'], ['c', 'gone', 'a']))).toEqual({ projects: ['a', 'b', 'c'], recent: ['c', 'a'] });
   });
 });
 

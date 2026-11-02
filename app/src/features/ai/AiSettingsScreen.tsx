@@ -10,7 +10,7 @@ import { borderWidth, fonts, fontSizes, radius, spacing } from '../../theme/toke
 import { createClient, describeError, MODELS } from './assistant';
 import { aiSettings, getApiKey, setApiKey, useAiSettings } from './settings';
 
-// The Anthropic API key and model for the AI assistant (Tide Pro).
+// The Anthropic API key and model for the AI assistant.
 export function AiSettingsScreen() {
   const styles = useStyles();
   const colors = useColors();
@@ -41,7 +41,7 @@ export function AiSettingsScreen() {
   };
 
   return (
-    <Screen title="AI assistant" subtitle="Tide Pro" testID="ai-settings">
+    <Screen title="AI assistant" subtitle="Claude, with your own key" testID="ai-settings">
       <Text variant="muted">
         Ask Claude to explain, fix or change the file you're working on, from the command palette. It uses your own Anthropic API key, so requests go straight from this
         device to Anthropic and are billed to your Anthropic account. The file you ask about is sent with each request.

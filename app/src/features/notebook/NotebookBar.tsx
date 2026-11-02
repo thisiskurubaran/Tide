@@ -13,7 +13,6 @@ import { borderWidth, spacing } from '../../theme/tokens';
 import { toBase64 } from '../backup/zip';
 import { projectEnv } from '../env/store';
 import { PROJECTS_DIR } from '../files/workspace';
-import { requirePro } from '../pro';
 import type { Notebook } from '../preview/render';
 import { clearOutputs, codeCells, driverScript, notebookText, parseResults, withOutputs } from './run';
 
@@ -52,7 +51,7 @@ function runDriver(project: string, dir: string, script: string): Promise<string
 const firstLine = (s: string) => s.split('\n').find((l) => l.trim())?.trim() ?? '(empty)';
 
 // Above a notebook's preview: run all its Python cells, or up to one, and
-// clear outputs. Tide Pro.
+// clear outputs.
 export function NotebookBar({ project, path }: { project: string; path: string }) {
   const styles = useStyles();
   const colors = useColors();
@@ -68,7 +67,6 @@ export function NotebookBar({ project, path }: { project: string; path: string }
   const write = (nb: Notebook) => buffersStore.getState().replace(project, path, notebookText(nb));
 
   const run = async (upTo = Infinity) => {
-    if (!requirePro('notebooks')) return;
     setBusy(true);
     setStatus('Running…');
     try {
@@ -98,7 +96,7 @@ export function NotebookBar({ project, path }: { project: string; path: string }
         <Button
           title="Run to…"
           variant="outline"
-          onPress={() => requirePro('notebooks') && read().then(setPicking, (e) => setStatus(String(e?.message ?? e)))}
+          onPress={() => read().then(setPicking, (e) => setStatus(String(e?.message ?? e)))}
           disabled={busy}
           testID="notebook-run-to"
         />

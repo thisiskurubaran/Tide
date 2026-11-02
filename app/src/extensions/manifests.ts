@@ -1,6 +1,6 @@
-// The paid extensions sold in the Extensions screen. Each one is a separate
-// non-consumable in-app purchase; the code ships inside the app and a purchase
-// only unlocks it, so nothing executable is ever downloaded (App Store 2.5.2).
+// The extensions in the Extensions screen. They're free; the code ships inside
+// the app and installing one only switches it on, so nothing executable is
+// ever downloaded (App Store 2.5.2).
 // Plain data, no React Native imports, so tests and the web bundles can read it.
 export type ExtensionId = 'themes' | 'format-lint' | 'git-pro' | 'intellisense' | 'debugger';
 
@@ -10,16 +10,10 @@ export interface ExtensionManifest {
   tagline: string;
   // Feather icon name.
   icon: string;
-  // Store product id, the same on the App Store and Google Play.
-  productId: string;
-  // Shown until the store returns the localized price, e.g. in development builds.
-  fallbackPrice: string;
   features: string[];
   // Anything the extension can't do everywhere, shown on its card.
   note?: string;
 }
-
-const PRODUCT_PREFIX = 'com.thisiskurubaran.tide.ext';
 
 export const manifests: ExtensionManifest[] = [
   {
@@ -27,8 +21,6 @@ export const manifests: ExtensionManifest[] = [
     name: 'Themes & Icons Pack',
     tagline: 'Popular editor and terminal themes, and colored file icons.',
     icon: 'droplet',
-    productId: `${PRODUCT_PREFIX}.themes`,
-    fallbackPrice: '$2.99',
     features: [
       'Dracula, One Dark, Monokai, Nord, Solarized Dark, Solarized Light and GitHub Light',
       'Each theme colors the editor and the terminal',
@@ -40,8 +32,6 @@ export const manifests: ExtensionManifest[] = [
     name: 'Format & Lint',
     tagline: 'Prettier, ESLint, autopep8 and pyflakes, with a Problems panel.',
     icon: 'check-circle',
-    productId: `${PRODUCT_PREFIX}.format_lint`,
-    fallbackPrice: '$4.99',
     features: [
       'Format document with Prettier: JS, TS, JSX, JSON, CSS, SCSS, HTML, Markdown and YAML',
       'Format Python with autopep8',
@@ -52,11 +42,9 @@ export const manifests: ExtensionManifest[] = [
   },
   {
     id: 'git-pro',
-    name: 'Git Pro',
+    name: 'Git Tools',
     tagline: 'Diffs, staging, branches, history and merge conflicts.',
     icon: 'git-merge',
-    productId: `${PRODUCT_PREFIX}.git_pro`,
-    fallbackPrice: '$6.99',
     features: [
       'Line-by-line diff for every changed file and every commit',
       'Stage, unstage and discard a whole file or a single hunk',
@@ -68,11 +56,9 @@ export const manifests: ExtensionManifest[] = [
   },
   {
     id: 'intellisense',
-    name: 'IntelliSense Pro',
+    name: 'IntelliSense',
     tagline: 'TypeScript-powered completions, errors and navigation for JS and TS.',
     icon: 'zap',
-    productId: `${PRODUCT_PREFIX}.intellisense`,
-    fallbackPrice: '$9.99',
     features: [
       'Completions from the TypeScript language service, including your own modules',
       'Type errors inline as you type',
@@ -86,8 +72,6 @@ export const manifests: ExtensionManifest[] = [
     name: 'Debugger',
     tagline: 'Breakpoints and stepping for Node and Python scripts.',
     icon: 'crosshair',
-    productId: `${PRODUCT_PREFIX}.debugger`,
-    fallbackPrice: '$9.99',
     features: [
       'Tap the gutter to set breakpoints',
       'Continue, pause, step over, step into and step out',
@@ -100,4 +84,3 @@ export const manifests: ExtensionManifest[] = [
 ];
 
 export const manifestFor = (id: ExtensionId) => manifests.find((m) => m.id === id)!;
-export const manifestForProduct = (productId: string) => manifests.find((m) => m.productId === productId);

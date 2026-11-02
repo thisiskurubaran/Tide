@@ -13,7 +13,6 @@ import { makeStyles, useColors } from '../../theme/theme';
 import { addInput, clearConsole, DevtoolsState, emptyDevtools, parsePageMessage, reduce } from './devtools/devtools';
 import { DevtoolsPanel } from './devtools/DevtoolsPanel';
 import { DEVTOOLS_SCRIPT, evalScript } from './devtools/inject';
-import { requirePro } from '../pro';
 import { previewNavigation } from './navigation';
 
 const LIVE_RELOAD_DELAY_MS = 400;
@@ -85,7 +84,7 @@ export function PreviewScreen() {
         )}
         <IconButton icon="refresh-cw" label="Reload" onPress={reload} testID="preview-reload" />
         <View>
-          <IconButton icon="tool" label={toolsOpen ? 'Hide dev tools' : 'Show dev tools'} onPress={() => (toolsOpen ? setToolsOpen(false) : requirePro('devtools') && setToolsOpen(true))} testID="preview-devtools" />
+          <IconButton icon="tool" label={toolsOpen ? 'Hide dev tools' : 'Show dev tools'} onPress={() => (toolsOpen ? setToolsOpen(false) : setToolsOpen(true))} testID="preview-devtools" />
           {devtools.errors > 0 && !toolsOpen && <View style={[styles.badge, { backgroundColor: colors.destructive }]} pointerEvents="none" />}
         </View>
       </View>

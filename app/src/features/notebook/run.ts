@@ -1,4 +1,4 @@
-// Running a Jupyter notebook's Python cells on the device (Tide Pro). The
+// Running a Jupyter notebook's Python cells on the device. The
 // cells run in order in one namespace, like a kernel, through a small driver
 // script; each cell's output comes back as one JSON line, and is written into
 // the notebook so the preview shows it.

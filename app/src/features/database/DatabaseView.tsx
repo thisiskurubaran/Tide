@@ -12,7 +12,6 @@ import { borderWidth, fonts, fontSizes, radius, spacing } from '../../theme/toke
 import { formatCell, PAGE_SIZE, QueryResult, Row, TableInfo, toCsv } from './database';
 import type { DbSource } from './source';
 import { SchemaView } from './SchemaView';
-import { requirePro } from '../pro';
 
 const CELL_WIDTH = 160;
 
@@ -132,7 +131,7 @@ export function DatabaseView({ open, openKey, saveCsv }: DatabaseViewProps) {
         <Segmented<'tables' | 'sql' | 'schema'>
           testID="database-mode"
           value={mode}
-          onChange={(m) => (m !== 'schema' || requirePro('schema')) && setMode(m)}
+          onChange={(m) => setMode(m)}
           options={[
             { value: 'tables', label: 'Tables' },
             { value: 'sql', label: 'SQL' },

@@ -59,7 +59,6 @@ import { PackagesSheet } from '../packages/PackagesSheet';
 import { isJsTestFile, isPyTestFile } from '../tests/results';
 import { TestsRequest, TestsSheet } from '../tests/TestsSheet';
 import { useReduceMotion } from '../../components/a11y';
-import { requirePro } from '../pro';
 
 // Extensions can contribute the same command or panel (Show problems); the first one wins.
 const uniqueById = <T extends { id: string }>(items: T[]) => items.filter((x, i) => items.findIndex((o) => o.id === x.id) === i);
@@ -140,7 +139,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     ) : previewKind(path!) === 'openapi' ? (
       <OpenApiPane project={project} path={path!} />
     ) : previewKind(path!) === 'notebook' ? (
-      // Notebooks get a bar to run their Python cells (Tide Pro).
+      // Notebooks get a bar to run their Python cells.
       <View style={StyleSheet.absoluteFill}>
         <NotebookBar project={project} path={path!} />
         <View style={styles.flexFill}>
@@ -157,7 +156,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
   const cursor = useRef<{ path: string; offset: number } | null>(null);
   const extensions = useActiveExtensions();
   const features = useMemo(() => editorFeatures(extensions), [extensions]);
-  // Git Pro's screen stands in for the Source Control sheet.
+  // Git Tools's screen stands in for the Source Control sheet.
   const openSourceControl = () => (extensions.some((e) => e.id === 'git-pro') ? setPanel(GIT_PRO_PANEL) : setSourceControl(true));
 
   useEffect(() => {
@@ -218,7 +217,6 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
       setSplit(null);
       setFocusedPane('left');
     } else {
-      if (!requirePro('split-editor')) return;
       // Start with the same file, the way most editors split.
       setSplit({ path: tabs.active });
       setFocusedPane('right');
@@ -280,8 +278,8 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
   useEffect(() => {
     if (!launch) return;
     if (launch.file) {
-      // Sending a request from a link is a Shortcuts action (Tide Pro).
-      if (launch.send && requirePro('shortcuts')) requestSend(project, launch.file, launch.send);
+      // Sending a request from a link is a Shortcuts action.
+      if (launch.send) requestSend(project, launch.file, launch.send);
       if (launch.line) openAt(launch.file, launch.line);
       else openFile(launch.file);
     }
@@ -296,7 +294,6 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
 
   // Palette pull and push; failures open the sheet, which can re-grant access.
   const syncFolder = (sync: (project: string) => Promise<unknown>) =>
-    requirePro('linked-folders') &&
     sync(project).catch((e: Error) =>
       Alert.alert("Couldn't sync the folder", e.message, [
         { text: 'OK', style: 'cancel' },
@@ -339,7 +336,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
           id: `ai.${m}`,
           title: m === 'explain' ? 'AI: explain this file' : m === 'fix' ? 'AI: fix bugs in this file' : 'AI: ask about this file…',
           icon: 'cpu' as const,
-          run: () => requirePro('ai') && setAi(m),
+          run: () => setAi(m),
         }))
       : []),
     { id: 'github', title: 'GitHub', icon: 'github', run: () => router.push('/github') },
@@ -347,11 +344,11 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     { id: 'env', title: 'Environment variables…', icon: 'key', run: () => router.push({ pathname: '/env', params: { project } }) },
     { id: 'databases', title: 'Databases…', icon: 'database', run: () => router.push('/databases') },
     { id: 'tools', title: 'Developer tools (JSON, regex, Base64, JWT…)', icon: 'tool', run: () => router.push('/tools') },
-    { id: 'hosts', title: 'GitLab and Bitbucket…', icon: 'gitlab', run: () => requirePro('git-hosts') && router.push('/hosts') },
+    { id: 'hosts', title: 'GitLab and Bitbucket…', icon: 'gitlab', run: () => router.push('/hosts') },
     ...(current
       ? [
-          { id: 'git.blame', title: 'Git: blame this file', icon: 'user' as const, run: () => requirePro('blame') && router.push({ pathname: '/blame', params: { project, path: current } }) },
-          { id: 'git.file-history', title: 'Git: history of this file', icon: 'clock' as const, run: () => requirePro('blame') && router.push({ pathname: '/blame', params: { project, path: current, show: 'history' } }) },
+          { id: 'git.blame', title: 'Git: blame this file', icon: 'user' as const, run: () => router.push({ pathname: '/blame', params: { project, path: current } }) },
+          { id: 'git.file-history', title: 'Git: history of this file', icon: 'clock' as const, run: () => router.push({ pathname: '/blame', params: { project, path: current, show: 'history' } }) },
         ]
       : []),
     { id: 'http.new', title: 'New HTTP requests file', icon: 'send', run: () => newHttpFile().catch((e) => Alert.alert('Could not create the file', String(e?.message ?? e))) },
@@ -379,18 +376,17 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     ...(current
       ? [
           ...(currentHasConflicts
-            ? [{ id: 'compare.merge', title: 'Resolve conflicts in the merge editor', icon: 'git-merge' as const, run: () => requirePro('compare') && setCompare({ path: current, with: 'merge' }) }]
+            ? [{ id: 'compare.merge', title: 'Resolve conflicts in the merge editor', icon: 'git-merge' as const, run: () => setCompare({ path: current, with: 'merge' }) }]
             : []),
           ...(dirty.has(current)
-            ? [{ id: 'compare.saved', title: 'Compare with saved', icon: 'file-text' as const, run: () => requirePro('compare') && setCompare({ path: current, with: 'saved' }) }]
+            ? [{ id: 'compare.saved', title: 'Compare with saved', icon: 'file-text' as const, run: () => setCompare({ path: current, with: 'saved' }) }]
             : []),
-          { id: 'compare.head', title: 'Compare with last commit', icon: 'git-commit' as const, run: () => requirePro('compare') && setCompare({ path: current, with: 'head' }) },
+          { id: 'compare.head', title: 'Compare with last commit', icon: 'git-commit' as const, run: () => setCompare({ path: current, with: 'head' }) },
           {
             id: 'compare.file',
             title: 'Compare with file…',
             icon: 'copy' as const,
             run: () => {
-              if (!requirePro('compare')) return;
               comparingWith.current = current;
               setPalette('files');
             },
@@ -436,9 +432,9 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     { id: 'toggle-terminal', title: 'Toggle terminal', icon: 'terminal', hint: '⌘J', run: () => setTerminalHidden((h) => !h) },
     { id: 'local', title: 'Terminal: use Local', icon: 'smartphone', run: () => runnerStore.getState().setMode('local') },
     { id: 'remote', title: 'Terminal: use Remote', icon: 'server', run: () => runnerStore.getState().setMode('remote') },
-    { id: 'tests', title: 'Run tests', icon: 'check-square', run: () => requirePro('tests') && setTests({}) },
+    { id: 'tests', title: 'Run tests', icon: 'check-square', run: () => setTests({}) },
     ...(current && (isJsTestFile(current) || isPyTestFile(current))
-      ? [{ id: 'tests.file', title: 'Run tests in this file', icon: 'check-square' as const, run: () => requirePro('tests') && setTests({ files: [current], language: isPyTestFile(current) ? 'python' : 'js' }) }]
+      ? [{ id: 'tests.file', title: 'Run tests in this file', icon: 'check-square' as const, run: () => setTests({ files: [current], language: isPyTestFile(current) ? 'python' : 'js' }) }]
       : []),
     { id: 'packages', title: 'Packages (npm, pip)', icon: 'box', run: () => setPackagesOpen(true) },
     { id: 'source-control', title: 'Source control', icon: 'git-branch', run: openSourceControl },

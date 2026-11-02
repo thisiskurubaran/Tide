@@ -22,7 +22,7 @@ export interface SettingsState {
   minimap: boolean;
   // Vim or Emacs key bindings in the editor, mostly for hardware keyboards.
   keymap: KeymapSetting;
-  // Tide Pro: Emmet in HTML, CSS and JSX, and the user's own snippets.
+  // Emmet in HTML, CSS and JSX, and the user's own snippets.
   emmet: boolean;
   snippets: Snippet[];
   haptics: boolean;

@@ -1,4 +1,4 @@
-// Tide Pro: your own snippets in the completion list.
+// Your own snippets in the completion list.
 import { Completion, CompletionContext, CompletionResult, snippetCompletion } from '@codemirror/autocomplete';
 
 import type { Language, Snippet } from '../../src/features/editor/bridge';

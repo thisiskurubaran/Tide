@@ -13,17 +13,12 @@ and attaches the details that help me fix things.
 
 ## Common questions
 
-**How do I restore Tide Pro or an extension on a new device?**
-Open Settings > Tide Pro (or the Extensions screen) and tap **Restore
-purchases**, signed in with the same Apple Account.
-
-**How do I cancel my subscription?**
-In the iOS Settings app: your name > Subscriptions > Tide. Or in Tide:
-Settings > Tide Pro > Manage subscription. Pro stays on until the end of
-the period you paid for.
+**Does Tide cost anything?**
+No. Every feature and every extension is free, with no subscription or
+in-app purchase. Extensions are installed from the Extensions screen.
 
 **What runs on the device?**
-JavaScript (Node.js) and Python run on the device, offline. npm and pip
+JavaScript (Node.js), Python, Lua, Ruby and PHP run on the device, offline. npm and pip
 install pure-JavaScript and pure-Python packages. Anything else, such as
 native builds or other languages, needs Remote mode with a Tide server you
 host.

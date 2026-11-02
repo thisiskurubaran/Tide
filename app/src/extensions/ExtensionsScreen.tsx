@@ -1,7 +1,7 @@
 import Feather from '@expo/vector-icons/Feather';
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Switch, View } from 'react-native';
+import { useState } from 'react';
+import { Pressable, ScrollView, Switch, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, IconButton } from '../components/Button';
@@ -11,24 +11,14 @@ import { makeStyles, useColors } from '../theme/theme';
 import { borderWidth, radius, spacing } from '../theme/tokens';
 import { ExtensionManifest, manifests } from './manifests';
 import { extensionsStore, useExtensions } from './state';
-import { isActive, isAvailable } from './store';
+import { isActive } from './store';
 import { ThemePicker } from './themes/ThemePicker';
-import { useIsPro } from '../features/pro';
 
-// The marketplace: every extension with its price, what it does, and a buy,
-// enable or settings control. Purchases are per extension; there is no bundle.
+// Every extension with what it does, an install or remove control, and its
+// settings once installed. They're all free.
 export function ExtensionsScreen() {
   const styles = useStyles();
-  const colors = useColors();
-  const pro = useIsPro();
   const insets = useSafeAreaInsets();
-  const error = useExtensions((s) => s.error);
-  const busy = useExtensions((s) => s.busy);
-  const store = extensionsStore.getState();
-
-  useEffect(() => {
-    store.refresh().catch(() => undefined);
-  }, [store]);
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
@@ -39,35 +29,10 @@ export function ExtensionsScreen() {
         </Text>
       </View>
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.lg }]}>
-        <Text variant="muted">Each extension is a one-time purchase and works on all your devices signed in to the same store account.</Text>
-        {!pro && (
-          <Pressable onPress={() => router.push('/pro')} style={styles.pro} accessibilityRole="button" testID="extensions-pro">
-            <Feather name="star" size={18} color={colors.brand} />
-            <Text style={styles.flex}>
-              <Text variant="label">Tide Pro</Text> includes every extension, plus linked folders, compare and merge, the test runner and more.
-            </Text>
-            <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
-          </Pressable>
-        )}
-        {error && (
-          <Pressable onPress={() => store.clearError()} style={styles.error} accessibilityRole="alert" testID="extensions-error">
-            <Text variant="error" style={styles.flex}>
-              {error}
-            </Text>
-            <Feather name="x" size={16} />
-          </Pressable>
-        )}
+        <Text variant="muted">Free, and they work offline. Install the ones you want; remove them any time.</Text>
         {manifests.map((m) => (
           <ExtensionCard key={m.id} manifest={m} />
         ))}
-        <Button
-          title={busy === 'restore' ? 'Restoring...' : 'Restore purchases'}
-          variant="outline"
-          icon="rotate-ccw"
-          onPress={() => store.restore()}
-          disabled={busy !== null}
-          testID="restore"
-        />
       </ScrollView>
     </View>
   );
@@ -76,11 +41,7 @@ export function ExtensionsScreen() {
 function ExtensionCard({ manifest: m }: { manifest: ExtensionManifest }) {
   const styles = useStyles();
   const colors = useColors();
-  const owned = useExtensions((s) => isAvailable(s, m.id));
-  const viaPro = useExtensions((s) => s.included && !s.owned.includes(m.id));
-  const active = useExtensions((s) => isActive(s, m.id));
-  const price = useExtensions((s) => s.prices[m.id] ?? m.fallbackPrice);
-  const busy = useExtensions((s) => s.busy);
+  const installed = useExtensions((s) => isActive(s, m.id));
   const [expanded, setExpanded] = useState(false);
   const store = extensionsStore.getState();
 
@@ -112,27 +73,16 @@ function ExtensionCard({ manifest: m }: { manifest: ExtensionManifest }) {
       )}
 
       <View style={styles.actions}>
-        {owned ? (
-          <>
-            <Text variant="muted" style={styles.flex}>
-              {active ? (viaPro ? 'Included with Pro' : 'Installed') : 'Turned off'}
-            </Text>
-            <Switch testID={`ext-${m.id}-enabled`} value={active} onValueChange={(v) => store.setEnabled(m.id, v)} />
-          </>
+        <Text variant="muted" style={styles.flex} testID={`ext-${m.id}-status`}>
+          {installed ? 'Installed' : 'Free'}
+        </Text>
+        {installed ? (
+          <Button title="Remove" variant="outline" onPress={() => store.uninstall(m.id)} testID={`ext-${m.id}-remove`} />
         ) : (
-          <>
-            <Text variant="label" style={styles.flex} testID={`ext-${m.id}-price`}>
-              {price}
-            </Text>
-            {busy === m.id ? (
-              <ActivityIndicator />
-            ) : (
-              <Button title="Buy" icon="shopping-bag" onPress={() => store.buy(m.id)} disabled={busy !== null} testID={`ext-${m.id}-buy`} />
-            )}
-          </>
+          <Button title="Install" icon="download" onPress={() => store.install(m.id)} testID={`ext-${m.id}-install`} />
         )}
       </View>
-      {active && <ExtensionSettings manifest={m} />}
+      {installed && <ExtensionSettings manifest={m} />}
     </View>
   );
 }
@@ -186,15 +136,6 @@ const useStyles = makeStyles((colors) => ({
   title: { flex: 1 },
   content: { padding: spacing.md, gap: spacing.md },
   flex: { flex: 1 },
-  pro: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.lg, backgroundColor: colors.brandSoft },
-  error: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    padding: spacing.md,
-    borderRadius: radius.lg,
-    backgroundColor: colors.destructiveSoft,
-  },
   card: { backgroundColor: colors.card, borderRadius: radius.lg, borderWidth, borderColor: colors.border, overflow: 'hidden' },
   cardHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.md },
   icon: { width: 40, height: 40, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },

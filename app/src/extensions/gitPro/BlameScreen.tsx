@@ -23,7 +23,6 @@ const short = (oid: string) => oid.slice(0, 7);
 const subject = (c: Commit) => c.message.split('\n')[0];
 
 // Who last changed each line of a file, and every commit that changed it.
-// Tide Pro (the palette checks before opening it).
 export function BlameScreen() {
   const { project, path, show } = useLocalSearchParams<{ project: string; path: string; show?: 'history' }>();
   const styles = useStyles();

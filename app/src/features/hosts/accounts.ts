@@ -1,4 +1,4 @@
-// Signed-in GitLab and Bitbucket accounts (Tide Pro). The list is in the
+// Signed-in GitLab and Bitbucket accounts. The list is in the
 // Keychain without secrets, and each token under its own key; tokens are kept
 // in memory once loaded so git runs can use them.
 import * as SecureStore from 'expo-secure-store';

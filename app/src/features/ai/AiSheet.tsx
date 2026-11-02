@@ -28,7 +28,7 @@ interface AiSheetProps {
   onClose(): void;
 }
 
-// Explain, fix or change the open file with Claude (Tide Pro). Changes are
+// Explain, fix or change the open file with Claude. Changes are
 // shown as a diff and applied to the editor, unsaved, so Undo still works.
 export function AiSheet({ mode, project, path, onClose }: AiSheetProps) {
   const styles = useStyles();

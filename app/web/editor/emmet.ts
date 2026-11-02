@@ -1,4 +1,4 @@
-// Tide Pro: Emmet abbreviations (ul>li*3, .card>h2+p, m10) expanded with Tab
+// Emmet abbreviations (ul>li*3, .card>h2+p, m10) expanded with Tab
 // in HTML, CSS and JSX.
 import { Extension, Prec } from '@codemirror/state';
 import { keymap } from '@codemirror/view';

@@ -3,8 +3,8 @@
 // without the native module.
 import type { DeployStatus } from '../deploy/auto';
 
-export function sharedData(pro: boolean, projects: string[], recent: string[]): string {
-  return JSON.stringify({ pro, projects, recent: recent.filter((p) => projects.includes(p)).slice(0, 8) });
+export function sharedData(projects: string[], recent: string[]): string {
+  return JSON.stringify({ projects, recent: recent.filter((p) => projects.includes(p)).slice(0, 8) });
 }
 
 export type ActivityStep =

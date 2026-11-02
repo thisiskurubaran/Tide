@@ -2,7 +2,7 @@
  * @jest-environment node
  */
 /// <reference types="node" />
-// Git Pro against the built-in git CLI on the host's Node, checked with real git.
+// Git Tools against the built-in git CLI on the host's Node, checked with real git.
 import { execFileSync, spawnSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';

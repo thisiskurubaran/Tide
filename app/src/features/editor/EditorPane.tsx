@@ -16,7 +16,6 @@ import { classify, formatBytes, TOO_LARGE_BYTES } from './largeFiles';
 import type { Shortcut } from '../project/shortcuts';
 import editorHtml from './editorHtml.generated';
 import { makeStyles, useColorScheme } from '../../theme/theme';
-import { useIsPro } from '../pro';
 
 export interface EditorHandle {
   send(msg: ToEditor): void;
@@ -61,9 +60,7 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
   const indentGuides = useSettings((s) => s.indentGuides);
   const minimap = useSettings((s) => s.minimap);
   const keymap = useSettings((s) => s.keymap);
-  // Tide Pro.
-  const pro = useIsPro();
-  const emmet = useSettings((s) => s.emmet) && pro;
+  const emmet = useSettings((s) => s.emmet);
   const snippets = useSettings((s) => s.snippets);
   const bufferContent = useBuffers((s) => (path ? s.buffers[bufferKey(project, path)]?.content : undefined));
   const diagnostics = useDiagnostics((s) => (path ? fileDiagnostics(s, project, path) : null));
@@ -113,9 +110,9 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
         type: 'options',
         options: isLarge
           ? { wordWrap: false, folding: false, indentGuides: false, minimap: false, keymap }
-          : { wordWrap, folding, indentGuides, minimap, keymap, emmet, snippets: pro ? snippets : [] },
+          : { wordWrap, folding, indentGuides, minimap, keymap, emmet, snippets },
       }),
-    [send, wordWrap, folding, indentGuides, minimap, keymap, emmet, snippets, pro, isLarge],
+    [send, wordWrap, folding, indentGuides, minimap, keymap, emmet, snippets, isLarge],
   );
   useEffect(sendOptions, [sendOptions]);
 

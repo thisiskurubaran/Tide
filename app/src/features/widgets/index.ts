@@ -1,10 +1,9 @@
-// Tide Pro on the Home Screen and Lock Screen: keeps the widget's recent
+// Tide on the Home Screen and Lock Screen: keeps the widget's recent
 // projects current, and shows deploys as a Live Activity.
 import TideWidgets from '../../../modules/tide-widgets/src';
 import { projectsStore, tabsStore } from '../../state';
 import { deployStore } from '../deploy';
 import { PROVIDERS } from '../deploy/deploy';
-import { currentlyPro, proStore } from '../pro';
 import { activitySteps, sharedData } from './sync';
 
 export function startWidgets(): () => void {
@@ -13,7 +12,7 @@ export function startWidgets(): () => void {
 
   let last = '';
   const sync = () => {
-    const json = sharedData(currentlyPro(), projectsStore.getState().projects, tabsStore.getState().recent);
+    const json = sharedData(projectsStore.getState().projects, tabsStore.getState().recent);
     if (json === last) return;
     last = json;
     native.setSharedData(json);
@@ -23,7 +22,6 @@ export function startWidgets(): () => void {
   // project -> activity id, or the pending start.
   const live = new Map<string, Promise<string | null>>();
   const offDeploys = deployStore.subscribe((next, prev) => {
-    if (!currentlyPro()) return;
     for (const step of activitySteps(prev.status, next.status, new Set(live.keys()))) {
       if (step.kind === 'start') {
         const label = PROVIDERS.find((p) => p.id === step.provider)?.label ?? step.provider;
@@ -36,6 +34,6 @@ export function startWidgets(): () => void {
     }
   });
 
-  const unsubs = [projectsStore.subscribe(sync), tabsStore.subscribe(sync), proStore.subscribe(sync), offDeploys];
+  const unsubs = [projectsStore.subscribe(sync), tabsStore.subscribe(sync), offDeploys];
   return () => unsubs.forEach((u) => u());
 }

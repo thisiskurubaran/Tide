@@ -25,7 +25,6 @@ import { haptic } from '../../components/haptics';
 import { WhatsNewOnUpdate } from '../support/WhatsNew';
 import { Onboarding } from '../onboarding/Onboarding';
 import { supportStore, useSupport } from '../support/store';
-import { requirePro } from '../pro';
 
 const mark = require('../../../assets/icons/splash.png');
 
@@ -158,10 +157,6 @@ export function ProjectsScreen() {
           router.push(projectHref(project));
         }}
         onOpenFolder={async (name) => {
-          if (!requirePro('linked-folders')) {
-            setCreating(false);
-            return;
-          }
           const project = await openFolderAsProject(name);
           setCreating(false);
           router.push(projectHref(project));

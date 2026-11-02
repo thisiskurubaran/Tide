@@ -17,7 +17,6 @@ import { projectsStore, runnerStore, settingsStore, tabsStore, useSettings } fro
 import { useColors } from '../theme/theme';
 import { captureConsole } from '../features/support/logs';
 import { supportStore } from '../features/support/store';
-import { proStore, startPro } from '../features/pro';
 import { WasmHost } from '../runtime/wasm';
 
 // Before anything else logs, so bug reports include start-up warnings.
@@ -56,7 +55,6 @@ export default function RootLayout() {
       hydrated(keyBarStore),
       hydrated(linkedStore),
       hydrated(supportStore),
-      hydrated(proStore),
       projectsStore.getState().refresh(),
       remoteSettingsStore.getState().load().catch(() => undefined),
       gitSettingsStore.getState().load().catch(() => undefined),
@@ -64,12 +62,9 @@ export default function RootLayout() {
     ]).finally(() => {
       startCrashReports(settingsStore);
       startQuickActions();
-      startPro();
       startWidgets();
       setReady(true);
       SplashScreen.hideAsync();
-      // Prices and purchases made on another device; the cached list works until it answers.
-      extensionsStore.getState().refresh().catch(() => undefined);
     });
   }, []);
 
