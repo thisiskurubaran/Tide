@@ -331,3 +331,60 @@ describe('shell', () => {
     expect(buffers.getState().buffers['demo\u0000index.js']).toEqual({ content: 'overwritten\n', saved: 'overwritten\n' });
   });
 });
+
+describe('npm run in the Local terminal', () => {
+  const exit = (runner: FakeRunner, code: number) => runner.listener?.({ type: 'exit', id: 'r1', code });
+  async function withPackage() {
+    const t = await setup();
+    await t.memfs.writeFile('projects/demo/package.json', JSON.stringify({
+      scripts: { pretest: 'node lint.js', test: 'NODE_ENV=test node index.js && echo done', build: 'tsc -p .', bad: 'cat x | grep y', start: 'node index.js' },
+    }));
+    await t.memfs.writeFile('projects/demo/lint.js', '');
+    await t.memfs.writeFile('projects/demo/node_modules/typescript/package.json', JSON.stringify({ name: 'typescript', bin: { tsc: './bin/tsc' } }));
+    return t;
+  }
+
+  it('lists scripts and runs pre-scripts, env prefixes and && chains in order', async () => {
+    const t = await withPackage();
+    expect(await t.run('npm run')).toContain('NODE_ENV=test node index.js && echo done');
+    await t.run('npm test');
+    expect(t.runner.requests.map((r) => r.entry)).toEqual(['projects/demo/lint.js']);
+    exit(t.runner, 0);
+    await tick();
+    expect(t.runner.requests[1]).toMatchObject({ entry: 'projects/demo/index.js', env: expect.objectContaining({ NODE_ENV: 'test' }) });
+    exit(t.runner, 0);
+    await tick();
+    expect(t.out()).toContain('done');
+    expect(t.out()).toContain('> test');
+  });
+
+  it('stops at a failing step, and runs node_modules binaries with node', async () => {
+    const t = await withPackage();
+    await t.run('npm test');
+    exit(t.runner, 2);
+    await tick();
+    expect(t.runner.requests).toHaveLength(1);
+    expect(t.out()).toContain('npm run pretest failed with exit code 2');
+
+    await t.run('npm run build -- --noEmit');
+    expect(t.runner.requests[1]).toMatchObject({ runtime: 'node', entry: 'projects/demo/node_modules/typescript/bin/tsc', args: ['-p', '.', '--noEmit'] });
+    exit(t.runner, 0);
+    await tick();
+    await t.run('npx tsc --version');
+    expect(t.runner.requests[2]).toMatchObject({ entry: 'projects/demo/node_modules/typescript/bin/tsc', args: ['--version'] });
+  });
+
+  it('explains scripts it can’t run locally, and missing ones', async () => {
+    const t = await withPackage();
+    expect(await t.run('npm run bad')).toContain('needs a full shell');
+    expect(await t.run('npm run nope')).toContain('missing script: "nope"');
+    await t.memfs.writeFile('projects/demo/package.json', JSON.stringify({ scripts: { lint: 'eslint .' } }));
+    expect(await t.run('npm run lint')).toContain('eslint: not available in Local mode');
+  });
+
+  it('still sends npm install to the built-in npm', async () => {
+    const t = await withPackage();
+    await t.run('npm install left-pad');
+    expect(t.runner.requests[0]).toMatchObject({ entry: 'tide:npm', args: ['install', 'left-pad'] });
+  });
+});

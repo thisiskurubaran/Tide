@@ -14,7 +14,7 @@
 //
 // ⌘R runs the chosen configuration. Tasks are command lines typed into the
 // terminal; `local` and `remote` replace `command` for that terminal mode.
-// In remote mode, package.json scripts are offered as tasks as well.
+// package.json scripts are offered as tasks as well.
 import type { RunnerMode } from '../../state/runner';
 import type { Runtime } from '@shared/protocol';
 
@@ -75,13 +75,14 @@ export function parseTasks(tideJson: string | null, packageJson: string | null =
     const task: Task = { name, command: str(t.command), local: str(t.local), remote: str(t.remote), newTerminal: t.newTerminal === true };
     if (taskLine(task, mode) !== null) out.tasks.push(task);
   }
-  // The local shell has no npm run, so scripts are only offered remotely.
-  if (mode === 'remote' && packageJson) {
+  // Both shells run npm scripts; Local mode runs the ones made of commands it
+  // has (see terminal/shell/npmRun.ts) and explains the rest.
+  if (packageJson) {
     try {
       const scripts = JSON.parse(packageJson).scripts;
       for (const name of Object.keys(scripts ?? {})) {
         if (typeof scripts[name] !== 'string' || out.tasks.some((x) => x.name === `npm: ${name}`)) continue;
-        out.tasks.push({ name: `npm: ${name}`, remote: `npm run ${quote(name)}`, newTerminal: /^(dev|start|serve|watch)/.test(name) });
+        out.tasks.push({ name: `npm: ${name}`, command: `npm run ${quote(name)}`, newTerminal: /^(dev|start|serve|watch)/.test(name) });
       }
     } catch {
       // A broken package.json just has no scripts to offer.

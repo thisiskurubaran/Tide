@@ -19,6 +19,8 @@ export type FromTerminal =
   | { type: 'resize'; cols: number; rows: number }
   | { type: 'focus'; focused: boolean }
   | { type: 'link'; url: string }
+  // A file:line reference in the output was tapped (see fileRefs.ts).
+  | { type: 'openFile'; path: string; line: number; column?: number }
   | { type: 'shortcut'; id: Shortcut }
   // A pinch changed the font size.
   | { type: 'zoom'; fontSize: number }
@@ -26,7 +28,7 @@ export type FromTerminal =
   | { type: 'found'; index: number; count: number };
 
 const TO = new Set<ToTerminal['type']>(['write', 'setTheme', 'focus', 'blur', 'find', 'clearFind']);
-const FROM = new Set<FromTerminal['type']>(['ready', 'input', 'resize', 'focus', 'link', 'shortcut', 'zoom', 'found']);
+const FROM = new Set<FromTerminal['type']>(['ready', 'input', 'resize', 'focus', 'link', 'openFile', 'shortcut', 'zoom', 'found']);
 
 function parse<T extends { type: string }>(raw: string, types: Set<string>): T | null {
   try {

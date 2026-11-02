@@ -13,7 +13,6 @@ import { makeStyles, useColors } from '../../theme/theme';
 import { radius, spacing } from '../../theme/tokens';
 import { diagnosticsStore } from '../diagnostics';
 import { toDiagnostics } from '../formatLint/lintMessages';
-import { problemsCommand, problemsPanel } from '../ProblemsPanel';
 import type { Location, PanelProps, ProjectContext, TideExtension } from '../types';
 import { applyEdits, createTsClient, TS_FILE } from './client';
 import { createPyClient, PY_FILE } from './python';
@@ -155,9 +154,8 @@ export const intellisenseExtension: TideExtension = {
     { id: 'intellisense.references', title: 'Find references', icon: 'link', run: () => findReferences(ctx) },
     { id: 'intellisense.rename', title: 'Rename symbol', icon: 'edit-3', run: () => atCursor(ctx) && ctx.openPanel('intellisense.rename') },
     { id: 'intellisense.complete', title: 'Trigger suggestions', icon: 'list', run: () => ctx.editor()?.send({ type: 'complete' }) },
-    problemsCommand(ctx),
   ],
-  panels: [{ id: 'intellisense.references', component: ReferencesPanel }, { id: 'intellisense.rename', component: RenamePanel }, problemsPanel],
+  panels: [{ id: 'intellisense.references', component: ReferencesPanel }, { id: 'intellisense.rename', component: RenamePanel }],
   documentChanged(ctx, path, text) {
     if (!TS_FILE.test(path)) return;
     ts.diagnostics(ctx.project, path, text)

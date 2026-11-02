@@ -1,13 +1,13 @@
 import Feather from '@expo/vector-icons/Feather';
 import { router } from 'expo-router';
-import { forwardRef, useImperativeHandle, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
 import { Button, IconButton } from '../../components/Button';
 import { Segmented } from '../../components/Segmented';
 import { Text } from '../../components/Text';
 import { useLocalPorts } from '../../runtime/ports';
-import { useRunner } from '../../state';
+import { useRunner, workspace } from '../../state';
 import { borderWidth, fonts, fontSizes, radius, spacing } from '../../theme/tokens';
 import { connectSocket, nativeSocket, previewUrl } from '../remote/api';
 import { RemotePty } from '../remote/pty';
@@ -15,6 +15,8 @@ import { useRemoteSession } from '../remote/useRemoteSession';
 import type { Shortcut } from './shortcuts';
 import { addTab, closeTab, cycleTab, initialTabs, MAX_TERMINALS } from './terminalTabs';
 import { TerminalHandle, TerminalPane } from '../terminal/TerminalPane';
+import { createOutputCollector, OutputCollector } from '../problems/collector';
+import { diagnosticsStore, useDiagnostics } from '../../extensions/diagnostics';
 import { makeStyles, useColors } from '../../theme/theme';
 
 // The panel's handle drives whichever terminal is showing, and manages tabs.
@@ -28,9 +30,11 @@ interface TerminalPanelProps {
   project: string;
   onFocusChange(focused: boolean): void;
   onShortcut(id: Shortcut): void;
+  onOpenFile?(path: string, line: number, column?: number): void;
+  onShowProblems?(): void;
 }
 
-export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>(function TerminalPanel({ project, onFocusChange, onShortcut }, ref) {
+export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>(function TerminalPanel({ project, onFocusChange, onShortcut, onOpenFile, onShowProblems }, ref) {
   const styles = useStyles();
   const colors = useColors();
   const mode = useRunner((s) => s.mode);
@@ -39,6 +43,26 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>
   const [tabs, setTabs] = useState(initialTabs);
   const localPorts = useLocalPorts(project);
   const panes = useRef(new Map<number, TerminalHandle>());
+  // Errors and warnings across the project, from every source.
+  const problemCount = useDiagnostics((s) =>
+    Object.values(s.byProject[project] ?? {}).reduce((n, sources) => n + Object.values(sources).reduce((m, list) => m + list.filter((d) => d.severity !== 'info').length, 0), 0),
+  );
+  // Problems found in each terminal's output.
+  const collectors = useRef(new Map<number, OutputCollector>());
+  const collector = (id: number) => {
+    let c = collectors.current.get(id);
+    if (!c) {
+      c = createOutputCollector({
+        project,
+        key: String(id),
+        files: () => workspace.listFiles(project),
+        readText: (path) => workspace.readFile(project, path),
+        store: diagnosticsStore,
+      });
+      collectors.current.set(id, c);
+    }
+    return c;
+  };
   // Find in the active terminal's output.
   const [finding, setFinding] = useState(false);
   const [query, setQuery] = useState('');
@@ -55,6 +79,16 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>
   };
   const newTerminal = () => tabs.ids.length < MAX_TERMINALS && setTabs(addTab);
 
+  // A closed terminal's problems go with it.
+  useEffect(() => {
+    for (const [id, c] of collectors.current) {
+      if (!tabs.ids.includes(id)) {
+        c.reset();
+        collectors.current.delete(id);
+      }
+    }
+  }, [tabs.ids]);
+
   useImperativeHandle(
     ref,
     () => ({
@@ -65,6 +99,7 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>
         find(q, backwards);
       },
       clearFind: stopFinding,
+      recentOutput: () => panes.current.get(tabs.active)?.recentOutput() ?? '',
       newTerminal,
       closeTerminal: () => setTabs((t) => closeTab(t, t.active)),
       nextTerminal: () => setTabs((t) => cycleTab(t, 1)),
@@ -86,6 +121,9 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>
         onFocusChange={onFocusChange}
         onShortcut={onShortcut}
         onFound={(index, count) => id === tabs.active && setFound({ index, count })}
+        onOpenFile={onOpenFile}
+        onOutput={(data) => collector(id).write(data)}
+        onSubmit={() => collector(id).reset()}
       />
     </View>
   );
@@ -183,6 +221,12 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>
             </Pressable>
           ))}
         </ScrollView>
+        {problemCount > 0 && onShowProblems && (
+          <Pressable onPress={onShowProblems} accessibilityRole="button" accessibilityLabel={`${problemCount} problems`} style={styles.problems} testID="terminal-problems">
+            <Feather name="alert-triangle" size={14} color={colors.warning} />
+            <Text style={styles.problemCount}>{problemCount}</Text>
+          </Pressable>
+        )}
         <IconButton icon="search" label="Find in terminal output" onPress={() => (finding ? stopFinding() : setFinding(true))} testID="terminal-find" />
         <Segmented
           testID="runner"
@@ -226,6 +270,8 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>
 });
 
 const useStyles = makeStyles((colors) => ({
+  problems: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: spacing.sm, minHeight: 32, borderRadius: radius.md },
+  problemCount: { fontFamily: fonts.mono.regular, fontSize: fontSizes.sm, color: colors.foreground },
   panel: { flex: 1, borderTopWidth: borderWidth, borderColor: colors.border, backgroundColor: colors.background },
   header: {
     flexDirection: 'row',

@@ -1,7 +1,7 @@
 /**
  * @jest-environment node
  */
-import { createClient, describeError, extractCode, runTask } from './assistant';
+import { createClient, describeError, extractCode, lastErrorLine, runTask } from './assistant';
 
 function fakeAnthropic(reply: (body: any) => { status?: number; body: unknown }) {
   const calls: { url: string; headers: Headers; body: any }[] = [];
@@ -47,6 +47,23 @@ describe('AI assistant', () => {
     expect(answer.code).toBeNull();
     expect(calls[0].body.fallbacks).toBeUndefined();
     expect(calls[0].headers.get('anthropic-beta') ?? '').not.toContain('server-side-fallback');
+  });
+
+  it('explains an error from program output, with the tail of the output and a fix', async () => {
+    const { client, calls } = fakeAnthropic(() => ({ body: message('`a - b` subtracts.\n\n```js\nexport const sum = (a, b) => a + b;\n```') }));
+    const output = `${'noise\n'.repeat(3000)}AssertionError: expected 3, got -1\n    at test (src/sum.test.js:4:3)`;
+    const answer = await runTask(client, 'claude-opus-5-5', { kind: 'error', output }, file);
+    const sent: string = calls[0].body.messages[0].content;
+    expect(sent).toContain('<file path="src/sum.js">');
+    expect(sent).toContain('AssertionError: expected 3, got -1');
+    expect(sent.length).toBeLessThan(7500);
+    expect(answer.code).toBe('export const sum = (a, b) => a + b;');
+  });
+
+  it('picks the line that names the error, not a stack frame', () => {
+    expect(lastErrorLine('$ node app.js\nTypeError: x.map is not a function\n    at main (/p/app.js:3:5)\n')).toBe('TypeError: x.map is not a function');
+    expect(lastErrorLine('Traceback (most recent call last):\n  File "a.py", line 1\nZeroDivisionError: division by zero')).toBe('ZeroDivisionError: division by zero');
+    expect(lastErrorLine('something odd happened')).toBe('something odd happened');
   });
 
   it('reports refusals and cut-off answers', async () => {

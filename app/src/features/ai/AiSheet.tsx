@@ -15,22 +15,24 @@ import { borderWidth, fonts, fontSizes, radius, spacing } from '../../theme/toke
 import { diffText } from '../../extensions/gitPro/diff';
 import { DiffView } from '../../extensions/gitPro/DiffView';
 import { markdownToHtml } from '../preview/render';
-import { AiAnswer, AiTask, createClient, describeError, MODELS, runTask } from './assistant';
+import { AiAnswer, AiTask, createClient, describeError, lastErrorLine, MODELS, runTask } from './assistant';
 import { getApiKey, useAiSettings } from './settings';
 
-export type AiMode = 'explain' | 'fix' | 'ask';
+export type AiMode = 'explain' | 'fix' | 'ask' | 'error';
 
 interface AiSheetProps {
   // Open with this mode; null closes the sheet.
   mode: AiMode | null;
   project: string;
   path: string | null;
+  // Program output with an error, for the Error tab ("Explain the last error").
+  errorOutput?: string | null;
   onClose(): void;
 }
 
 // Explain, fix or change the open file with Claude. Changes are
 // shown as a diff and applied to the editor, unsaved, so Undo still works.
-export function AiSheet({ mode, project, path, onClose }: AiSheetProps) {
+export function AiSheet({ mode, project, path, errorOutput, onClose }: AiSheetProps) {
   const styles = useStyles();
   const colors = useColors();
   const model = useAiSettings((s) => s.model);
@@ -60,7 +62,7 @@ export function AiSheet({ mode, project, path, onClose }: AiSheetProps) {
       if (!key) throw new Error('Add your Anthropic API key in Settings, AI assistant.');
       await buffersStore.getState().load(project, path);
       const original = buffersStore.getState().buffers[bufferKey(project, path)]?.content ?? '';
-      const task: AiTask = tab === 'ask' ? { kind: 'ask', prompt: prompt.trim() } : { kind: tab };
+      const task: AiTask = tab === 'ask' ? { kind: 'ask', prompt: prompt.trim() } : tab === 'error' ? { kind: 'error', output: errorOutput ?? '' } : { kind: tab };
       const result = await runTask(createClient(key), model, task, { path, content: original });
       setAnswer({ original, result });
       setView(result.code !== null ? 'changes' : 'answer');
@@ -98,9 +100,15 @@ export function AiSheet({ mode, project, path, onClose }: AiSheetProps) {
           { value: 'explain', label: 'Explain' },
           { value: 'fix', label: 'Fix' },
           { value: 'ask', label: 'Ask' },
+          ...(errorOutput ? [{ value: 'error' as const, label: 'Error' }] : []),
         ]}
         testID="ai-mode"
       />
+      {tab === 'error' && errorOutput && (
+        <Text variant="mono" numberOfLines={4} style={styles.errorLine} testID="ai-error-output">
+          {lastErrorLine(errorOutput)}
+        </Text>
+      )}
       {tab === 'ask' && (
         <TextInput
           value={prompt}
@@ -121,7 +129,7 @@ export function AiSheet({ mode, project, path, onClose }: AiSheetProps) {
         </View>
       )}
       <Button
-        title={busy ? 'Asking Claude…' : tab === 'explain' ? 'Explain this file' : tab === 'fix' ? 'Find and fix bugs' : 'Ask'}
+        title={busy ? 'Asking Claude…' : tab === 'explain' ? 'Explain this file' : tab === 'fix' ? 'Find and fix bugs' : tab === 'error' ? 'Explain this error' : 'Ask'}
         icon="cpu"
         onPress={run}
         disabled={busy || !path || hasKey === false || (tab === 'ask' && !prompt.trim())}
@@ -167,6 +175,7 @@ export function AiSheet({ mode, project, path, onClose }: AiSheetProps) {
 }
 
 const useStyles = makeStyles((colors) => ({
+  errorLine: { fontSize: fontSizes.xs + 1, color: colors.destructive, backgroundColor: colors.background, borderRadius: radius.sm, padding: spacing.sm },
   flex: { flex: 1 },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   prompt: {

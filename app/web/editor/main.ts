@@ -123,6 +123,7 @@ const services: ServiceHost = {
     if (!items.length && !before.length) return;
     serviceDiagnostics.set(path, items);
     showDiagnostics(path);
+    post({ type: 'serviceDiagnostics', path, items });
   },
 };
 const breakpointsByPath = new Map<string, number[]>();

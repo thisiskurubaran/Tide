@@ -12,7 +12,10 @@ export const MODELS: { id: AiModel; label: string; detail: string }[] = [
 ];
 export const DEFAULT_MODEL: AiModel = 'claude-opus-5-5';
 
-export type AiTask = { kind: 'explain' } | { kind: 'fix' } | { kind: 'ask'; prompt: string };
+export type AiTask = { kind: 'explain' } | { kind: 'fix' } | { kind: 'ask'; prompt: string } | { kind: 'error'; output: string };
+
+// Enough of a program's output to show the error and what led to it.
+export const MAX_OUTPUT_CHARS = 6000;
 
 export interface AiFile {
   path: string;
@@ -42,7 +45,9 @@ function prompt(task: AiTask, file: AiFile): string {
       ? `Explain what ${file.selection ? 'the selected code' : 'this file'} does and how it works, for someone about to change it.`
       : task.kind === 'fix'
         ? `Find bugs in ${file.selection ? 'the selected code' : 'this file'} and fix them. If there's nothing to fix, say so and don't rewrite the file.`
-        : task.prompt;
+        : task.kind === 'error'
+          ? `Running the project printed this error:\n\n<output>\n${task.output.slice(-MAX_OUTPUT_CHARS)}\n</output>\n\nExplain in plain words what went wrong and why, pointing at the line in this file that causes it. If the file needs a change, give the fix as the complete updated file. If the cause is elsewhere (another file, a missing package, the environment), say what to do instead and don't rewrite the file.`
+          : task.prompt;
   return `<file path="${file.path}">\n${file.content}\n</file>${focus}\n\n${ask}`;
 }
 
@@ -93,4 +98,11 @@ export async function runTask(client: Anthropic, model: AiModel, task: AiTask, f
   const truncated = message.stop_reason === 'max_tokens' ? '\n\n_The answer was cut off at the length limit._' : '';
   // A cut-off answer's code block may be incomplete, so it isn't offered to apply.
   return { text: text + truncated, code: task.kind === 'explain' || truncated ? null : extractCode(text) };
+}
+
+// The line that names the error, for showing above the button.
+export function lastErrorLine(output: string): string {
+  const lines = output.trimEnd().split('\n');
+  const named = [...lines].reverse().find((l) => /\b\w*(Error|Exception)\b|error\b|failed/i.test(l) && !/^\s+at /.test(l));
+  return (named ?? lines[lines.length - 1] ?? '').trim();
 }

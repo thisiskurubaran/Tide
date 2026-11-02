@@ -8,6 +8,7 @@ import { Terminal } from '@xterm/xterm';
 import fontRegular from '../../assets/fonts/JetBrainsMono-Regular.ttf';
 import { shortcutFor } from '../../src/features/project/shortcuts';
 import { FromTerminal, parseToTerminal, ToTerminal } from '../../src/features/terminal/bridge';
+import { findFileRefs } from '../../src/features/terminal/fileRefs';
 import { controlChar } from '../../src/features/terminal/keys';
 import { pinchToZoom } from '../pinch';
 
@@ -42,6 +43,23 @@ const term = new Terminal({
 const fit = new FitAddon();
 term.loadAddon(fit);
 term.loadAddon(new WebLinksAddon((_event, url) => post({ type: 'link', url })));
+// file:line references (stack traces, compiler and test output) open in the editor.
+term.registerLinkProvider({
+  provideLinks(y, callback) {
+    const text = term.buffer.active.getLine(y - 1)?.translateToString(true) ?? '';
+    const refs = findFileRefs(text);
+    callback(
+      refs.length
+        ? refs.map((r) => ({
+            range: { start: { x: r.start + 1, y }, end: { x: r.end, y } },
+            text: text.slice(r.start, r.end),
+            decorations: { underline: true, pointerCursor: true },
+            activate: () => post({ type: 'openFile', path: r.path, line: r.line, ...(r.column ? { column: r.column } : {}) }),
+          }))
+        : undefined,
+    );
+  },
+});
 const search = new SearchAddon();
 term.loadAddon(search);
 search.onDidChangeResults(({ resultIndex, resultCount }) => post({ type: 'found', index: resultIndex, count: resultCount }));

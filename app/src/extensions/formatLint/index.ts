@@ -6,7 +6,6 @@ import { localRunner } from '../../runtime';
 import { pythonRuntime } from '../../runtime/python';
 import { buffersStore } from '../../state';
 import { diagnosticsStore } from '../diagnostics';
-import { problemsCommand, problemsPanel } from '../ProblemsPanel';
 import { createPythonTools } from '../pythonTools';
 import { createService } from '../services';
 import { extensionsStore } from '../state';
@@ -69,9 +68,7 @@ export const formatLintExtension: TideExtension = {
       icon: 'save',
       run: () => extensionsStore.getState().setPref('formatOnSave', !extensionsStore.getState().prefs.formatOnSave),
     },
-    problemsCommand(ctx),
   ],
-  panels: [problemsPanel],
   async beforeSave(ctx, path, content) {
     if (!extensionsStore.getState().prefs.formatOnSave || !FORMATTABLE.test(path)) return null;
     return formatText(ctx.project, path, content);

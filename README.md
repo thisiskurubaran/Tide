@@ -71,7 +71,7 @@ On the device, projects are stored under `Documents/projects/<name>`, and app st
 }
 ```
 
-⌘R runs the configuration picked last ("Run configuration: …" in the palette), or the default. Tasks type their command into the terminal; `local` and `remote` replace `command` for that terminal mode, and `newTerminal` opens a terminal tab for it. In Remote mode, `package.json` scripts are listed as tasks too.
+⌘R runs the configuration picked last ("Run configuration: …" in the palette), or the default. Tasks type their command into the terminal; `local` and `remote` replace `command` for that terminal mode, and `newTerminal` opens a terminal tab for it. `package.json` scripts are listed as tasks too, in both modes. The Local terminal runs `npm run`, `npm test`, `npm start` and `npx` itself: scripts made of commands it has (node, python, the built-ins, and package binaries from `node_modules`, found through their `bin` field), joined with `&&` or `;`, with `FOO=bar` prefixes and pre/post scripts. Pipes, `||` and command substitution need the Remote terminal.
 
 On macOS, `npm install` downloads the CPython iOS XCframework (about 86 MB) into `app/modules/python-runtime/ios/Python.xcframework`. It is checksum-verified and not committed.
 
@@ -131,6 +131,10 @@ Python scripts run in the embedded CPython 3.15 (Chaquopy on Android), each on i
 The search icon in a project searches every file (skipping `node_modules`, `.git`, `.pylibs` and binary files), and tapping a result opens the file at that line. The command icon opens the command palette: delete the `>` to switch to quick open, which matches file paths as you type. Go to line is in the palette.
 
 On an iPad, or any screen at least 768 points wide, the file tree stays open on the left, and the app rotates to landscape. With a hardware keyboard, the editor and terminal pass these shortcuts to the app: ⌘P quick open, ⇧⌘P command palette, ⇧⌘F search in project, ⌘L go to line, ⌘J show or hide the terminal, ⌘S save. They only work while the editor or the terminal has focus. In the iOS Simulator, turn on I/O, Keyboard, Send Keyboard Shortcuts to Device; even then the Simulator keeps ⌘S (save screenshot) and ⌘L (lock) for itself.
+
+## Problems
+
+The Problems panel (palette: Show problems, or the ⚠ count in the terminal bar) lists errors and warnings from three places: the editor's own CSS/HTML/JSON services, the extensions (ESLint, pyflakes, TypeScript), and program output. Output goes through matchers (`src/features/problems/matchers.ts`) for tsc, ESLint (stylish and compact), pytest, Python tracebacks, Node errors and the `path:line:col: error:` form compilers print; each terminal replaces its own set when a new command starts. Paths are mapped to project files by `src/features/terminal/fileRefs.ts`, which also underlines `file:line[:col]` references in the terminal so a tap opens the file there. "Explain the last error with AI" sends the end of the terminal's output and the file it points at to the AI assistant.
 
 ## Settings
 

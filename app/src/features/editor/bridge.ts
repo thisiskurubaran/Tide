@@ -133,7 +133,9 @@ export type FromEditor =
   // The cursor moved; commands like rename act on it.
   | { type: 'cursor'; path: string; offset: number }
   // Breakpoints in a file after a gutter tap, or after edits moved them. 1-based.
-  | { type: 'breakpointsChanged'; path: string; lines: number[] };
+  | { type: 'breakpointsChanged'; path: string; lines: number[] }
+  // What the built-in CSS/HTML/JSON services found in a file, for the Problems panel.
+  | { type: 'serviceDiagnostics'; path: string; items: EditorDiagnostic[] };
 
 const EXTENSIONS: Record<string, Language> = {
   js: 'javascript',
@@ -195,6 +197,7 @@ const TO_EDITOR = new Set<ToEditor['type']>([
 ]);
 const FROM_EDITOR = new Set<FromEditor['type']>([
   'ready',
+  'serviceDiagnostics',
   'change',
   'save',
   'focus',

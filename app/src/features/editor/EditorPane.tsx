@@ -6,7 +6,9 @@ import * as Clipboard from 'expo-clipboard';
 import { Button } from '../../components/Button';
 import { Text } from '../../components/Text';
 import { breakpointsStore, fileBreakpoints, useBreakpoints } from '../../extensions/debugger/breakpoints';
-import { fileDiagnostics, useDiagnostics } from '../../extensions/diagnostics';
+import { useShallow } from 'zustand/react/shallow';
+
+import { diagnosticsStore, EDITOR_SOURCE, fileDiagnostics, lineStarts, positionAt, useDiagnostics } from '../../extensions/diagnostics';
 import { useEditorTheme } from '../../extensions/themes';
 import { buffersStore, settingsStore, useBuffers, useSettings, workspace } from '../../state';
 import { bufferKey } from '../../state/buffers';
@@ -63,7 +65,8 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
   const emmet = useSettings((s) => s.emmet);
   const snippets = useSettings((s) => s.snippets);
   const bufferContent = useBuffers((s) => (path ? s.buffers[bufferKey(project, path)]?.content : undefined));
-  const diagnostics = useDiagnostics((s) => (path ? fileDiagnostics(s, project, path) : null));
+  // fileDiagnostics builds a new array; compare its items so a re-render isn't a new value every time.
+  const diagnostics = useDiagnostics(useShallow((s) => (path ? fileDiagnostics(s, project, path, EDITOR_SOURCE) : null)));
   const breakpoints = useBreakpoints((s) => (path ? fileBreakpoints(s, project, path) : null));
   const paused = useBreakpoints((s) => (s.paused?.project === project ? s.paused : null));
   const hostRef = useRef(host);
@@ -237,6 +240,18 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
       case 'breakpointsChanged':
         breakpointsStore.getState().set(project, msg.path, msg.lines);
         return;
+      case 'serviceDiagnostics': {
+        // Lines and columns for the Problems panel, from the text they were found in.
+        const text = buffersStore.getState().buffers[bufferKey(project, msg.path)]?.content ?? '';
+        const starts = lineStarts(text);
+        diagnosticsStore.getState().set(
+          project,
+          msg.path,
+          EDITOR_SOURCE,
+          msg.items.map((d) => ({ ...d, ...positionAt(starts, d.from) })),
+        );
+        return;
+      }
       case 'focus':
         onFocusChange(msg.focused);
         return;

@@ -10,6 +10,7 @@ import type { ShellFs } from './shellFs';
 import { currentWord, escapeWord, ParseError, tokenize } from './tokenize';
 import { DEFAULT_CONFIG, parseTasks } from '../../project/tasks';
 import { dotCommand, formatResult, isComplete, runSql, SqliteHost, SqliteOutput } from './sqlite';
+import { findPackage, lifecycle, resolveBin, ScriptError, scriptsOf, splitScript, takeEnv } from './npmRun';
 
 export interface ShellOptions {
   project: string;
@@ -82,6 +83,10 @@ export class Shell {
   // A built-in that reads its own lines (the sqlite> prompt) while it runs.
   private session: LineEditor | null = null;
   private busy = false;
+  // Called with each program's exit code (null when it was stopped), for npm run.
+  private exitWaiters: ((code: number | null) => void)[] = [];
+  // Variables from an npm script's FOO=bar prefix, for the program it starts.
+  private stepEnv: Record<string, string> = {};
   // Keys typed while a command is still finishing; replayed at the next prompt, like a real shell.
   private typeahead = '';
   private commands: Record<string, Command>;
@@ -114,6 +119,7 @@ export class Shell {
   dispose() {
     if (this.running) this.opts.runner.send({ type: 'kill', id: this.running.id });
     this.running = null;
+    this.settleWaiters(null);
   }
 
   resize(cols: number) {
@@ -379,7 +385,8 @@ export class Shell {
       ruby: (args) => this.runProgram('ruby', args),
       php: (args) => this.runProgram('php', args),
       // Built into the Node supervisor; resolves packages from the registry without running scripts.
-      npm: (args) => this.startRun('node', 'tide:npm', args, this.cwd),
+      npm: (args, io) => this.npm(args, io),
+      npx: (args, io) => this.npx(args, io),
       // pip runs in the Node supervisor next to npm, sharing its download and archive code.
       pip: (args) => this.startRun('node', 'tide:pip', args, this.cwd),
       pip3: (args) => this.startRun('node', 'tide:pip', args, this.cwd),
@@ -490,9 +497,131 @@ export class Shell {
     if (!names.length) io.out('No variables yet. Add them in a .env file, or from the command palette: Environment variables.\n');
   }
 
+  private settleWaiters(code: number | null) {
+    const waiters = this.exitWaiters;
+    this.exitWaiters = [];
+    for (const w of waiters) w(code);
+  }
+
+  // The exit code of the program a command started, or 0 when it started none.
+  private waitForRun(): Promise<number | null> {
+    if (!this.running) return Promise.resolve(0);
+    return new Promise((resolve) => this.exitWaiters.push(resolve));
+  }
+
+  // npm run / test / start run package.json scripts here; everything else
+  // (install, uninstall, ls…) goes to the npm built into the Node supervisor.
+  private async npm(args: string[], io: Io) {
+    const [sub, ...rest] = args;
+    const extra = (list: string[]) => (list[0] === '--' ? list.slice(1) : list);
+    if (sub === 'run' || sub === 'run-script' || sub === 'rum' || sub === 'urn') return this.runScript(rest[0], extra(rest.slice(1)), io);
+    if (sub === 'test' || sub === 't' || sub === 'tst') return this.runScript('test', extra(rest), io);
+    if (sub === 'start' || sub === 'stop' || sub === 'restart') return this.runScript(sub, extra(rest), io);
+    return this.startRun('node', 'tide:npm', args, this.cwd);
+  }
+
+  private async npx(args: string[], io: Io) {
+    const [bin, ...rest] = args;
+    if (!bin) throw new CommandError('usage: npx <command> [args]');
+    const pkg = await findPackage(this.opts.fs, this.cwd);
+    const path = await resolveBin(this.opts.fs, pkg?.dir ?? '', bin);
+    if (!path) throw new CommandError(`${bin} isn't installed in node_modules. Install it with npm install ${bin}; Local mode doesn't download packages on the fly.`);
+    io.out('');
+    await this.startRun('node', path, rest, this.cwd);
+  }
+
+  private async runScript(name: string | undefined, extra: string[], io: Io) {
+    let pkg;
+    try {
+      pkg = await findPackage(this.opts.fs, this.cwd);
+    } catch (e) {
+      throw new CommandError(errorMessage(e));
+    }
+    if (!pkg) throw new CommandError('no package.json here or in a parent folder');
+    const scripts = scriptsOf(pkg.json);
+    if (!name) {
+      const names = Object.keys(scripts);
+      io.out(names.length ? names.map((n) => `  ${n}\n    ${ansi.dim}${scripts[n]}${ansi.reset}\n`).join('') : 'This package.json has no scripts.\n');
+      return;
+    }
+    let plan = lifecycle(scripts, name, extra);
+    // Like npm: start falls back to node server.js.
+    if (!plan.length && name === 'start' && (await this.opts.fs.stat(joinPath(pkg.dir, 'server.js'))) === 'file') plan = [{ name, script: 'node server.js' }];
+    if (!plan.length) throw new CommandError(`missing script: "${name}". Available: ${Object.keys(scripts).join(', ') || 'none'}`);
+    const cwd = this.cwd;
+    this.cwd = pkg.dir;
+    try {
+      for (const step of plan) {
+        io.out(`${ansi.dim}> ${step.name}\n> ${step.script}${ansi.reset}\n\n`);
+        const code = await this.runScriptLine(step.script, pkg.dir, io);
+        if (code === null) return;
+        if (code !== 0) {
+          io.err(`npm run ${step.name} failed with exit code ${code}\n`);
+          return;
+        }
+      }
+    } finally {
+      this.cwd = cwd;
+    }
+  }
+
+  // One script: commands joined with && and ;. Returns its exit code, or null
+  // when a program was stopped (Ctrl-C), which ends the whole run.
+  private async runScriptLine(script: string, dir: string, io: Io): Promise<number | null> {
+    let steps;
+    try {
+      steps = splitScript(script);
+    } catch (e) {
+      io.err(`${errorMessage(e)}\n`);
+      return 1;
+    }
+    let last = 0;
+    for (const step of steps) {
+      if (step.ifOk && last !== 0) continue;
+      const code = await this.runScriptStep(step.line, dir, io);
+      if (code === null) return null;
+      last = code;
+    }
+    return last;
+  }
+
+  private async runScriptStep(line: string, dir: string, io: Io): Promise<number | null> {
+    let words: string[];
+    try {
+      const parsed = tokenize(line);
+      if (parsed.redirect) throw new ScriptError(`"${line}": redirects in scripts need the Remote terminal`);
+      words = parsed.args;
+    } catch (e) {
+      io.err(`${errorMessage(e)}\n`);
+      return 1;
+    }
+    const { env, rest } = takeEnv(words);
+    const [name, ...args] = rest;
+    if (!name) return 0;
+    this.stepEnv = env;
+    try {
+      const command = this.commands[name];
+      if (command) await command(args, io);
+      else {
+        const bin = await resolveBin(this.opts.fs, dir, name);
+        if (!bin) {
+          io.err(`${name}: not available in Local mode (not a Tide command or a package in node_modules). Run this script in the Remote terminal.\n`);
+          return 127;
+        }
+        await this.startRun('node', bin, args, this.cwd);
+      }
+      return await this.waitForRun();
+    } catch (e) {
+      io.err(`${name}: ${errorMessage(e)}\n`);
+      return 1;
+    } finally {
+      this.stepEnv = {};
+    }
+  }
+
   private async startRun(runtime: Runtime, entry: string, args: string[], cwd: string, toolEnv?: Record<string, string>) {
     const projectEnv = (await this.opts.projectEnv?.().catch(() => null))?.values ?? {};
-    const merged = { ...projectEnv, ...toolEnv };
+    const merged = { ...projectEnv, ...this.stepEnv, ...toolEnv };
     const env = Object.keys(merged).length ? merged : undefined;
     const id = this.nextId();
     const stdin = new LineEditor({
@@ -528,6 +657,7 @@ export class Shell {
         this.running.stdin.stop();
         this.opts.onRunExit?.(this.running.entry, this.running.args, msg.code ?? 1);
         this.running = null;
+        this.settleWaiters(msg.signal ? null : (msg.code ?? 1));
         // Programs can create or delete files (npm install, scripts writing output).
         this.opts.fs.refresh().catch(() => undefined);
         if (msg.code !== 0 || msg.signal) {

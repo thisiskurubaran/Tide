@@ -24,7 +24,12 @@ export interface TerminalHandle {
   blur(): void;
   find(query: string, backwards?: boolean, caseSensitive?: boolean): void;
   clearFind(): void;
+  // The last few thousand characters of output, without colors.
+  recentOutput(): string;
 }
+
+const RECENT_CHARS = 8000;
+const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '');
 
 interface TerminalPaneProps {
   project: string;
@@ -34,13 +39,18 @@ interface TerminalPaneProps {
   createBackend?: (write: (data: string) => void) => TerminalBackend;
   // Results of find(): the active match (-1 when unknown) and how many there are.
   onFound?(index: number, count: number): void;
+  // A file:line reference in the output was tapped; the path is as printed.
+  onOpenFile?(path: string, line: number, column?: number): void;
+  // Everything the terminal prints, and each Enter typed into it (Problems use both).
+  onOutput?(data: string): void;
+  onSubmit?(): void;
 }
 
 // Output from fast programs arrives in many small chunks; batching them keeps
 // the number of injectJavaScript calls to roughly one per frame.
 const FLUSH_MS = 16;
 
-export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(function TerminalPane({ project, onFocusChange, onShortcut, createBackend, onFound }, ref) {
+export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(function TerminalPane({ project, onFocusChange, onShortcut, createBackend, onFound, onOpenFile, onOutput, onSubmit }, ref) {
   const styles = useStyles();
   const webview = useRef<WebView<object>>(null);
   const ready = useRef(false);
@@ -67,8 +77,16 @@ export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(functi
     send({ type: 'write', data });
   }, [send]);
 
+  const recent = useRef('');
+  const outputRef = useRef(onOutput);
+  outputRef.current = onOutput;
+  const submitRef = useRef(onSubmit);
+  submitRef.current = onSubmit;
   const write = useCallback(
     (data: string) => {
+      const plain = stripAnsi(data);
+      recent.current = (recent.current + plain).slice(-RECENT_CHARS);
+      outputRef.current?.(plain);
       pending.current += data;
       if (timer.current === null) timer.current = setTimeout(flush, FLUSH_MS);
     },
@@ -110,6 +128,7 @@ export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(functi
       blur: () => send({ type: 'blur' }),
       find: (query, backwards = false, caseSensitive = false) => send({ type: 'find', query, backwards, caseSensitive }),
       clearFind: () => send({ type: 'clearFind' }),
+      recentOutput: () => recent.current,
     }),
     [send],
   );
@@ -131,6 +150,7 @@ export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(functi
         flush();
         return;
       case 'input':
+        if (msg.data.includes('\r')) submitRef.current?.();
         shell.current?.input(msg.data);
         return;
       case 'resize':
@@ -141,6 +161,9 @@ export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(functi
         return;
       case 'link':
         Linking.openURL(msg.url).catch(() => undefined);
+        return;
+      case 'openFile':
+        onOpenFile?.(msg.path, msg.line, msg.column);
         return;
       case 'shortcut':
         onShortcut(msg.id);
