@@ -22,6 +22,8 @@ import { makeStyles, useColorScheme } from '../../theme/theme';
 export interface TerminalHandle {
   input(data: string): void;
   blur(): void;
+  find(query: string, backwards?: boolean, caseSensitive?: boolean): void;
+  clearFind(): void;
 }
 
 interface TerminalPaneProps {
@@ -30,13 +32,15 @@ interface TerminalPaneProps {
   onShortcut(id: Shortcut): void;
   // Remote mode passes its PTY; read once, when the pane mounts.
   createBackend?: (write: (data: string) => void) => TerminalBackend;
+  // Results of find(): the active match (-1 when unknown) and how many there are.
+  onFound?(index: number, count: number): void;
 }
 
 // Output from fast programs arrives in many small chunks; batching them keeps
 // the number of injectJavaScript calls to roughly one per frame.
 const FLUSH_MS = 16;
 
-export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(function TerminalPane({ project, onFocusChange, onShortcut, createBackend }, ref) {
+export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(function TerminalPane({ project, onFocusChange, onShortcut, createBackend, onFound }, ref) {
   const styles = useStyles();
   const webview = useRef<WebView<object>>(null);
   const ready = useRef(false);
@@ -104,6 +108,8 @@ export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(functi
     () => ({
       input: (data) => shell.current?.input(data),
       blur: () => send({ type: 'blur' }),
+      find: (query, backwards = false, caseSensitive = false) => send({ type: 'find', query, backwards, caseSensitive }),
+      clearFind: () => send({ type: 'clearFind' }),
     }),
     [send],
   );
@@ -141,6 +147,9 @@ export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(functi
         return;
       case 'zoom':
         settingsStore.getState().setTerminalFontSize(msg.fontSize);
+        return;
+      case 'found':
+        onFound?.(msg.index, msg.count);
         return;
     }
   }

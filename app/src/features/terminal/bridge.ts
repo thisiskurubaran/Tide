@@ -8,7 +8,10 @@ export type ToTerminal =
   | { type: 'write'; data: string }
   | { type: 'setTheme'; theme: TerminalTheme; fontSize: number }
   | { type: 'focus' }
-  | { type: 'blur' };
+  | { type: 'blur' }
+  // Finds text in the output and scrollback, from the current match.
+  | { type: 'find'; query: string; backwards: boolean; caseSensitive: boolean }
+  | { type: 'clearFind' };
 
 export type FromTerminal =
   | { type: 'ready'; cols: number; rows: number }
@@ -18,10 +21,12 @@ export type FromTerminal =
   | { type: 'link'; url: string }
   | { type: 'shortcut'; id: Shortcut }
   // A pinch changed the font size.
-  | { type: 'zoom'; fontSize: number };
+  | { type: 'zoom'; fontSize: number }
+  // Search results: `index` is -1 when there are too many to number.
+  | { type: 'found'; index: number; count: number };
 
-const TO = new Set<ToTerminal['type']>(['write', 'setTheme', 'focus', 'blur']);
-const FROM = new Set<FromTerminal['type']>(['ready', 'input', 'resize', 'focus', 'link', 'shortcut', 'zoom']);
+const TO = new Set<ToTerminal['type']>(['write', 'setTheme', 'focus', 'blur', 'find', 'clearFind']);
+const FROM = new Set<FromTerminal['type']>(['ready', 'input', 'resize', 'focus', 'link', 'shortcut', 'zoom', 'found']);
 
 function parse<T extends { type: string }>(raw: string, types: Set<string>): T | null {
   try {

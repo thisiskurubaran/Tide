@@ -31,7 +31,7 @@ export interface HttpResponse {
   truncated: boolean;
 }
 
-const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS', 'GRAPHQL'];
+const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS', 'GRAPHQL', 'WEBSOCKET'];
 const REQUEST_LINE = new RegExp(`^(${METHODS.join('|')})\\s+(\\S+)(?:\\s+HTTP/[\\d.]+)?\\s*$`, 'i');
 
 export function parseHttpFile(text: string): { requests: HttpRequest[]; variables: Record<string, string> } {
@@ -67,9 +67,10 @@ export function parseHttpFile(text: string): { requests: HttpRequest[]; variable
       if (m) {
         current = { name: name || `${m[1].toUpperCase()} ${m[2]}`, method: m[1].toUpperCase(), url: m[2], headers: [], body: '', line: i + 1 };
         name = '';
-      } else if (/^(https?:\/\/|\{\{)/.test(line.trim())) {
-        // A bare URL means GET.
-        current = { name: name || `GET ${line.trim()}`, method: 'GET', url: line.trim(), headers: [], body: '', line: i + 1 };
+      } else if (/^(https?:\/\/|wss?:\/\/|\{\{)/.test(line.trim())) {
+        // A bare URL means GET, or WEBSOCKET for ws:// and wss://.
+        const method = /^wss?:/i.test(line.trim()) ? 'WEBSOCKET' : 'GET';
+        current = { name: name || `${method} ${line.trim()}`, method, url: line.trim(), headers: [], body: '', line: i + 1 };
         name = '';
       }
       return;
@@ -118,6 +119,17 @@ export function resolveRequest(req: HttpRequest, variables: Record<string, strin
     headers: req.headers.map(([k, v]) => [k, resolve(v, variables)]),
     body: resolve(req.body, variables),
   };
+}
+
+// WebSocket requests, as JetBrains writes them: WEBSOCKET ws://host/path, and
+// in the body, messages to send on connecting, separated by lines of ===.
+export const isWebSocket = (req: HttpRequest) => req.method === 'WEBSOCKET' || /^wss?:\/\//i.test(req.url);
+
+export function webSocketMessages(body: string): string[] {
+  return body
+    .split(/^===\s*$/m)
+    .map((m) => m.trim())
+    .filter(Boolean);
 }
 
 // GraphQL, written either way the editors do: a GRAPHQL request line

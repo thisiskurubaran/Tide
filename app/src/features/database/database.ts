@@ -44,6 +44,50 @@ export async function tableColumns(db: Db, table: string): Promise<string[]> {
   return cols.map((c) => c.name);
 }
 
+export interface SchemaColumn {
+  name: string;
+  type: string;
+  nullable: boolean;
+  primary: boolean;
+  default: string | null;
+}
+
+export interface ForeignKey {
+  columns: string[];
+  table: string;
+  to: string[];
+}
+
+export interface SchemaTable {
+  name: string;
+  kind: 'table' | 'view';
+  columns: SchemaColumn[];
+  foreignKeys: ForeignKey[];
+}
+
+export async function sqliteSchema(db: Db): Promise<SchemaTable[]> {
+  const out: SchemaTable[] = [];
+  for (const t of await listTables(db)) {
+    const cols = await db.getAllAsync<{ name: string; type: string; notnull: number; dflt_value: string | null; pk: number }>(`PRAGMA table_info(${quoteIdent(t.name)})`);
+    const fks = await db.getAllAsync<{ id: number; seq: number; table: string; from: string; to: string | null }>(`PRAGMA foreign_key_list(${quoteIdent(t.name)})`).catch(() => []);
+    const byId = new Map<number, ForeignKey>();
+    for (const f of [...fks].sort((a, b) => a.id - b.id || a.seq - b.seq)) {
+      const fk = byId.get(f.id) ?? { columns: [], table: f.table, to: [] };
+      fk.columns.push(f.from);
+      // No column named means the other table's primary key.
+      fk.to.push(f.to ?? '');
+      byId.set(f.id, fk);
+    }
+    out.push({
+      name: t.name,
+      kind: t.kind,
+      columns: cols.map((c) => ({ name: c.name, type: c.type || 'ANY', nullable: !c.notnull && !c.pk, primary: c.pk > 0, default: c.dflt_value })),
+      foreignKeys: [...byId.values()],
+    });
+  }
+  return out;
+}
+
 // Each row's rowid rides along under this name, so a row can be edited or deleted.
 export const ROWID = '__tide_rowid__';
 

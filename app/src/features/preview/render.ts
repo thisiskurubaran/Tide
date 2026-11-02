@@ -2,10 +2,12 @@
 // WebView. The page runs no scripts; local images are inlined by the caller.
 import { marked } from 'marked';
 
-export type PreviewKind = 'markdown' | 'notebook' | 'json' | 'sqlite' | 'http';
+export type PreviewKind = 'markdown' | 'notebook' | 'json' | 'sqlite' | 'http' | 'openapi';
 
 export function previewKind(path: string): PreviewKind | null {
   if (/\.(md|markdown|mdx)$/i.test(path)) return 'markdown';
+  // API specs by their usual names: openapi.yaml, swagger.json, petstore.openapi.yml…
+  if (/(^|\/|\.)(openapi|swagger)[^/]*\.(ya?ml|json)$/i.test(path)) return 'openapi';
   if (/\.ipynb$/i.test(path)) return 'notebook';
   if (/\.(json|geojson|webmanifest)$/i.test(path)) return 'json';
   if (/\.(db|sqlite|sqlite3|db3)$/i.test(path)) return 'sqlite';
@@ -17,7 +19,7 @@ export function previewKind(path: string): PreviewKind | null {
 export const viewerOnly = (kind: PreviewKind | null) => kind === 'sqlite';
 
 // Files that open in their viewer first; the rest open as source.
-export const viewerFirst = (kind: PreviewKind | null) => kind === 'notebook' || kind === 'http' || viewerOnly(kind);
+export const viewerFirst = (kind: PreviewKind | null) => kind === 'notebook' || kind === 'http' || kind === 'openapi' || viewerOnly(kind);
 
 // Big documents are cut off after this many values, so the page stays responsive.
 const JSON_MAX_NODES = 5000;
@@ -60,7 +62,24 @@ export const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, 
 // Tracebacks carry terminal colors.
 const stripAnsi = (s: string) => s.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '');
 
-export const markdownToHtml = (source: string) => marked.parse(source, { async: false, gfm: true }) as string;
+// ```mermaid blocks become <pre class="mermaid">, which the preview draws as
+// diagrams (see mermaidScripts); elsewhere they stay code.
+export const markdownToHtml = (source: string) =>
+  (marked.parse(source, { async: false, gfm: true }) as string).replace(/<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g, '<pre class="mermaid">$1</pre>');
+
+export const hasMermaid = (html: string) => html.includes('<pre class="mermaid">');
+
+// The page runs only scripts carrying this page's nonce: Mermaid and the line
+// that starts it, never scripts written in the document.
+export interface PageScripts {
+  nonce: string;
+  scripts: string[];
+}
+
+export function mermaidScripts(library: string, dark: boolean, nonce: string): PageScripts {
+  const init = `mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: ${dark ? "'dark'" : "'default'"} }); mermaid.run({ querySelector: 'pre.mermaid' }).catch(function () {});`;
+  return { nonce, scripts: [library, init] };
+}
 
 type Multiline = string | string[];
 const text = (v: Multiline | undefined) => (Array.isArray(v) ? v.join('') : (v ?? ''));
@@ -131,10 +150,11 @@ export interface PreviewColors {
   error: string;
 }
 
-export function previewPage(body: string, c: PreviewColors, fontSize: number): string {
+export function previewPage(body: string, c: PreviewColors, fontSize: number, run?: PageScripts): string {
+  const scripts = run ? run.scripts.map((s) => `<script nonce="${run.nonce}">${s.replace(/<\/script/gi, '<\\/script')}</script>`).join('') : '';
   return `<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: https:; style-src 'unsafe-inline'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: https:; style-src 'unsafe-inline'; font-src data:${run ? `; script-src 'nonce-${run.nonce}'` : ''}">
 <style>
 body{margin:0;padding:16px 16px 48px;background:${c.background};color:${c.foreground};font:${fontSize}px/1.6 -apple-system,system-ui,sans-serif;word-wrap:break-word}
 a{color:${c.link}}
@@ -164,7 +184,8 @@ pre.out{background:none;border-left:3px solid ${c.border};border-radius:0}
 .j-key{color:${c.link}}
 .j-str{color:${c.foreground}}
 .j-num,.j-bool,.j-null,.j-meta{color:${c.muted}}
-</style></head><body>${body}</body></html>`;
+pre.mermaid{background:none;text-align:center}
+</style></head><body>${body}${scripts}</body></html>`;
 }
 
 // Relative image paths in the rendered HTML, resolved against the file's folder.

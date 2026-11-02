@@ -27,6 +27,15 @@ for (const [name, from] of Object.entries(binaries)) {
   console.log(`copied ${name} (${(fs.statSync(src).size / 1024 / 1024).toFixed(1)} MB)`);
 }
 
+// Mermaid, for diagrams in Markdown previews (5.5 MB). It ships as a file the
+// preview reads only when a document has a diagram, rather than in the JS bundle.
+const mermaid = path.join(root, 'node_modules', 'mermaid', 'dist', 'mermaid.min.js');
+if (fs.existsSync(mermaid)) {
+  fs.mkdirSync(path.join(root, 'assets', 'mermaid'), { recursive: true });
+  fs.copyFileSync(mermaid, path.join(root, 'assets', 'mermaid', 'mermaid.js.txt'));
+  console.log('copied mermaid.js.txt');
+} else console.warn('build-runtimes: mermaid is missing; run npm install');
+
 if (process.argv.includes('--page')) {
   const dir = path.join(root, 'web', 'runtimes');
   execFileSync(path.join(root, 'node_modules', '.bin', 'vite'), ['build', '--config', path.join(dir, 'vite.runtimes.mjs')], { cwd: root, stdio: 'inherit' });

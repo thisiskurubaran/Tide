@@ -1,6 +1,6 @@
 // Postgres and MySQL behind the database viewer. The SQL differs in quoting,
 // placeholders and where table details live; the rest is shared.
-import { parseValue, QueryResult, Row, ROWID, TableInfo, PAGE_SIZE } from '../database';
+import { ForeignKey, parseValue, QueryResult, Row, ROWID, SchemaTable, TableInfo, PAGE_SIZE } from '../database';
 import type { DbSource, Page } from '../source';
 import type { SqlClient, SqlResult } from './client';
 
@@ -136,6 +136,57 @@ export function remoteSource(client: SqlClient, kind: ServerKind): DbSource {
       const last = sql.split(';').filter((x) => x.trim()).pop() ?? '';
       if (r.rowCount !== null && (r.rowCount > 0 || /^\s*(insert|update|delete|replace|merge)\b/i.test(last))) return { kind: 'changes', changes: r.rowCount };
       return { kind: 'done' };
+    },
+
+    async schema(): Promise<SchemaTable[]> {
+      const tables = await this.listTables();
+      const display = (schema: string | null, name: string) => (pg && schema !== 'public' ? `${schema}.${name}` : name);
+      const out = new Map<string, SchemaTable>(tables.map((t) => [t.name, { name: t.name, kind: t.kind, columns: [], foreignKeys: [] }]));
+      const cols = pg
+        ? await client.query(
+            "SELECT table_schema, table_name, column_name, data_type, is_nullable, column_default FROM information_schema.columns WHERE table_schema NOT IN ('pg_catalog', 'information_schema') ORDER BY table_schema, table_name, ordinal_position",
+          )
+        : await client.query(
+            'SELECT NULL, TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT, COLUMN_KEY FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME, ORDINAL_POSITION',
+          );
+      const primary = new Set<string>();
+      if (pg) {
+        const pk = await client.query(
+          "SELECT n.nspname, c.relname, a.attname FROM pg_index i JOIN pg_class c ON c.oid = i.indrelid JOIN pg_namespace n ON n.oid = c.relnamespace JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey) WHERE i.indisprimary AND n.nspname NOT IN ('pg_catalog', 'information_schema')",
+        );
+        for (const [s, t, c] of pk.rows) primary.add(`${display(s, t!)}.${c}`);
+      }
+      for (const [s, t, c, type, nullable, def, key] of cols.rows) {
+        const table = out.get(display(s, t!));
+        if (!table) continue;
+        table.columns.push({ name: c!, type: type ?? '', nullable: nullable === 'YES', primary: pg ? primary.has(`${display(s, t!)}.${c}`) : key === 'PRI', default: def });
+      }
+      const fks = pg
+        ? await client.query(
+            `SELECT c.conname, sn.nspname, sr.relname, sa.attname, tn.nspname, tr.relname, ta.attname
+               FROM pg_constraint c
+               JOIN pg_class sr ON sr.oid = c.conrelid JOIN pg_namespace sn ON sn.oid = sr.relnamespace
+               JOIN pg_class tr ON tr.oid = c.confrelid JOIN pg_namespace tn ON tn.oid = tr.relnamespace
+               CROSS JOIN LATERAL unnest(c.conkey, c.confkey) WITH ORDINALITY AS k(src, dst, ord)
+               JOIN pg_attribute sa ON sa.attrelid = c.conrelid AND sa.attnum = k.src
+               JOIN pg_attribute ta ON ta.attrelid = c.confrelid AND ta.attnum = k.dst
+              WHERE c.contype = 'f' AND sn.nspname NOT IN ('pg_catalog', 'information_schema')
+              ORDER BY sn.nspname, sr.relname, c.conname, k.ord`,
+          )
+        : await client.query(
+            'SELECT CONSTRAINT_NAME, NULL, TABLE_NAME, COLUMN_NAME, NULL, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = DATABASE() AND REFERENCED_TABLE_NAME IS NOT NULL ORDER BY TABLE_NAME, CONSTRAINT_NAME, ORDINAL_POSITION',
+          );
+      const byName = new Map<string, { table: string; fk: ForeignKey }>();
+      for (const [name, s, t, c, ts, tt, tc] of fks.rows) {
+        const from = display(s, t!);
+        const key = `${from}:${name}`;
+        const entry = byName.get(key) ?? { table: from, fk: { columns: [], table: display(ts, tt!), to: [] } };
+        entry.fk.columns.push(c!);
+        entry.fk.to.push(tc!);
+        byName.set(key, entry);
+      }
+      for (const { table, fk } of byName.values()) out.get(table)?.foreignKeys.push(fk);
+      return [...out.values()];
     },
 
     close: () => client.close(),

@@ -47,6 +47,7 @@ import { PreviewPane } from '../preview/PreviewPane';
 import { previewKind, viewerFirst, viewerOnly } from '../preview/render';
 import { DatabasePane } from '../database/DatabasePane';
 import { HttpPane } from '../http/HttpPane';
+import { OpenApiPane } from '../openapi/OpenApiPane';
 import { HTTP_TEMPLATE } from '../http/http';
 import { requestSend } from '../http/pending';
 import { autoDeployer, deployStore } from '../deploy';
@@ -136,6 +137,8 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
       <DatabasePane project={project} path={path!} />
     ) : previewKind(path!) === 'http' ? (
       <HttpPane project={project} path={path!} />
+    ) : previewKind(path!) === 'openapi' ? (
+      <OpenApiPane project={project} path={path!} />
     ) : previewKind(path!) === 'notebook' ? (
       // Notebooks get a bar to run their Python cells (Tide Pro).
       <View style={StyleSheet.absoluteFill}>
@@ -343,6 +346,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     { id: 'deploy', title: 'Deploy…', icon: 'upload-cloud', run: () => router.push({ pathname: '/deploy', params: { project } }) },
     { id: 'env', title: 'Environment variables…', icon: 'key', run: () => router.push({ pathname: '/env', params: { project } }) },
     { id: 'databases', title: 'Databases…', icon: 'database', run: () => router.push('/databases') },
+    { id: 'tools', title: 'Developer tools (JSON, regex, Base64, JWT…)', icon: 'tool', run: () => router.push('/tools') },
     { id: 'hosts', title: 'GitLab and Bitbucket…', icon: 'gitlab', run: () => requirePro('git-hosts') && router.push('/hosts') },
     ...(current
       ? [
@@ -358,6 +362,19 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     ...(wide ? [{ id: 'split', title: splitOn ? 'Close the second editor' : 'Split editor', icon: 'columns' as const, hint: '⌘\\', run: toggleSplit }] : []),
     ...(canToggle(current)
       ? [{ id: 'preview', title: previewing(current) ? 'Show source' : 'Show preview', icon: 'eye' as const, hint: '⇧⌘V', run: togglePreview }]
+      : []),
+    ...(current && (previewKind(current) === 'markdown' || previewKind(current) === 'notebook')
+      ? [
+          {
+            id: 'export-pdf',
+            title: 'Export as PDF',
+            icon: 'file-text' as const,
+            run: () => {
+              const { exportPdf } = require('../preview/exportPdf') as typeof import('../preview/exportPdf');
+              exportPdf(project, current).catch((e: Error) => Alert.alert('Could not export the PDF', e.message));
+            },
+          },
+        ]
       : []),
     ...(current
       ? [

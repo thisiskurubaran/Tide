@@ -101,6 +101,20 @@ describe.each(servers)('%s', (kind, configText) => {
       expect(await src.run(`SELECT name FROM ${t} WHERE score = 20`)).toEqual({ kind: 'rows', columns: ['name'], rows: [{ name: 'Grace' }] });
       await expect(src.run('SELECT nope_column')).rejects.toThrow(/nope_column/);
 
+      // The schema, with a foreign key between two of the test's tables.
+      await src.run(`CREATE TABLE ${t}_orders (id INT PRIMARY KEY, owner INT, FOREIGN KEY (owner) REFERENCES ${t} (id))`);
+      const schema = await src.schema();
+      const main = schema.find((x) => x.name === t)!;
+      expect(main.columns.map((c) => [c.name, c.primary, c.nullable])).toEqual([
+        ['id', true, false],
+        ['name', false, true],
+        ['score', false, true],
+      ]);
+      expect(main.columns[1].type).toMatch(/varchar|character varying/i);
+      expect(schema.find((x) => x.name === `${t}_orders`)!.foreignKeys).toEqual([{ columns: ['owner'], table: t, to: ['id'] }]);
+      expect(schema.find((x) => x.name === `${t}_nokey`)!.columns.every((c) => !c.primary)).toBe(true);
+      await src.run(`DROP TABLE ${t}_orders`);
+
       if (kind === 'postgres') {
         // Tables outside public are listed and read with their schema.
         await src.run(`CREATE SCHEMA ${t}_s; CREATE TABLE ${t}_s.notes (id int PRIMARY KEY, body text); INSERT INTO ${t}_s.notes VALUES (1, 'hi'); CREATE VIEW ${t}_v AS SELECT 1 AS one`);

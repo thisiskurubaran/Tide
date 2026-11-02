@@ -1,7 +1,7 @@
 // What the database viewer needs from a database: a SQLite file in the project
 // or a Postgres / MySQL server. Rows that can be edited carry their key under
 // ROWID (SQLite's rowid, or a server table's primary key values).
-import { allRows, Db, deleteRow, insertRow, listTables, QueryResult, Row, ROWID, runSql, TableInfo, tablePage, updateCell } from './database';
+import { allRows, Db, deleteRow, insertRow, listTables, QueryResult, Row, ROWID, runSql, SchemaTable, sqliteSchema, TableInfo, tablePage, updateCell } from './database';
 
 export interface Page {
   columns: string[];
@@ -17,6 +17,8 @@ export interface DbSource {
   insertRow(table: string, values: Record<string, string>): Promise<void>;
   allRows(table: string): Promise<{ columns: string[]; rows: Row[] }>;
   run(sql: string): Promise<QueryResult>;
+  // Tables with their columns, keys and foreign keys (Tide Pro's schema view).
+  schema(): Promise<SchemaTable[]>;
   close(): Promise<void>;
   // Shown when a table can't be edited from the grid.
   readOnlyNote: string;
@@ -36,6 +38,7 @@ export function sqliteSource(db: Db): DbSource {
     },
     allRows: (table) => allRows(db, table),
     run: (sql) => runSql(db, sql),
+    schema: () => sqliteSchema(db),
     close: () => db.closeAsync(),
     readOnlyNote: 'Views and WITHOUT ROWID tables can be changed with SQL.',
     sqlNote: 'Changes are saved to the file.',

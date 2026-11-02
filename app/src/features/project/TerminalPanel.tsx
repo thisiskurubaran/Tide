@@ -1,14 +1,14 @@
 import Feather from '@expo/vector-icons/Feather';
 import { router } from 'expo-router';
 import { forwardRef, useImperativeHandle, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
 import { Button, IconButton } from '../../components/Button';
 import { Segmented } from '../../components/Segmented';
 import { Text } from '../../components/Text';
 import { useLocalPorts } from '../../runtime/ports';
 import { useRunner } from '../../state';
-import { borderWidth, radius, spacing } from '../../theme/tokens';
+import { borderWidth, fonts, fontSizes, radius, spacing } from '../../theme/tokens';
 import { connectSocket, nativeSocket, previewUrl } from '../remote/api';
 import { RemotePty } from '../remote/pty';
 import { useRemoteSession } from '../remote/useRemoteSession';
@@ -41,6 +41,20 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>
   const [tabs, setTabs] = useState(initialTabs);
   const localPorts = useLocalPorts(project);
   const panes = useRef(new Map<number, TerminalHandle>());
+  // Find in the active terminal's output.
+  const [finding, setFinding] = useState(false);
+  const [query, setQuery] = useState('');
+  const [found, setFound] = useState<{ index: number; count: number } | null>(null);
+  const find = (q: string, backwards = false) => {
+    setQuery(q);
+    panes.current.get(tabs.active)?.find(q, backwards);
+  };
+  const stopFinding = () => {
+    setFinding(false);
+    setFound(null);
+    setQuery('');
+    panes.current.forEach((p) => p.clearFind());
+  };
   // More than the free number of terminals is Pro.
   const newTerminal = () => (tabs.ids.length < FREE_LIMITS.terminals || requirePro('terminals')) && setTabs(addTab);
 
@@ -49,6 +63,11 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>
     () => ({
       input: (data) => panes.current.get(tabs.active)?.input(data),
       blur: () => panes.current.get(tabs.active)?.blur(),
+      find: (q, backwards) => {
+        setFinding(true);
+        find(q, backwards);
+      },
+      clearFind: stopFinding,
       newTerminal,
       closeTerminal: () => setTabs((t) => closeTab(t, t.active)),
       nextTerminal: () => setTabs((t) => cycleTab(t, 1)),
@@ -69,6 +88,7 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>
         project={project}
         onFocusChange={onFocusChange}
         onShortcut={onShortcut}
+        onFound={(index, count) => id === tabs.active && setFound({ index, count })}
       />
     </View>
   );
@@ -166,6 +186,7 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>
             </Pressable>
           ))}
         </ScrollView>
+        <IconButton icon="search" label="Find in terminal output" onPress={() => (finding ? stopFinding() : setFinding(true))} testID="terminal-find" />
         <Segmented
           testID="runner"
           value={mode}
@@ -176,6 +197,32 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>
           ]}
         />
       </View>
+      {finding && (
+        <View style={styles.findBar}>
+          <TextInput
+            value={query}
+            onChangeText={(q) => find(q)}
+            onSubmitEditing={() => find(query)}
+            placeholder="Find in output"
+            placeholderTextColor={colors.mutedForeground}
+            autoFocus
+            autoCapitalize="none"
+            autoCorrect={false}
+            spellCheck={false}
+            returnKeyType="search"
+            blurOnSubmit={false}
+            selectionColor={colors.brand}
+            style={styles.findInput}
+            testID="terminal-find-input"
+          />
+          <Text variant="muted" style={styles.findCount}>
+            {!query || !found ? '' : found.count === 0 ? 'None' : found.index >= 0 ? `${found.index + 1}/${found.count}` : `${found.count}+`}
+          </Text>
+          <IconButton icon="chevron-up" label="Previous match" onPress={() => find(query, true)} disabled={!query} testID="terminal-find-prev" />
+          <IconButton icon="chevron-down" label="Next match" onPress={() => find(query)} disabled={!query} testID="terminal-find-next" />
+          <IconButton icon="x" label="Close find" onPress={stopFinding} />
+        </View>
+      )}
       <View style={styles.body}>{body}</View>
     </View>
   );
@@ -194,6 +241,9 @@ const useStyles = makeStyles((colors) => ({
     backgroundColor: colors.card,
   },
   portsScroll: { flex: 1 },
+  findBar: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingHorizontal: spacing.md, borderBottomWidth: borderWidth, borderColor: colors.border, backgroundColor: colors.card },
+  findInput: { flex: 1, height: 40, color: colors.foreground, fontFamily: fonts.mono.regular, fontSize: fontSizes.sm },
+  findCount: { minWidth: 44, textAlign: 'right' },
   ports: { gap: spacing.xs, alignItems: 'center' },
   port: { paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: radius.pill, borderWidth, borderColor: colors.brand },
   portPressed: { backgroundColor: colors.secondary },

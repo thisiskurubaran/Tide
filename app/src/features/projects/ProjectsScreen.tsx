@@ -2,7 +2,7 @@ import Feather from '@expo/vector-icons/Feather';
 import * as Clipboard from 'expo-clipboard';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, FlatList, Image, Pressable, View } from 'react-native';
+import { Alert, FlatList, Image, Pressable, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ActionSheet } from '../../components/ActionSheet';
@@ -30,6 +30,15 @@ import { requirePro } from '../pro';
 const mark = require('../../../assets/icons/splash.png');
 
 export { projectHref } from './href';
+
+// Everything outside a project, under the title. As labeled chips: six icons don't fit beside it.
+const PLACES = [
+  { icon: 'github', label: 'GitHub', href: '/github', testID: 'open-github' },
+  { icon: 'server', label: 'SSH', href: '/ssh', testID: 'open-ssh' },
+  { icon: 'database', label: 'Databases', href: '/databases', testID: 'open-databases' },
+  { icon: 'tool', label: 'Tools', href: '/tools', testID: 'open-tools' },
+  { icon: 'package', label: 'Extensions', href: '/extensions', testID: 'open-extensions' },
+] as const;
 
 // Reopen the last project once per launch; after that the list is the home screen.
 let restoredLastProject = false;
@@ -77,12 +86,22 @@ export function ProjectsScreen() {
           Projects
         </Text>
         {__DEV__ && <IconButton icon="cpu" label="Runtime spike" onPress={() => router.push('/debug')} />}
-        <IconButton icon="github" label="GitHub" onPress={() => router.push('/github')} testID="open-github" />
-        <IconButton icon="server" label="SSH servers" onPress={() => router.push('/ssh')} testID="open-ssh" />
-        <IconButton icon="database" label="Databases" onPress={() => router.push('/databases')} testID="open-databases" />
-        <IconButton icon="package" label="Extensions" onPress={() => router.push('/extensions')} testID="open-extensions" />
         <IconButton icon="settings" label="Settings" onPress={() => router.push('/settings')} testID="open-settings" />
       </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.placesBar} contentContainerStyle={styles.places}>
+        {PLACES.map((p) => (
+          <Pressable
+            key={p.href}
+            onPress={() => router.push(p.href)}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.place, pressed && { backgroundColor: colors.secondary }]}
+            testID={p.testID}
+          >
+            <Feather name={p.icon} size={15} color={colors.foreground} />
+            <Text variant="label">{p.label}</Text>
+          </Pressable>
+        ))}
+      </ScrollView>
 
       <FlatList
         data={projects}
@@ -207,10 +226,23 @@ const useStyles = makeStyles((colors) => ({
     alignItems: 'center',
     gap: spacing.sm + 2,
     paddingHorizontal: spacing.md,
-    paddingBottom: spacing.md,
+    paddingBottom: spacing.sm + 4,
   },
   mark: { width: 32, height: 32 },
   headerTitle: { flex: 1 },
+  placesBar: { flexGrow: 0, marginBottom: spacing.md },
+  places: { gap: spacing.sm, paddingHorizontal: spacing.md },
+  place: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs + 2,
+    paddingHorizontal: spacing.sm + 4,
+    paddingVertical: spacing.xs + 3,
+    borderRadius: 999,
+    borderWidth,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+  },
   list: { paddingHorizontal: spacing.md, gap: spacing.sm },
   row: {
     flexDirection: 'row',

@@ -49,6 +49,7 @@ export type ProFeature =
   | 'blame'
   | 'git-hosts'
   | 'notebooks'
+  | 'schema'
   | 'ai';
 
 export const PRO_FEATURES: Record<ProFeature, { icon: IconName; title: string; description: string }> = {
@@ -65,6 +66,7 @@ export const PRO_FEATURES: Record<ProFeature, { icon: IconName; title: string; d
   shortcuts: { icon: 'zap', title: 'Siri and Shortcuts', description: 'Run a task, deploy or send a request from Siri and the Shortcuts app.' },
   widgets: { icon: 'grid', title: 'Widgets and Live Activities', description: 'Recent projects on your Home Screen, and deploys on the Lock Screen.' },
   blame: { icon: 'clock', title: 'Blame and file history', description: 'Who last changed each line, and every earlier version of a file.' },
+  schema: { icon: 'share-2', title: 'Database schema', description: 'Tables, columns, keys and how they relate, for SQLite, PostgreSQL and MySQL.' },
   notebooks: { icon: 'book-open', title: 'Run notebooks', description: "Run a Jupyter notebook's Python cells on your device and save their output." },
   ai: { icon: 'cpu', title: 'AI assistant', description: 'Explain, fix and write code with Claude, using your own Anthropic API key.' },
   'git-hosts': { icon: 'git-branch', title: 'GitLab and Bitbucket', description: 'Clone, merge requests, pull requests and issues from GitLab and Bitbucket.' },

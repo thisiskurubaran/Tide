@@ -28,8 +28,10 @@ app/                             Expo app (dev client, prebuild, New Architectur
   src/features/github            GitHub sign-in (device flow), repositories, pull requests, issues, Actions
   src/features/deploy            Publishing a folder to GitHub Pages, Firebase Hosting, Netlify, Vercel, Cloudflare Pages; Render deploy hooks
   src/features/ssh               SSH servers and keys, the SSH terminal backend, SFTP browsing and editing
-  src/features/http              .http request files: parsing, sending, environments, cURL and GraphQL, the request/response viewer
-  src/features/database          Database viewer for SQLite files (expo-sqlite) and PostgreSQL / MySQL servers (tide:sql, remote/)
+  src/features/http              .http request files: parsing, sending, environments, cURL and GraphQL, WebSockets, the request/response viewer
+  src/features/database          Database viewer for SQLite files (expo-sqlite) and PostgreSQL / MySQL servers (tide:sql, remote/); schema view (Tide Pro)
+  src/features/tools             Developer tools: JSON, regex tester, YAML/CSV, Base64, URL, JWT, hashes, UUIDs, timestamps
+  src/features/openapi           OpenAPI / Swagger viewer: endpoints with example bodies, added to a .http file
   src/features/todos             The TODO / FIXME list
   src/features/outline           File outline and Go to Symbol (symbols read line by line, per language)
   src/features/notebook          Running Jupyter notebook cells with the device's Python (Tide Pro)
@@ -213,6 +215,8 @@ PostgreSQL and MySQL go through `tide:sql`, which holds one connection open with
 The widget, the deploy Live Activity and the Siri and Shortcuts actions are native: `targets/widget` is a widget extension made by `@bacons/apple-targets` at prebuild, `modules/tide-widgets` writes what it shows to the app group `group.com.thisiskurubaran.tide` and runs ActivityKit, and `native/ios/TideIntents.swift` (App Intents) is copied into the app target by `plugins/withAppIntents.js`. The actions open `tide://` links the app handles. The app group needs registering for both bundle IDs in the Apple Developer portal.
 
 Ruby (CRuby 3.4, ruby.wasm) and PHP (8.3, php-wasm) need WebAssembly, which neither Hermes nor nodejs-mobile has on iOS, so they run in a hidden web view (`src/runtime/wasm`). The page is `web/runtimes`, built into `app/assets/runtimes/runtime.html` by `npm run build:runtimes` and committed; `npm install` copies the interpreters (`ruby.wasm`, 31 MB, and `php.wasm`, 18 MB) next to it from node_modules, and they aren't committed. Each run copies the project into the interpreter's virtual disk and writes back what changed. Programs can't read the terminal (input ends at once). `npm run test:runtimes` checks the page in Chromium.
+
+Markdown previews draw ```mermaid blocks as diagrams. `npm install` (via `build-runtimes.js`) copies Mermaid into `app/assets/mermaid/mermaid.js.txt`, which is not committed; the preview loads it only when a document has a diagram and runs it under a nonce-only script policy, so scripts written in the document never run.
 
 ## Extensions
 

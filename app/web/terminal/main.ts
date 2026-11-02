@@ -1,6 +1,7 @@
 import '@xterm/xterm/css/xterm.css';
 
 import { FitAddon } from '@xterm/addon-fit';
+import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Terminal } from '@xterm/xterm';
 
@@ -33,13 +34,18 @@ const term = new Terminal({
   convertEol: true,
   cursorBlink: true,
   scrollback: 5000,
-  allowProposedApi: false,
+  // The search addon highlights matches with decorations, a proposed API.
+  allowProposedApi: true,
   // Mirrors the rows into the accessibility tree, so VoiceOver (and UI tests) can read the output.
   screenReaderMode: true,
 });
 const fit = new FitAddon();
 term.loadAddon(fit);
 term.loadAddon(new WebLinksAddon((_event, url) => post({ type: 'link', url })));
+const search = new SearchAddon();
+term.loadAddon(search);
+search.onDidChangeResults(({ resultIndex, resultCount }) => post({ type: 'found', index: resultIndex, count: resultCount }));
+const MATCHES = { matchBackground: '#3a4270', matchOverviewRuler: '#7c8cff', activeMatchBackground: '#7c8cff', activeMatchColorOverviewRuler: '#ffffff' };
 
 const container = document.getElementById('terminal')!;
 
@@ -109,6 +115,20 @@ function handle(msg: ToTerminal) {
       return term.focus();
     case 'blur':
       return term.blur();
+    case 'find': {
+      if (!msg.query) {
+        search.clearDecorations();
+        return post({ type: 'found', index: -1, count: 0 });
+      }
+      const options = { caseSensitive: msg.caseSensitive, decorations: MATCHES };
+      const hit = msg.backwards ? search.findPrevious(msg.query, options) : search.findNext(msg.query, options);
+      if (!hit) post({ type: 'found', index: -1, count: 0 });
+      return;
+    }
+    case 'clearFind':
+      search.clearDecorations();
+      term.clearSelection();
+      return;
   }
 }
 

@@ -11,6 +11,8 @@ import { makeStyles, useColors } from '../../theme/theme';
 import { borderWidth, fonts, fontSizes, radius, spacing } from '../../theme/tokens';
 import { formatCell, PAGE_SIZE, QueryResult, Row, TableInfo, toCsv } from './database';
 import type { DbSource } from './source';
+import { SchemaView } from './SchemaView';
+import { requirePro } from '../pro';
 
 const CELL_WIDTH = 160;
 
@@ -30,7 +32,7 @@ export function DatabaseView({ open, openKey, saveCsv }: DatabaseViewProps) {
   const db = useRef<DbSource | null>(null);
   const [notes, setNotes] = useState<Pick<DbSource, 'readOnlyNote' | 'sqlNote' | 'sqlPlaceholder'> | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [mode, setMode] = useState<'tables' | 'sql'>('tables');
+  const [mode, setMode] = useState<'tables' | 'sql' | 'schema'>('tables');
   const [tables, setTables] = useState<TableInfo[] | null>(null);
   const [table, setTable] = useState<string | null>(null);
   const [page, setPage] = useState<{ columns: string[]; rows: Row[]; done: boolean; editable: boolean } | null>(null);
@@ -127,25 +129,36 @@ export function DatabaseView({ open, openKey, saveCsv }: DatabaseViewProps) {
   return (
     <View style={[StyleSheet.absoluteFill, styles.screen]} testID="database">
       <View style={styles.bar}>
-        <Segmented<'tables' | 'sql'>
+        <Segmented<'tables' | 'sql' | 'schema'>
           testID="database-mode"
           value={mode}
-          onChange={setMode}
+          onChange={(m) => (m !== 'schema' || requirePro('schema')) && setMode(m)}
           options={[
             { value: 'tables', label: 'Tables' },
             { value: 'sql', label: 'SQL' },
+            { value: 'schema', label: 'Schema' },
           ]}
         />
         <View style={styles.flex} />
-        {mode === 'tables' && page?.editable && <IconButton icon="plus" label="Add a row" onPress={() => setAdding(true)} testID="database-add-row" />}
-        <IconButton icon="download" label="Export CSV" onPress={exportCsv} testID="database-export" />
+        {mode === 'schema' ? null : mode === 'tables' && page?.editable && <IconButton icon="plus" label="Add a row" onPress={() => setAdding(true)} testID="database-add-row" />}
+        {mode !== 'schema' && <IconButton icon="download" label="Export CSV" onPress={exportCsv} testID="database-export" />}
       </View>
       {error && (
         <Text variant="error" style={styles.pad} selectable>
           {error}
         </Text>
       )}
-      {mode === 'tables' ? (
+      {mode === 'schema' ? (
+        db.current && (
+          <SchemaView
+            source={db.current}
+            onOpenTable={(name) => {
+              setTable(name);
+              setMode('tables');
+            }}
+          />
+        )
+      ) : mode === 'tables' ? (
         <>
           <ScrollView horizontal style={styles.chips} contentContainerStyle={styles.chipsRow} showsHorizontalScrollIndicator={false}>
             {tables?.length === 0 && <Text variant="muted">No tables yet. Create one in SQL.</Text>}

@@ -20,7 +20,9 @@ import {
   Environments,
   formatBody,
   HTTP_TEMPLATE,
+  HttpRequest,
   HttpResponse,
+  isWebSocket,
   parseEnvironments,
   parseHttpFile,
   PRIVATE_ENV_FILE,
@@ -34,6 +36,7 @@ import { projectEnv } from '../env/store';
 import { takeSend } from './pending';
 import { HistoryEntry, historyKey, restoreHeaders } from './history';
 import { HistorySheet } from './HistorySheet';
+import { WsSheet } from './WsSheet';
 import { httpHistory } from './store';
 import { useStore } from 'zustand';
 
@@ -71,6 +74,7 @@ export function HttpPane({ project, path }: { project: string; path: string }) {
   const [pasting, setPasting] = useState<string | null>(null);
   const [dotenv, setDotenv] = useState<Record<string, string>>({});
   const [historyFor, setHistoryFor] = useState<number | null>(null);
+  const [socket, setSocket] = useState<HttpRequest | null>(null);
   const history = useStore(httpHistory, (s) => s.entries);
   const keyFor = (i: number) => historyKey(project, path, parsed.requests[i]?.name ?? String(i));
 
@@ -214,7 +218,11 @@ export function HttpPane({ project, path }: { project: string; path: string }) {
                   <IconButton icon="clock" label={`History, ${history[keyFor(i)].length} responses`} onPress={() => setHistoryFor(i)} testID={`http-history-open-${i}`} />
                 )}
                 <IconButton icon="clipboard" label="Copy as cURL" onPress={() => copyCurl(i)} testID={`http-curl-${i}`} />
-                <Button title={result === 'sending' ? 'Sending…' : 'Send'} icon="send" onPress={() => sendAt(i)} disabled={result === 'sending'} testID={`http-send-${i}`} />
+                {isWebSocket(req) ? (
+                  <Button title="Connect" icon="radio" onPress={() => setSocket(req)} testID={`http-connect-${i}`} />
+                ) : (
+                  <Button title={result === 'sending' ? 'Sending…' : 'Send'} icon="send" onPress={() => sendAt(i)} disabled={result === 'sending'} testID={`http-send-${i}`} />
+                )}
               </View>
               {result && result !== 'sending' && 'error' in result && (
                 <Text variant="error" selectable>
@@ -264,6 +272,7 @@ export function HttpPane({ project, path }: { project: string; path: string }) {
           );
         })}
       </ScrollView>
+      <WsSheet request={socket} onClose={() => setSocket(null)} />
       <HistorySheet
         name={historyFor !== null ? (parsed.requests[historyFor]?.name ?? '') : ''}
         entries={historyFor !== null ? (history[keyFor(historyFor)] ?? []) : null}
