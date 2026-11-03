@@ -1,23 +1,32 @@
 import Feather from '@expo/vector-icons/Feather';
-import { useEffect, useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Animated, Pressable } from 'react-native';
 
 import { haptic } from '../../components/haptics';
 import { Text } from '../../components/Text';
 import { workspace } from '../../state';
 import { makeStyles, useColors } from '../../theme/theme';
-import { radius, spacing } from '../../theme/tokens';
+import { useReduceMotion } from '../../components/a11y';
+import { borderWidth, fonts, radius, spacing } from '../../theme/tokens';
 import { manifestFor } from '../manifests';
 import { extensionsStore, useExtensions } from '../state';
 import { dependenciesOf, ProjectFacts, suggestExtension } from './suggest';
 
-// One line under the tabs offering a free extension that fits the project.
-export function SuggestionBanner({ project }: { project: string }) {
+// How long the toast stays before it slides away for this session; "Not
+// now" (the x) is what remembers the answer.
+const VISIBLE_MS = 12000;
+
+// A floating toast over the editor offering a free extension that fits the
+// project. It never pushes the code down.
+export function SuggestionBanner({ project, bottom = 12 }: { project: string; bottom?: number }) {
   const styles = useStyles();
   const colors = useColors();
   const [facts, setFacts] = useState<ProjectFacts | null>(null);
   const installed = useExtensions((s) => s.installed);
   const dismissed = useExtensions((s) => s.dismissed[project]);
+  const [hidden, setHidden] = useState(false);
+  const shown = useRef(new Animated.Value(0)).current;
+  const reduceMotion = useReduceMotion();
 
   useEffect(() => {
     let cancelled = false;
@@ -35,13 +44,25 @@ export function SuggestionBanner({ project }: { project: string }) {
   }, [project]);
 
   const suggestion = facts ? suggestExtension(facts, installed, dismissed ?? []) : null;
-  if (!suggestion) return null;
+  const id = suggestion?.id;
+  useEffect(() => {
+    if (!id) return;
+    Animated.timing(shown, { toValue: 1, duration: reduceMotion ? 0 : 220, useNativeDriver: true }).start();
+    const t = setTimeout(() => Animated.timing(shown, { toValue: 0, duration: reduceMotion ? 0 : 220, useNativeDriver: true }).start(() => setHidden(true)), VISIBLE_MS);
+    return () => clearTimeout(t);
+  }, [id, shown, reduceMotion]);
+  if (!suggestion || hidden) return null;
   const { name } = manifestFor(suggestion.id);
   return (
-    <View style={[styles.banner, { backgroundColor: colors.brandSoft }]} accessibilityRole="summary" testID="extension-suggestion">
+    <Animated.View
+      style={[styles.banner, { bottom, opacity: shown, transform: [{ translateY: shown.interpolate({ inputRange: [0, 1], outputRange: [16, 0] }) }] }]}
+      accessibilityRole="summary"
+      accessibilityLiveRegion="polite"
+      testID="extension-suggestion"
+    >
       <Feather name="package" size={16} color={colors.brand} />
-      <Text style={styles.flex} numberOfLines={3}>
-        {suggestion.reason} <Text variant="muted">Free.</Text>
+      <Text style={styles.flex} numberOfLines={2}>
+        {suggestion.reason}
       </Text>
       <Pressable
         onPress={() => {
@@ -50,7 +71,7 @@ export function SuggestionBanner({ project }: { project: string }) {
         }}
         accessibilityRole="button"
         accessibilityLabel={`Install ${name}`}
-        style={[styles.install, { backgroundColor: colors.foreground }]}
+        style={[styles.install, { backgroundColor: colors.brand }]}
         testID="suggestion-install"
       >
         <Text style={[styles.installText, { color: colors.background }]}>Install</Text>
@@ -58,13 +79,33 @@ export function SuggestionBanner({ project }: { project: string }) {
       <Pressable onPress={() => extensionsStore.getState().dismiss(project, suggestion.id)} accessibilityRole="button" accessibilityLabel="Not now" hitSlop={8} testID="suggestion-dismiss">
         <Feather name="x" size={16} color={colors.mutedForeground} />
       </Pressable>
-    </View>
+    </Animated.View>
   );
 }
 
-const useStyles = makeStyles(() => ({
-  banner: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.sm + 2, paddingVertical: spacing.xs + 2, marginHorizontal: spacing.sm, marginTop: spacing.xs, borderRadius: radius.md },
-  flex: { flex: 1, fontSize: 13, lineHeight: 17 },
-  install: { paddingHorizontal: spacing.sm + 4, paddingVertical: 5, borderRadius: radius.sm },
-  installText: { fontWeight: '600', fontSize: 13 },
+const useStyles = makeStyles((colors) => ({
+  banner: {
+    position: 'absolute',
+    left: spacing.sm + 4,
+    right: spacing.sm + 4,
+    zIndex: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingLeft: spacing.sm + 4,
+    paddingRight: spacing.sm,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.lg,
+    borderWidth,
+    borderColor: colors.border,
+    backgroundColor: colors.secondary,
+    shadowColor: '#000',
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
+  },
+  flex: { flex: 1, fontSize: 12.5, lineHeight: 16 },
+  install: { paddingHorizontal: spacing.sm + 4, paddingVertical: 6, borderRadius: radius.sm },
+  installText: { fontFamily: fonts.sans.semibold, fontSize: 12.5 },
 }));

@@ -51,6 +51,7 @@ import {
 } from '../../src/features/editor/bridge';
 import type { EditorTheme } from '../../src/theme/editor';
 import { shortcutFor } from '../../src/features/project/shortcuts';
+import { insertLiteral, moveCursor } from './cursor';
 import {
   breakpointLines,
   completionSource,
@@ -359,6 +360,10 @@ function handle(msg: ToEditor) {
       return typeText(msg.text);
     case 'key':
       return pressKey(msg.key, msg.select);
+    case 'moveCursor':
+      return view.dispatch(moveCursor(view.state, msg.by, msg.select));
+    case 'insertLiteral':
+      return view.dispatch(insertLiteral(view.state, msg.text, msg.cursor));
     case 'select':
       return selectUnit(msg.unit);
     case 'copy':

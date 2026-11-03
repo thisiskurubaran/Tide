@@ -388,3 +388,32 @@ describe('npm run in the Local terminal', () => {
     expect(t.runner.requests[0]).toMatchObject({ entry: 'tide:npm', args: ['install', 'left-pad'] });
   });
 });
+
+describe('busy reporting', () => {
+  it('reports busy while a program runs and idle back at the prompt', async () => {
+    const memfs = createMemoryFs();
+    const workspace = createWorkspace(memfs);
+    await workspace.createProject('demo', 'node-hello');
+    const tabs = createTabsStore(createFsStorage(memfs));
+    const buffers = createBuffersStore(workspace);
+    const projects = createProjectsStore(workspace, tabs, buffers);
+    const runner = new FakeRunner();
+    const busy: boolean[] = [];
+    const shell = new Shell({
+      project: 'demo',
+      fs: createShellFs('demo', workspace, projects, buffers),
+      runner,
+      write: () => undefined,
+      projectRoot: 'projects/demo',
+      newId: () => 'r1',
+      onBusy: (b) => busy.push(b),
+    });
+    shell.start();
+    shell.input('node index.js\r');
+    await tick();
+    expect(busy).toEqual([true]);
+    runner.listener!({ type: 'exit', id: 'r1', code: 0 } as RunnerMessage);
+    await tick();
+    expect(busy).toEqual([true, false]);
+  });
+});

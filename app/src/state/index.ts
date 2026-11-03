@@ -5,6 +5,7 @@ import { createExpoFs } from '../features/files/expoFs';
 import { createWorkspace } from '../features/files/workspace';
 import { BuffersState, createBuffersStore } from './buffers';
 import { createProjectsStore, ProjectHooks, ProjectsState } from './projects';
+import { recentsStore } from './recents';
 import { createRunnerStore, RunnerState } from './runner';
 import { createSettingsStore, SettingsState } from './settings';
 import { createFsStorage } from './storage';
@@ -16,7 +17,9 @@ const fs = appFs;
 export const storage = createFsStorage(fs);
 
 export const workspace = createWorkspace(fs);
-export const tabsStore = createTabsStore(storage);
+// Last opened projects and files, for the home screen.
+export { recentsStore, useRecents } from './recents';
+export const tabsStore = createTabsStore(storage, { opened: (project, path) => recentsStore.getState().touchFile(project, path) });
 export const runnerStore = createRunnerStore(storage);
 export const settingsStore = createSettingsStore(storage);
 export const buffersStore = createBuffersStore(workspace);
@@ -24,6 +27,10 @@ export const snapshots = createSnapshots(appFs, workspace);
 // Features that keep per-project data elsewhere follow renames and deletes here.
 const projectHooks: ProjectHooks[] = [
   { renamed: (from, to) => snapshots.renameProject(from, to), deleted: (project) => snapshots.removeProject(project) },
+  {
+    renamed: async (from, to) => recentsStore.getState().renameProject(from, to),
+    deleted: async (project) => recentsStore.getState().forget(project),
+  },
 ];
 export const onProjectChange = (hooks: ProjectHooks) => projectHooks.push(hooks);
 export const projectsStore = createProjectsStore(workspace, tabsStore, buffersStore, {

@@ -11,6 +11,13 @@ export const CHANGELOG: Release[] = [
     items: [
       'Everything in Tide is free: every feature and every extension, with no subscription',
       'Support Tide with an optional tip, in Settings; tips unlock nothing',
+      'A new IDE layout: a Run button that turns into Stop, a status bar with branch, problems, line and column, and an activity bar for Files, Search, Git, Terminal and Problems',
+      'The terminal opens when you run something and slides up as a sheet you can drag to 30%, 60% or full height',
+      'Swipe in from the left edge for your files: file-type icons, git colors, a filter and Move to…',
+      'The command palette searches files, commands (>), symbols (@), lines (:) and text (#)',
+      'Swipe across the key bar to move the cursor; long-press a key for more, like () or =>',
+      'Projects show their language, branch, changes and when you last opened them, with your recent files',
+      'iPad: a side rail, resizable files sidebar, and Markdown and HTML previews beside their source',
       'Up to 6 terminals and 10 snapshots per project, for everyone',
       'Preview HTML files with the eye button: their CSS, scripts and images load, and saving reloads the page',
       'Wrapped lines keep their indentation, and a cleaner look for Settings, Extensions and the projects list',

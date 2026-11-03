@@ -104,7 +104,8 @@ export const fonts = {
   mono: { regular: 'JetBrainsMono-Regular', semibold: 'JetBrainsMono-SemiBold' },
 } as const;
 
-export const fontSizes = { xs: 12, sm: 14, md: 16, lg: 17, xl: 20, xxl: 28 } as const;
+// A compact scale, closer to desktop IDE chrome; Dynamic Type still scales it.
+export const fontSizes = { xs: 11, sm: 13, md: 15, lg: 16, xl: 19, xxl: 26 } as const;
 
 export const lineHeights = { body: 1.6, heading: 1.12, code: 1.5 } as const;
 

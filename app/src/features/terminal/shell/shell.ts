@@ -28,6 +28,9 @@ export interface ShellOptions {
   projectEnv?(): Promise<{ values: Record<string, string>; secrets: string[] }>;
   // Told when a program ends, e.g. so a git commit can start an automatic deploy.
   onRunExit?(entry: string, args: string[], code: number): void;
+  // Told when a command starts and when the shell is back at its prompt, so
+  // the Run button can turn into Stop while something runs.
+  onBusy?(busy: boolean): void;
 }
 
 class CommandError extends Error {}
@@ -146,7 +149,15 @@ export class Shell {
     this.opts.write(data);
   }
 
+  private reportedBusy = false;
+  private reportBusy(busy: boolean) {
+    if (busy === this.reportedBusy) return;
+    this.reportedBusy = busy;
+    this.opts.onBusy?.(busy);
+  }
+
   private prompt() {
+    this.reportBusy(false);
     const where = this.cwd ? `/${this.cwd}` : '/';
     this.editor.read(`${ansi.blue}${this.opts.project}${ansi.reset} ${ansi.cyan}${where}${ansi.reset} $ `);
     if (this.typeahead) {
@@ -158,6 +169,7 @@ export class Shell {
 
   private async execute(line: string) {
     this.busy = true;
+    this.reportBusy(true);
     try {
       await this.runLine(line);
     } finally {

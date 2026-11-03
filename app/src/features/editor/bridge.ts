@@ -93,6 +93,11 @@ export type ToEditor =
   | { type: 'insert'; text: string }
   // `select` extends the selection instead of moving the cursor.
   | { type: 'key'; key: EditorKey; select?: boolean }
+  // A swipe across the key bar: `by` characters, negative is left.
+  | { type: 'moveCursor'; by: number; select?: boolean }
+  // Typed as is, without auto-close; the caret lands `cursor` characters in
+  // (default: the end), and a pair with the caret inside wraps the selection.
+  | { type: 'insertLiteral'; text: string; cursor?: number }
   | { type: 'select'; unit: SelectUnit }
   // Answered with a 'clipboard' message; cut also deletes the selection.
   | { type: 'copy'; cut: boolean }
@@ -182,6 +187,8 @@ const TO_EDITOR = new Set<ToEditor['type']>([
   'goto',
   'insert',
   'key',
+  'moveCursor',
+  'insertLiteral',
   'focus',
   'blur',
   'features',

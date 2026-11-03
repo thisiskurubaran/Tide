@@ -29,7 +29,8 @@ const empty: ProjectTabs = { open: [], active: null };
 
 const isUnder = (path: string, prefix: string) => path === prefix || path.startsWith(`${prefix}/`);
 
-export function createTabsStore(storage: StateStorage) {
+// `opened` hears every file a tab is opened for, e.g. to record recent files.
+export function createTabsStore(storage: StateStorage, hooks: { opened?(project: string, path: string): void } = {}) {
   return createStore<TabsState>()(
     persist(
       (set) => {
@@ -40,8 +41,10 @@ export function createTabsStore(storage: StateStorage) {
           byProject: {},
           lastProject: null,
           recent: [],
-          openTab: (project, path, activate = true) =>
-            update(project, (t) => ({ open: t.open.includes(path) ? t.open : [...t.open, path], active: activate ? path : t.active })),
+          openTab: (project, path, activate = true) => {
+            update(project, (t) => ({ open: t.open.includes(path) ? t.open : [...t.open, path], active: activate ? path : t.active }));
+            hooks.opened?.(project, path);
+          },
           closeTab: (project, path) =>
             update(project, (t) => {
               const i = t.open.indexOf(path);

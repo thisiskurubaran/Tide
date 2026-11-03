@@ -34,3 +34,19 @@ export function fuzzyFilter<T>(items: T[], query: string, key: (item: T) => stri
     .slice(0, limit)
     .map((s) => s.item);
 }
+
+// Where fuzzyScore matched each query character, for highlighting. Same greedy
+// walk as fuzzyScore, so the highlighted letters are the ones that scored.
+export function fuzzyPositions(query: string, target: string): number[] | null {
+  const q = query.toLowerCase();
+  const t = target.toLowerCase();
+  const out: number[] = [];
+  let ti = 0;
+  for (const ch of q) {
+    const found = t.indexOf(ch, ti);
+    if (found === -1) return null;
+    out.push(found);
+    ti = found + 1;
+  }
+  return out;
+}

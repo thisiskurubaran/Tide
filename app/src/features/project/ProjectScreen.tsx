@@ -1,10 +1,12 @@
 import * as Clipboard from 'expo-clipboard';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Animated, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
+import Feather from '@expo/vector-icons/Feather';
+import { Alert, Animated, Easing, PanResponder, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { IconButton } from '../../components/Button';
+import { ActionSheet } from '../../components/ActionSheet';
 import { PromptSheet } from '../../components/PromptSheet';
 import { Text } from '../../components/Text';
 import { answerRequest, editorFeatures, findDefinition, saveWithHooks, useActiveExtensions, useExtensionHost } from '../../extensions/host';
@@ -13,7 +15,7 @@ import type { ProjectContext } from '../../extensions/types';
 import { buffersStore, projectsStore, runnerStore, snapshots, tabsStore, useBuffers, useProjects, useRunner, useTabs, workspace } from '../../state';
 import { bufferKey, isDirty } from '../../state/buffers';
 import { projectTabs } from '../../state/tabs';
-import { borderWidth, spacing } from '../../theme/tokens';
+import { borderWidth, fonts, radius, spacing } from '../../theme/tokens';
 import { exportProject } from '../backup/actions';
 import { SnapshotsSheet } from '../backup/SnapshotsSheet';
 import { pullFolder, pushFolder, useLinked } from '../external';
@@ -40,6 +42,12 @@ import { ShortcutsSheet } from './ShortcutsSheet';
 import { SplitDivider } from './SplitDivider';
 import { TabBar } from './TabBar';
 import { TerminalPanel, TerminalPanelHandle } from './TerminalPanel';
+import { TerminalGrabber, DETENTS } from './TerminalGrabber';
+import { StatusBar, countProblems } from './StatusBar';
+import { Activity, ActivityBar, ActivityItem } from './ActivityBar';
+import { gitStatusStore, useGitStatus } from '../git/status';
+import { useDiagnostics } from '../../extensions/diagnostics';
+import { recentsStore } from '../../state/recents';
 import { makeStyles } from '../../theme/theme';
 import { haptic } from '../../components/haptics';
 import { countRun } from '../support/actions';
@@ -76,6 +84,9 @@ const DRAWER_MAX = 340;
 // iPad portrait and wider: the file tree stays open beside the editor.
 const WIDE = 768;
 const SIDEBAR_WIDTH = 280;
+// A swipe this far in from the left edge opens the files on phones.
+const EDGE_WIDTH = 16;
+const EDGE_OPEN_DX = 40;
 
 // `launch` comes from a tide:// link or quick action: a file to open, and whether to run.
 export function ProjectScreen({ project, launch }: { project: string; launch?: ProjectLinkOptions | null }) {
@@ -115,7 +126,15 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
   const [outline, setOutline] = useState(false);
   const [ai, setAi] = useState<AiMode | null>(null);
   const [goingToLine, setGoingToLine] = useState(false);
-  const [terminalHidden, setTerminalHidden] = useState(false);
+  // Closed until something runs or it's asked for, so the editor gets the screen.
+  const [terminalHidden, setTerminalHidden] = useState(true);
+  const [terminalSize, setTerminalSize] = useState(DETENTS[0] + 0.1);
+  const [running, setRunning] = useState(false);
+  const [mainHeight, setMainHeight] = useState(0);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [sidebarRatio, setSidebarRatio] = useState(0);
+  const [bodyWidth, setBodyWidth] = useState(0);
+  const [previewRatio, setPreviewRatio] = useState(0.5);
   const [sidebarHidden, setSidebarHidden] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [sourceControl, setSourceControl] = useState(false);
@@ -185,6 +204,19 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     // A snapshot on opening, at most hourly; after a moment, so the editor opens first.
     const timer = setTimeout(() => snapshots.maybeTake(project).catch((e) => console.warn('Snapshot failed', e)), SNAPSHOT_DELAY_MS);
     return () => clearTimeout(timer);
+  }, [project]);
+
+  const git = useGitStatus((s) => s.byProject[project]);
+  const changedCount = git ? Object.keys(git.changes).length : 0;
+  const problemsByPath = useDiagnostics((s) => s.byProject[project]);
+  const problemCount = useMemo(() => {
+    const { errors, warnings } = countProblems(problemsByPath);
+    return errors + warnings;
+  }, [problemsByPath]);
+
+  useEffect(() => {
+    recentsStore.getState().touchProject(project);
+    gitStatusStore.getState().refresh(project).catch(() => undefined);
   }, [project]);
 
   useEffect(() => {
@@ -296,7 +328,15 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
   const save = (path: string) =>
     saveWithHooks(extensions, ctx, path).then(() => {
       autoDeployer.onSave(project).catch(() => undefined);
+      gitStatusStore.getState().refresh(project).catch(() => undefined);
     });
+
+  // Run turns into Stop while the terminal is busy; Stop sends Ctrl-C.
+  const stopRunning = () => {
+    haptic('press');
+    terminal.current?.input('\x03');
+  };
+  const showFiles = () => (wide ? setSidebarHidden((h) => !h) : setDrawerOpen((o) => !o));
   const deployStatus = useDeployStatus(deployStore, project);
   // A finished deploy's note goes away after a moment; failures stay until tapped.
   useEffect(() => {
@@ -539,14 +579,104 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     } else commands.find((c) => c.id === id)?.run();
   };
 
+  const activityItems: ActivityItem[] = [
+    { id: 'files', label: 'Files', icon: 'file' },
+    { id: 'search', label: 'Search', icon: 'search' },
+    { id: 'git', label: 'Git', icon: 'git-branch', badge: changedCount },
+    { id: 'terminal', label: 'Terminal', icon: 'terminal' },
+    { id: 'problems', label: 'Problems', icon: 'alert-circle', badge: problemCount, alert: true },
+    { id: 'more', label: 'More', icon: 'grid' },
+  ];
+  const activeActivity: Activity | null = (wide ? !sidebarHidden : drawerOpen)
+    ? 'files'
+    : searching
+      ? 'search'
+      : sourceControl
+        ? 'git'
+        : problems
+          ? 'problems'
+          : moreOpen
+            ? 'more'
+            : !terminalHidden
+              ? 'terminal'
+              : null;
+  const onActivity = (id: Activity) => {
+    haptic('select');
+    if (id === 'files') showFiles();
+    else if (id === 'search') setSearching(true);
+    else if (id === 'git') openSourceControl();
+    else if (id === 'terminal') setTerminalHidden((h) => !h);
+    else if (id === 'problems') setProblems(true);
+    else setMoreOpen(true);
+  };
+  const run = (id: string) => () => commands.find((c) => c.id === id)?.run();
+  const moreActions = [
+    { label: 'All commands', icon: 'command' as const, onPress: () => setPalette('commands') },
+    { label: 'Go to symbol', icon: 'list' as const, onPress: () => setOutline(true) },
+    { label: 'TODOs in project', icon: 'check-square' as const, onPress: () => setTodos(true) },
+    { label: 'Run tests', icon: 'check-circle' as const, onPress: () => setTests({}) },
+    { label: 'Packages (npm, pip)', icon: 'box' as const, onPress: () => setPackagesOpen(true) },
+    { label: 'Deploy…', icon: 'upload-cloud' as const, onPress: run('deploy') },
+    { label: 'Look up in docs', icon: 'book' as const, onPress: lookUpInDocs },
+    { label: 'Developer tools', icon: 'tool' as const, onPress: run('tools') },
+    { label: 'Extensions', icon: 'package' as const, onPress: run('extensions') },
+    { label: 'Settings', icon: 'settings' as const, onPress: run('settings') },
+  ];
+
+  // A swipe in from the left edge opens the files (the back swipe is off on
+  // this screen for that reason; the back button stays). Swiping the drawer
+  // left closes it.
+  const edgeSwipe = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_e, g) => g.dx > 8 && Math.abs(g.dy) < Math.abs(g.dx),
+        onPanResponderRelease: (_e, g) => g.dx > EDGE_OPEN_DX && setDrawerOpen(true),
+      }),
+    [],
+  );
+  const drawerSwipe = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_e, g) => g.dx < -12 && Math.abs(g.dy) < Math.abs(g.dx),
+        onPanResponderRelease: (_e, g) => g.dx < -EDGE_OPEN_DX && setDrawerOpen(false),
+      }),
+    [],
+  );
+
+  // A sliding line under the header while something runs.
+  const runProgress = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!running || reduceMotion) return;
+    const loop = Animated.loop(Animated.timing(runProgress, { toValue: 1, duration: 1400, easing: Easing.inOut(Easing.quad), useNativeDriver: true }));
+    runProgress.setValue(0);
+    loop.start();
+    return () => loop.stop();
+  }, [running, reduceMotion, runProgress]);
+
+  const sidebarWidth = sidebarRatio > 0 && bodyWidth > 0 ? Math.round(sidebarRatio * bodyWidth) : SIDEBAR_WIDTH;
+  // iPad: Markdown, HTML and the like show beside their source.
+  const sidePreview = wide && !splitOn && !!tabs.active && canToggle(tabs.active) && previewing(tabs.active);
+  const chromeHidden = keyboardOpen && !wide;
+  const terminalShown = !terminalHidden || (keyboardOpen && typingIn === 'terminal');
+
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <IconButton icon="chevron-left" label="Projects" onPress={() => router.back()} testID="back" />
-        {!wide && <IconButton icon="sidebar" label="Files" onPress={() => setDrawerOpen(true)} testID="open-tree" />}
-        <Text variant="title" numberOfLines={1} style={styles.title}>
-          {project}
-        </Text>
+        <View style={styles.titleBox}>
+          <Text variant="title" numberOfLines={1} style={styles.title}>
+            {project}
+          </Text>
+          {git?.branch && (
+            <Pressable onPress={openSourceControl} accessibilityRole="button" accessibilityLabel={`Branch ${git.branch}, ${changedCount} changed`} style={styles.subtitle} testID="header-branch">
+              <Feather name="git-branch" size={10} color={styles.subtitleText.color} />
+              <Text style={styles.subtitleText} numberOfLines={1}>
+                {git.branch}
+                {changedCount > 0 ? ` · ${changedCount} changed` : ''}
+              </Text>
+            </Pressable>
+          )}
+        </View>
         {canToggle(current) && (
           <IconButton
             icon={previewing(current) ? 'code' : 'eye'}
@@ -555,9 +685,31 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
             testID="toggle-preview"
           />
         )}
-        <IconButton icon="git-branch" label="Source control" onPress={openSourceControl} testID="open-source-control" />
-        <IconButton icon="search" label="Search in project" onPress={() => setSearching(true)} testID="open-search" />
+        <Pressable
+          onPress={() => (running ? stopRunning() : runProject())}
+          onLongPress={() => setPalette('commands')}
+          accessibilityRole="button"
+          accessibilityLabel={running ? 'Stop' : 'Run project'}
+          accessibilityHint={running ? undefined : 'Long press for run configurations and tasks'}
+          style={({ pressed }) => [styles.run, running && styles.stop, pressed && styles.runPressed]}
+          testID="run-button"
+        >
+          <Feather name={running ? 'square' : 'play'} size={13} color={running ? styles.stopText.color : styles.runText.color} />
+          <Text style={running ? styles.stopText : styles.runText}>{running ? 'Stop' : 'Run'}</Text>
+        </Pressable>
         <IconButton icon="command" label="Commands" onPress={() => setPalette('commands')} testID="open-palette" />
+      </View>
+      <View style={styles.progressTrack}>
+        {running && (
+          <Animated.View
+            style={[
+              styles.progress,
+              reduceMotion
+                ? { width: '100%' }
+                : { transform: [{ translateX: runProgress.interpolate({ inputRange: [0, 1], outputRange: [-160, width] }) }] },
+            ]}
+          />
+        )}
       </View>
 
       {deployStatus && (
@@ -573,20 +725,31 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
           </Text>
         </Pressable>
       )}
-      <View style={[styles.body, wide && styles.row]}>
+      <View style={[styles.body, wide && styles.row]} onLayout={(e) => setBodyWidth(e.nativeEvent.layout.width)}>
+        {wide && <ActivityBar vertical items={activityItems} active={activeActivity} onSelect={onActivity} />}
         {wide && !sidebarHidden && (
-          <View style={[styles.sidebar, { paddingBottom: insets.bottom }]} testID="sidebar">
-            <FileTree project={project} nodes={tree ?? []} activePath={current} onOpenFile={openFile} />
-          </View>
+          <>
+            <View style={[styles.sidebar, { width: sidebarWidth }]} testID="sidebar">
+              <FileTree project={project} nodes={tree ?? []} activePath={current} onOpenFile={openFile} />
+            </View>
+            <SplitDivider
+              ratio={bodyWidth > 0 ? sidebarWidth / bodyWidth : 0.25}
+              width={bodyWidth}
+              onChange={setSidebarRatio}
+              min={0.15}
+              max={0.4}
+              label="Files width"
+              testID="sidebar-divider"
+            />
+          </>
         )}
-        <View style={styles.body}>
-          <SuggestionBanner project={project} />
+        <View style={styles.body} onLayout={(e) => setMainHeight(e.nativeEvent.layout.height)}>
           <TabBar open={tabs.open} active={current} onSelect={openFile} dirty={dirty} onClose={(path) => closeFile(path)} />
-          {current && !previewing(current) && (
+          {wide && current && !previewing(current) && (
             <Breadcrumbs
               project={project}
               path={current}
-              onShowFiles={() => (wide ? setSidebarHidden(false) : setDrawerOpen(true))}
+              onShowFiles={() => setSidebarHidden(false)}
               onJump={(line) => openAt(current, line)}
             />
           )}
@@ -594,10 +757,10 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
           {extensions.map((ext) => ext.bar && <ext.bar key={ext.id} ctx={ctx} />)}
           {/* Both panes stay mounted so the terminal keeps its scrollback and the editor its undo history. */}
           <View
-            style={[styles.editor, splitOn && styles.row, keyboardOpen && typingIn === 'terminal' && !terminalHidden && styles.collapsed]}
+            style={[styles.editor, (splitOn || sidePreview) && styles.row, keyboardOpen && typingIn === 'terminal' && !terminalHidden && styles.collapsed]}
             onLayout={(e) => setEditorWidth(e.nativeEvent.layout.width)}
           >
-            <View style={[styles.pane, splitOn && { flex: splitRatio }, splitOn && !rightFocused && styles.focusedPane]}>
+            <View style={[styles.pane, splitOn && { flex: splitRatio }, sidePreview && { flex: previewRatio }, splitOn && !rightFocused && styles.focusedPane]}>
               <EditorPane
                 ref={leftEditor}
                 project={project}
@@ -612,8 +775,16 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
                 }}
                 onShortcut={onShortcut}
               />
-              {viewer(tabs.active)}
+              {!sidePreview && viewer(tabs.active)}
             </View>
+            {sidePreview && (
+              <>
+                <SplitDivider ratio={previewRatio} width={editorWidth} onChange={setPreviewRatio} label="Preview width" testID="preview-divider" />
+                <View style={[styles.pane, { flex: 1 - previewRatio }]} testID="side-preview">
+                  {viewer(tabs.active)}
+                </View>
+              </>
+            )}
             {splitOn && (
               <>
                 <SplitDivider ratio={splitRatio} width={editorWidth} onChange={setSplitRatio} />
@@ -639,15 +810,18 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
                 </View>
               </>
             )}
+            {!keyboardOpen && <SuggestionBanner project={project} />}
           </View>
           <View
             style={[
               styles.terminal,
-              { paddingBottom: keyboardOpen ? 0 : insets.bottom },
-              keyboardOpen && (typingIn === 'terminal' ? styles.expanded : styles.collapsed),
-              terminalHidden && styles.collapsed,
+              { height: Math.round(Math.max(120, mainHeight * terminalSize)) },
+              keyboardOpen && typingIn === 'terminal' && !terminalHidden && styles.expanded,
+              !terminalShown && styles.collapsed,
             ]}
+            testID="terminal-sheet"
           >
+            {!keyboardOpen && <TerminalGrabber fraction={terminalSize} height={mainHeight} onChange={setTerminalSize} onHide={() => setTerminalHidden(true)} />}
             <TerminalPanel
               project={project}
               ref={terminal}
@@ -655,6 +829,11 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
               onShortcut={onShortcut}
               onOpenFile={openPrinted}
               onShowProblems={() => setProblems(true)}
+              onBusyChange={setRunning}
+              onHide={() => {
+                terminal.current?.blur();
+                setTerminalHidden(true);
+              }}
             />
           </View>
         </View>
@@ -668,9 +847,24 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
           )}
         </View>
       )}
+      {!chromeHidden && (
+        <View style={wide ? { paddingBottom: keyboardOpen ? 0 : insets.bottom } : undefined}>
+          <StatusBar
+            project={project}
+            path={current ?? null}
+            running={running}
+            onBranch={openSourceControl}
+            onProblems={() => setProblems(true)}
+            onGoToLine={() => current && setGoingToLine(true)}
+            onMode={() => setTerminalHidden(false)}
+          />
+        </View>
+      )}
+      {!wide && !chromeHidden && <ActivityBar items={activityItems} active={activeActivity} onSelect={onActivity} bottomInset={insets.bottom} />}
 
       {!wide && (
         <>
+          {!drawerOpen && !keyboardOpen && <View {...edgeSwipe.panHandlers} style={[styles.edge, { top: insets.top + 44 }]} testID="drawer-edge" />}
           <Animated.View
             pointerEvents={drawerOpen ? 'auto' : 'none'}
             style={[StyleSheet.absoluteFill, styles.backdrop, { opacity: progress.interpolate({ inputRange: [0, 1], outputRange: [0, 0.6] }) }]}
@@ -678,6 +872,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
             <Pressable accessibilityRole="button" style={StyleSheet.absoluteFill} onPress={() => setDrawerOpen(false)} accessibilityLabel="Close files" />
           </Animated.View>
           <Animated.View
+            {...drawerSwipe.panHandlers}
             pointerEvents={drawerOpen ? 'auto' : 'none'}
             style={[
               styles.drawer,
@@ -693,11 +888,14 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
           </Animated.View>
         </>
       )}
+      <ActionSheet title={moreOpen ? project : null} actions={moreActions} onClose={() => setMoreOpen(false)} />
 
       <CommandPalette
         mode={palette}
         project={project}
         commands={commands}
+        activePath={current ?? null}
+        onOpenAt={openAt}
         onOpenFile={(path) => {
           const base = comparingWith.current;
           comparingWith.current = null;
@@ -737,7 +935,14 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
           terminal.current?.input(`${line}\r`);
         }}
       />
-      <SourceControlSheet visible={sourceControl} project={project} onClose={() => setSourceControl(false)} />
+      <SourceControlSheet
+        visible={sourceControl}
+        project={project}
+        onClose={() => {
+          setSourceControl(false);
+          gitStatusStore.getState().refresh(project).catch(() => undefined);
+        }}
+      />
       {panels.map(({ id, component: Panel }) => (
         <Panel key={id} ctx={ctx} visible={panel === id} onClose={() => setPanel((p) => (p === id ? null : p))} />
       ))}
@@ -785,20 +990,30 @@ const useStyles = makeStyles((colors) => ({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderBottomWidth: borderWidth,
-    borderColor: colors.border,
+    height: 48,
+    paddingHorizontal: spacing.xs + 2,
+    backgroundColor: colors.card,
   },
-  title: { flex: 1, marginLeft: spacing.xs },
+  titleBox: { flex: 1, minWidth: 0, marginLeft: 2 },
+  title: { fontSize: 15, lineHeight: 18 },
+  subtitle: { flexDirection: 'row', alignItems: 'center', gap: 3, alignSelf: 'flex-start' },
+  subtitleText: { fontFamily: fonts.sans.regular, fontSize: 11, color: colors.mutedForeground },
+  run: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 30, paddingLeft: 10, paddingRight: 12, borderRadius: radius.pill, backgroundColor: colors.brand, marginHorizontal: 2 },
+  runPressed: { opacity: 0.75 },
+  runText: { fontFamily: fonts.sans.semibold, fontSize: 13, color: colors.background },
+  stop: { backgroundColor: colors.destructiveSoft, borderWidth, borderColor: colors.destructive },
+  stopText: { fontFamily: fonts.sans.semibold, fontSize: 13, color: colors.destructive },
+  progressTrack: { height: 2, overflow: 'hidden', backgroundColor: colors.border },
+  progress: { position: 'absolute', top: 0, bottom: 0, width: 160, backgroundColor: colors.brand },
+  edge: { position: 'absolute', left: 0, bottom: 0, width: EDGE_WIDTH },
   body: { flex: 1 },
   row: { flexDirection: 'row' },
-  sidebar: { width: SIDEBAR_WIDTH, borderRightWidth: borderWidth, borderColor: colors.border, backgroundColor: colors.card },
-  editor: { flex: 3 },
+  sidebar: { backgroundColor: colors.card },
+  editor: { flex: 1 },
   pane: { flex: 1 },
   // A thin line marks which editor gets the key bar and commands.
   focusedPane: { borderTopWidth: 2, borderColor: colors.brand },
-  terminal: { flex: 2 },
+  terminal: { borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, overflow: 'hidden', borderTopWidth: borderWidth, borderColor: colors.border, backgroundColor: colors.card },
   expanded: { flex: 1 },
   // Kept mounted but out of the layout while the other pane is being typed in.
   collapsed: { flex: 0, height: 0, overflow: 'hidden' },

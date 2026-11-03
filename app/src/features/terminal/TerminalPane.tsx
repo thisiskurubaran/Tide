@@ -44,13 +44,15 @@ interface TerminalPaneProps {
   // Everything the terminal prints, and each Enter typed into it (Problems use both).
   onOutput?(data: string): void;
   onSubmit?(): void;
+  // Local shell only: a command started (true) or the prompt is back (false).
+  onBusy?(busy: boolean): void;
 }
 
 // Output from fast programs arrives in many small chunks; batching them keeps
 // the number of injectJavaScript calls to roughly one per frame.
 const FLUSH_MS = 16;
 
-export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(function TerminalPane({ project, onFocusChange, onShortcut, createBackend, onFound, onOpenFile, onOutput, onSubmit }, ref) {
+export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(function TerminalPane({ project, onFocusChange, onShortcut, createBackend, onFound, onOpenFile, onOutput, onSubmit, onBusy }, ref) {
   const styles = useStyles();
   const webview = useRef<WebView<object>>(null);
   const ready = useRef(false);
@@ -82,6 +84,8 @@ export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(functi
   outputRef.current = onOutput;
   const submitRef = useRef(onSubmit);
   submitRef.current = onSubmit;
+  const busyRef = useRef(onBusy);
+  busyRef.current = onBusy;
   const write = useCallback(
     (data: string) => {
       const plain = stripAnsi(data);
@@ -107,6 +111,7 @@ export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(functi
         const [values, secrets] = await Promise.all([projectEnv(project), readSecrets(project)]);
         return { values, secrets: Object.keys(secrets) };
       },
+      onBusy: (busy) => busyRef.current?.(busy),
       onRunExit: (entry, args, code) => {
         if (entry === 'tide:git' && args[0] === 'commit' && code === 0) autoDeployer.onCommit(project).catch(() => undefined);
       },

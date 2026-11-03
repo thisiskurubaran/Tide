@@ -118,7 +118,47 @@ const SYMBOL_NAMES: Record<string, string> = {
   '%': 'Percent',
   '+': 'Plus',
   '?': 'Question mark',
+  '()': 'Parentheses',
+  '{}': 'Braces',
+  '[]': 'Brackets',
+  '<>': 'Angle brackets',
+  '""': 'Double quotes',
+  "''": 'Single quotes',
+  '``': 'Backticks',
+  '=>': 'Arrow',
+  '==': 'Equals equals',
+  '===': 'Triple equals',
+  '!=': 'Not equals',
+  '<=': 'Less than or equal',
+  '</': 'Closing tag',
+  '//': 'Line comment',
+  '/*  */': 'Block comment',
 };
+
+// What holding a symbol key offers. `cursor` puts the caret inside a pair,
+// counted from the start; without it the caret goes after the text.
+export interface SymbolVariant {
+  text: string;
+  cursor?: number;
+}
+
+const pair = (text: string): SymbolVariant => ({ text, cursor: text.length / 2 });
+const plain = (...texts: string[]) => texts.map((t): SymbolVariant => ({ text: t }));
+
+export const KEY_VARIANTS: Record<string, SymbolVariant[]> = {
+  '(': [pair('()'), ...plain('(', ')', '=>')],
+  '{': [pair('{}'), ...plain('{', '}')],
+  '[': [pair('[]'), ...plain('[', ']')],
+  '"': [pair('""'), ...plain("'", '`')],
+  "'": [pair("''"), ...plain('"', '`')],
+  '`': [pair('``'), ...plain("'", '"')],
+  '<': [pair('<>'), ...plain('</', '<=')],
+  '=': plain('==', '===', '!=', '=>'),
+  '/': [...plain('//'), { text: '/*  */', cursor: 3 }, ...plain('\\')],
+  ';': plain(':', ';'),
+};
+
+export const symbolName = (chars: string) => SYMBOL_NAMES[chars] ?? `Type ${chars}`;
 
 const chars = (s: string) => [...s].map(text);
 
@@ -146,7 +186,7 @@ export function keyFace(id: string, bar: 'editor' | 'terminal'): KeyFace | null 
   if (id.startsWith('text:')) {
     const value = id.slice(5);
     if (!value) return null;
-    return { id, label: value.length > 8 ? `${value.slice(0, 7)}…` : value, a11y: SYMBOL_NAMES[value] ?? `Type ${value}` };
+    return { id, label: value.length > 8 ? `${value.slice(0, 7)}…` : value, a11y: symbolName(value) };
   }
   const found = (bar === 'editor' ? EDITOR_KEYS : TERMINAL_KEYS).find((k) => k.id === id);
   return found ? { id, label: found.label, icon: found.icon, a11y: found.a11y } : null;

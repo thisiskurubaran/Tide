@@ -12,6 +12,7 @@ import { borderWidth, fonts, fontSizes, radius, spacing } from '../../theme/toke
 import { connectSocket, nativeSocket, previewUrl } from '../remote/api';
 import { RemotePty } from '../remote/pty';
 import { useRemoteSession } from '../remote/useRemoteSession';
+import { remoteSettingsStore, useRemoteSettings } from '../remote/settings';
 import type { Shortcut } from './shortcuts';
 import { addTab, closeTab, cycleTab, initialTabs, MAX_TERMINALS } from './terminalTabs';
 import { TerminalHandle, TerminalPane } from '../terminal/TerminalPane';
@@ -32,14 +33,22 @@ interface TerminalPanelProps {
   onShortcut(id: Shortcut): void;
   onOpenFile?(path: string, line: number, column?: number): void;
   onShowProblems?(): void;
+  // Whether the active terminal is running a command (Local mode).
+  onBusyChange?(busy: boolean): void;
+  // Hides the panel (the chevron in its header).
+  onHide?(): void;
 }
 
-export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>(function TerminalPanel({ project, onFocusChange, onShortcut, onOpenFile, onShowProblems }, ref) {
+export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>(function TerminalPanel({ project, onFocusChange, onShortcut, onOpenFile, onShowProblems, onBusyChange, onHide }, ref) {
   const styles = useStyles();
   const colors = useColors();
   const mode = useRunner((s) => s.mode);
   const setMode = useRunner((s) => s.setMode);
   const { status, ports, retry } = useRemoteSession(project, mode === 'remote');
+  const remoteConfigured = useRemoteSettings((s) => s.settings !== null);
+  useEffect(() => {
+    if (!remoteSettingsStore.getState().loaded) remoteSettingsStore.getState().load().catch(() => undefined);
+  }, []);
   const [tabs, setTabs] = useState(initialTabs);
   const localPorts = useLocalPorts(project);
   const panes = useRef(new Map<number, TerminalHandle>());
@@ -77,6 +86,10 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>
     setQuery('');
     panes.current.forEach((p) => p.clearFind());
   };
+  // Which terminals are running something; the active one drives Run/Stop.
+  const [busyIds, setBusyIds] = useState<Set<number>>(() => new Set());
+  const activeBusy = busyIds.has(tabs.active);
+  useEffect(() => onBusyChange?.(activeBusy), [activeBusy, onBusyChange]);
   const newTerminal = () => tabs.ids.length < MAX_TERMINALS && setTabs(addTab);
 
   // A closed terminal's problems go with it.
@@ -124,6 +137,15 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>
         onOpenFile={onOpenFile}
         onOutput={(data) => collector(id).write(data)}
         onSubmit={() => collector(id).reset()}
+        onBusy={(busy) =>
+          setBusyIds((prev) => {
+            if (prev.has(id) === busy) return prev;
+            const next = new Set(prev);
+            if (busy) next.add(id);
+            else next.delete(id);
+            return next;
+          })
+        }
       />
     </View>
   );
@@ -237,15 +259,19 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>
           </Pressable>
         )}
         <IconButton icon="search" label="Find in terminal output" onPress={() => (finding ? stopFinding() : setFinding(true))} testID="terminal-find" />
-        <Segmented
-          testID="runner"
-          value={mode}
-          onChange={setMode}
-          options={[
-            { value: 'local', label: 'Local' },
-            { value: 'remote', label: 'Remote' },
-          ]}
-        />
+        {/* Remote only appears once a server is set up (or was picked before). */}
+        {(remoteConfigured || mode === 'remote') && (
+          <Segmented
+            testID="runner"
+            value={mode}
+            onChange={setMode}
+            options={[
+              { value: 'local', label: 'Local' },
+              { value: 'remote', label: 'Remote' },
+            ]}
+          />
+        )}
+        {onHide && <IconButton icon="chevron-down" label="Hide terminal" onPress={onHide} testID="terminal-hide" />}
       </View>
       {finding && (
         <View style={styles.findBar}>
@@ -285,9 +311,9 @@ const useStyles = makeStyles((colors) => ({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs + 2,
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    minHeight: 36,
     borderBottomWidth: borderWidth,
     borderColor: colors.border,
     backgroundColor: colors.card,

@@ -12,6 +12,8 @@ import { haptic } from '../../components/haptics';
 
 interface NewProjectSheetProps {
   visible: boolean;
+  // Opens on "Clone from Git" instead of the first template, for the home screen's Clone repo button.
+  initialMode?: 'template' | 'clone';
   onCreate(name: string, templateId: string): Promise<void>;
   onClone(name: string, url: string): Promise<void>;
   // Picks a repository from the user's GitHub account instead of typing a URL.
@@ -28,7 +30,7 @@ const GITHUB = 'github';
 const IMPORT = 'import';
 const FOLDER = 'folder';
 
-export function NewProjectSheet({ visible, onCreate, onClone, onBrowseGitHub, onImport, onOpenFolder, onClose }: NewProjectSheetProps) {
+export function NewProjectSheet({ visible, initialMode = 'template', onCreate, onClone, onBrowseGitHub, onImport, onOpenFolder, onClose }: NewProjectSheetProps) {
   const styles = useStyles();
   const colors = useColors();
   const [name, setName] = useState('');
@@ -41,10 +43,10 @@ export function NewProjectSheet({ visible, onCreate, onClone, onBrowseGitHub, on
     if (visible) {
       setName('');
       setUrl('');
-      setTemplateId(templates[0].id);
+      setTemplateId(initialMode === 'clone' ? CLONE : templates[0].id);
       setError(null);
     }
-  }, [visible]);
+  }, [visible, initialMode]);
 
   async function create() {
     setBusy(true);
@@ -63,7 +65,7 @@ export function NewProjectSheet({ visible, onCreate, onClone, onBrowseGitHub, on
 
   return (
     <Sheet visible={visible} onClose={onClose} scrollable>
-      <Text variant="title">New project</Text>
+      <Text variant="title">{initialMode === 'clone' ? 'Clone repository' : 'New project'}</Text>
       <View style={styles.field}>
         <TextInput
           testID="project-name"

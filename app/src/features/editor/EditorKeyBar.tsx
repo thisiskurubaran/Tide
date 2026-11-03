@@ -2,9 +2,9 @@ import * as Clipboard from 'expo-clipboard';
 import { useState } from 'react';
 
 import type { IconName } from '../../components/Button';
-import { KeyBar, KeyItem } from '../../components/KeyBar';
+import { KeyBar, KeyItem, KeyVariant } from '../../components/KeyBar';
 import { Trackpad } from '../../components/Trackpad';
-import { EditorAction, keyFace, PASTE, SELECT_MODE, TRACKPAD } from '../keybar/catalog';
+import { EditorAction, KEY_VARIANTS, keyFace, PASTE, SELECT_MODE, symbolName, SymbolVariant, TRACKPAD } from '../keybar/catalog';
 import { editorKeys, useKeyBar } from '../keybar/store';
 import type { Language, ToEditor } from './bridge';
 
@@ -32,7 +32,8 @@ function action(id: EditorAction, select: boolean): ToEditor {
 }
 
 // The keys come from Settings, Key bar: per language, or the default list.
-// Select mode makes the arrows and the trackpad extend the selection.
+// Select mode makes the arrows, the trackpad and swipes extend the selection.
+// Holding a symbol offers its variants; a pair like () leaves the caret inside.
 export function EditorKeyBar({ send, language }: { send(msg: ToEditor): void; language: Language }) {
   const ids = useKeyBar((s) => editorKeys(s, language));
   const [selecting, setSelecting] = useState(false);
@@ -40,6 +41,11 @@ export function EditorKeyBar({ send, language }: { send(msg: ToEditor): void; la
     Clipboard.getStringAsync()
       .then((text) => text && send({ type: 'insert', text }))
       .catch(() => undefined);
+  const variant = ({ text, cursor }: SymbolVariant): KeyVariant => ({
+    label: text,
+    a11y: symbolName(text),
+    onPress: () => send({ type: 'insertLiteral', text, cursor }),
+  });
 
   const items: KeyItem[] = ids.flatMap((id): KeyItem[] => {
     const face = keyFace(id, 'editor');
@@ -48,8 +54,18 @@ export function EditorKeyBar({ send, language }: { send(msg: ToEditor): void; la
     if (id === SELECT_MODE) onPress = () => setSelecting((s) => !s);
     if (id === PASTE) onPress = paste;
     const active = id === SELECT_MODE ? selecting : undefined;
-    return [face.icon ? { a11y: face.a11y, icon: face.icon as IconName, onPress, active } : { a11y: face.a11y, label: face.label!, onPress, active }];
+    const variants = id.startsWith('text:') ? KEY_VARIANTS[id.slice(5)]?.map(variant) : undefined;
+    const common = { a11y: face.a11y, onPress, active, variants };
+    return [face.icon ? { ...common, icon: face.icon as IconName } : { ...common, label: face.label! }];
   });
   const trackpad = ids.includes(TRACKPAD) ? <Trackpad testID="editor-trackpad" onStep={(key) => send({ type: 'key', key, select: selecting })} /> : null;
-  return <KeyBar testID="keyboard-bar" groups={[items]} leading={trackpad} onHide={() => send({ type: 'blur' })} />;
+  return (
+    <KeyBar
+      testID="keyboard-bar"
+      groups={[items]}
+      leading={trackpad}
+      onSwipe={(by) => send({ type: 'moveCursor', by, select: selecting })}
+      onHide={() => send({ type: 'blur' })}
+    />
+  );
 }

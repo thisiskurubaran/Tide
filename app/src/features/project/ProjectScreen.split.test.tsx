@@ -42,6 +42,13 @@ jest.mock('../../extensions/host', () => ({
   saveWithHooks: async () => undefined,
 }));
 jest.mock('../../extensions/gitPro', () => ({ GIT_PRO_PANEL: 'git-pro' }));
+jest.mock('../git/status', () => {
+  const { createGitStatusStore } = jest.requireActual('../git/status');
+  const { useStore } = jest.requireActual('zustand');
+  const gitStatusStore = createGitStatusStore(async () => ({ code: 128, stdout: '' }));
+  return { gitStatusStore, useGitStatus: (sel: (s: unknown) => unknown) => useStore(gitStatusStore, sel) };
+});
+jest.mock('../../state/recents', () => ({ recentsStore: { getState: () => ({ touchProject: () => undefined }) } }));
 jest.mock('./TerminalPanel', () => ({ TerminalPanel: () => null }));
 jest.mock('../git/SourceControlSheet', () => ({ SourceControlSheet: () => null }));
 jest.mock('../ai/AiSheet', () => ({ AiSheet: () => null }));
