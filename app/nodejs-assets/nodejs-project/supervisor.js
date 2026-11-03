@@ -7,6 +7,7 @@
 const path = require('path');
 const { Worker } = require('worker_threads');
 const { createDebugger } = require('./debugger');
+const { mapStack } = require('./typescript');
 
 const BOOTSTRAP = path.join(__dirname, 'worker.js');
 const DEFAULT_MAX_MEMORY_MB = 256;
@@ -123,7 +124,7 @@ function createSupervisor({ send, builtins = {} }) {
     });
     worker.on('error', (err) => {
       // Uncaught exceptions arrive here instead of on stderr.
-      let text = err && err.stack ? err.stack : String(err);
+      let text = mapStack(err && err.stack ? err.stack : String(err));
       if (projectDir) text = text.split(`${projectDir}/`).join('/');
       const hint = /ERR_WORKER_OUT_OF_MEMORY/.test(String(err && /** @type {any} */ (err).code))
         ? `\nOut of memory (limit ${limits.maxMemoryMb || DEFAULT_MAX_MEMORY_MB} MB).`

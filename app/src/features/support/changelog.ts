@@ -11,6 +11,10 @@ export const CHANGELOG: Release[] = [
     items: [
       'Everything in Tide is free: every feature and every extension, with no subscription',
       'Support Tide with an optional tip, in Settings; tips unlock nothing',
+      'Highlighting, folding and Outline for Go, Rust, Java, C, C++, C#, Kotlin, Swift, Dart, YAML, TOML, Dockerfile, shell, PowerShell, Makefile, XML and config files; preview SVG files',
+      'Run TypeScript directly: node index.ts, npx tsx and Run work without a build step (types aren\'t checked)',
+      'Ruff for Python in Format & Lint: fast lint as you type and formatting, offline',
+      'Math in Markdown with $…$ and $$…$$, in the preview and in exported PDFs',
       'Bring your own AI: use your Anthropic, OpenAI, Gemini or OpenRouter key, or your own Ollama or LM Studio server; keys stay in the Keychain and requests go straight to the provider',
       'Agent mode: describe a change and the agent reads, edits and runs your tests, asking before each command; review every change as a diff and keep or reject it',
       'Inline AI completions as you type: Tab to accept, ⌥→ for one word',

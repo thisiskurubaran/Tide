@@ -54,6 +54,7 @@ __pycache__/
 nodejs-assets/nodejs-project/format/bundle.js
 nodejs-assets/nodejs-project/intellisense/typescript.js
 nodejs-assets/nodejs-project/intellisense/lib/
+nodejs-assets/nodejs-project/typescript/sucrase.js
 
 # Fetched by modules/python-runtime/scripts/fetch-python-tools.js on npm install
 modules/python-runtime/python/.tide-tools
@@ -72,3 +73,6 @@ modules/python-runtime/python/parso-*.dist-info/
 assets/runtimes/*.wasm
 # Mermaid for diagrams in previews, copied the same way
 assets/mermaid/
+# KaTeX for math in previews, and Ruff's WebAssembly for Format & Lint, the same way
+assets/katex/
+assets/ruff/*.wasm

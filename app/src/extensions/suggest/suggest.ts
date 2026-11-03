@@ -27,7 +27,9 @@ const RULES: { id: ExtensionId; reason(f: ProjectFacts): string | null }[] = [
         ? 'This project uses ESLint. Format & Lint shows its warnings as you type and formats with Prettier.'
         : has(f, (p) => /^(\.prettierrc(\.\w+)?|prettier\.config\.\w+)$/.test(base(p))) || f.dependencies.includes('prettier')
           ? 'This project uses Prettier. Format & Lint formats files with it, on demand or on save.'
-          : null,
+          : has(f, (p) => /\.py$/.test(p) || /^(pyproject\.toml|\.?ruff\.toml)$/.test(base(p)))
+            ? 'This project has Python. Format & Lint checks it with Ruff as you type and formats it, on demand or on save.'
+            : null,
   },
   {
     id: 'intellisense',

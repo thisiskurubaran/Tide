@@ -8,6 +8,7 @@ const FAMILY: Partial<Record<Language, Language[]>> = {
   javascript: ['javascript', 'jsx', 'typescript', 'tsx'],
   typescript: ['typescript', 'tsx'],
   css: ['css', 'scss', 'less', 'html'],
+  c: ['c', 'cpp', 'objectivec'],
 };
 
 export const snippetApplies = (s: Snippet, lang: Language) => !s.languages?.length || s.languages.some((l) => l === lang || FAMILY[l]?.includes(lang));

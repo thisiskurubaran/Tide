@@ -19,6 +19,25 @@ export type Language =
   | 'ruby'
   | 'php'
   | 'sql'
+  | 'yaml'
+  | 'toml'
+  | 'dockerfile'
+  | 'ini'
+  | 'env'
+  | 'shell'
+  | 'powershell'
+  | 'makefile'
+  | 'go'
+  | 'rust'
+  | 'java'
+  | 'c'
+  | 'cpp'
+  | 'objectivec'
+  | 'csharp'
+  | 'kotlin'
+  | 'swift'
+  | 'dart'
+  | 'xml'
   | 'plain';
 
 export type EditorKey = 'left' | 'right' | 'up' | 'down' | 'home' | 'end' | 'tab';
@@ -243,14 +262,82 @@ const EXTENSIONS: Record<string, Language> = {
   rb: 'ruby',
   php: 'php',
   sql: 'sql',
+  yml: 'yaml',
+  yaml: 'yaml',
+  toml: 'toml',
+  dockerfile: 'dockerfile',
+  ini: 'ini',
+  cfg: 'ini',
+  conf: 'ini',
+  properties: 'ini',
+  env: 'env',
+  sh: 'shell',
+  bash: 'shell',
+  zsh: 'shell',
+  ps1: 'powershell',
+  psm1: 'powershell',
+  psd1: 'powershell',
+  mk: 'makefile',
+  go: 'go',
+  rs: 'rust',
+  java: 'java',
+  c: 'c',
+  h: 'c',
+  cpp: 'cpp',
+  cc: 'cpp',
+  cxx: 'cpp',
+  hpp: 'cpp',
+  hh: 'cpp',
+  hxx: 'cpp',
+  m: 'objectivec',
+  mm: 'objectivec',
+  cs: 'csharp',
+  kt: 'kotlin',
+  kts: 'kotlin',
+  swift: 'swift',
+  dart: 'dart',
+  xml: 'xml',
+  plist: 'xml',
+  xsd: 'xml',
+  xsl: 'xml',
+  xslt: 'xml',
+  xaml: 'xml',
+  csproj: 'xml',
+  svg: 'xml',
 };
 
 // Config files that are JSON without a .json extension.
 const JSON_NAMES = new Set(['.prettierrc', '.eslintrc', '.babelrc', '.swcrc', '.jshintrc']);
 
+// Files known by their whole name (compared lowercased).
+const NAMES: Record<string, Language> = {
+  dockerfile: 'dockerfile',
+  containerfile: 'dockerfile',
+  makefile: 'makefile',
+  gnumakefile: 'makefile',
+  '.bashrc': 'shell',
+  '.bash_profile': 'shell',
+  '.bash_aliases': 'shell',
+  '.zshrc': 'shell',
+  '.zprofile': 'shell',
+  '.zshenv': 'shell',
+  '.profile': 'shell',
+  '.env': 'env',
+  '.editorconfig': 'ini',
+  '.gitconfig': 'ini',
+  '.npmrc': 'ini',
+};
+
 export function languageFor(path: string): Language {
   const name = path.slice(path.lastIndexOf('/') + 1);
   if (JSON_NAMES.has(name)) return 'json';
+  const lower = name.toLowerCase();
+  const named = NAMES[lower];
+  if (named) return named;
+  // .env.local, .env.production...
+  if (lower.startsWith('.env.')) return 'env';
+  // Dockerfile.dev, Containerfile.prod...
+  if (/^(docker|container)file\./.test(lower)) return 'dockerfile';
   const dot = name.lastIndexOf('.');
   if (dot <= 0) return 'plain';
   return EXTENSIONS[name.slice(dot + 1).toLowerCase()] ?? 'plain';

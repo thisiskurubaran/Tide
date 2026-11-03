@@ -1,7 +1,7 @@
 // Run configurations and tasks, from tide.json:
 //
 //   {
-//     "runtime": "node", "entry": "index.js",          // the default run
+//     "runtime": "node", "entry": "index.js",          // the default run (.ts works too)
 //     "configurations": [
 //       { "name": "Server", "entry": "server.js", "args": ["--port", "3000"] },
 //       { "name": "Script", "runtime": "python", "entry": "tools/gen.py" }
@@ -99,6 +99,7 @@ const quote = (s: string) => (/^[\w./:=@%+-]+$/.test(s) ? s : `'${s.replace(/'/g
 // itself (by name); remote bash gets the command spelled out.
 export function configLine(config: NamedConfig, mode: RunnerMode): string {
   if (mode === 'local') return config.name === DEFAULT_CONFIG ? 'run\r' : `run ${quote(config.name)}\r`;
-  const program = config.runtime === 'python' ? 'python3' : config.runtime;
-  return `${[program, config.entry, ...config.args].map(quote).join(' ')}\r`;
+  // A remote machine's node may not run TypeScript itself; tsx does on any version.
+  const program = config.runtime === 'python' ? 'python3' : config.runtime === 'node' && /\.(ts|tsx|mts|cts)$/i.test(config.entry) ? 'npx tsx' : config.runtime;
+  return `${[program, ...[config.entry, ...config.args].map(quote)].join(' ')}\r`;
 }

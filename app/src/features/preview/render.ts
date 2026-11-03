@@ -1,13 +1,16 @@
 // Turns Markdown, Jupyter notebooks and JSON into an HTML page for the preview
 // WebView. The page runs no scripts; local images are inlined by the caller.
-import { marked } from 'marked';
+import { Marked } from 'marked';
 
-export type PreviewKind = 'markdown' | 'notebook' | 'json' | 'sqlite' | 'http' | 'openapi' | 'table' | 'parquet' | 'html';
+import { mathExtensions } from './math';
+
+export type PreviewKind = 'markdown' | 'notebook' | 'json' | 'sqlite' | 'http' | 'openapi' | 'table' | 'parquet' | 'html' | 'svg';
 
 export function previewKind(path: string): PreviewKind | null {
   if (/\.(md|markdown|mdx)$/i.test(path)) return 'markdown';
   // Opens as source; the eye button shows the page.
   if (/\.html?$/i.test(path)) return 'html';
+  if (/\.svg$/i.test(path)) return 'svg';
   // API specs by their usual names: openapi.yaml, swagger.json, petstore.openapi.yml…
   if (/(^|\/|\.)(openapi|swagger)[^/]*\.(ya?ml|json)$/i.test(path)) return 'openapi';
   if (/\.ipynb$/i.test(path)) return 'notebook';
@@ -17,6 +20,14 @@ export function previewKind(path: string): PreviewKind | null {
   if (/\.(csv|tsv)$/i.test(path)) return 'table';
   if (/\.parquet$/i.test(path)) return 'parquet';
   return null;
+}
+
+// An SVG drawn as an image, which never runs its scripts or loads anything,
+// on a checkerboard so transparent parts show.
+export function svgToHtml(source: string): string {
+  if (!/<svg[\s>]/i.test(source)) return '<p class="note">This file has no &lt;svg&gt; element to show.</p>';
+  const src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(source)}`;
+  return `<div style="display:flex;justify-content:center;padding:16px;border-radius:8px;background:repeating-conic-gradient(#8882 0 25%,transparent 0 50%) 0 0/16px 16px"><img src="${src}" alt="" style="max-width:100%;min-width:32px;height:auto"></div>`;
 }
 
 // Files that only make sense in their viewer (binary), so there's no source to switch to.
@@ -68,8 +79,11 @@ const stripAnsi = (s: string) => s.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '');
 
 // ```mermaid blocks become <pre class="mermaid">, which the preview draws as
 // diagrams (see mermaidScripts); elsewhere they stay code.
+// Math becomes placeholders KaTeX renders (see math.ts).
+const markdown = new Marked({ gfm: true }, { extensions: mathExtensions });
+
 export const markdownToHtml = (source: string) =>
-  (marked.parse(source, { async: false, gfm: true }) as string).replace(/<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g, '<pre class="mermaid">$1</pre>');
+  (markdown.parse(source, { async: false }) as string).replace(/<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g, '<pre class="mermaid">$1</pre>');
 
 export const hasMermaid = (html: string) => html.includes('<pre class="mermaid">');
 
@@ -154,7 +168,8 @@ export interface PreviewColors {
   error: string;
 }
 
-export function previewPage(body: string, c: PreviewColors, fontSize: number, run?: PageScripts): string {
+// css: extra styles, e.g. KaTeX's when the document has math.
+export function previewPage(body: string, c: PreviewColors, fontSize: number, run?: PageScripts, css?: string): string {
   const scripts = run ? run.scripts.map((s) => `<script nonce="${run.nonce}">${s.replace(/<\/script/gi, '<\\/script')}</script>`).join('') : '';
   return `<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -189,6 +204,7 @@ pre.out{background:none;border-left:3px solid ${c.border};border-radius:0}
 .j-str{color:${c.foreground}}
 .j-num,.j-bool,.j-null,.j-meta{color:${c.muted}}
 pre.mermaid{background:none;text-align:center}
+${css ?? ''}
 </style></head><body>${body}${scripts}</body></html>`;
 }
 

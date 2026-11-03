@@ -48,6 +48,7 @@ describe('tasks and run configurations', () => {
     expect(configLine(server, 'local')).toBe('run Server\r');
     expect(configLine(server, 'remote')).toBe('node server.js --port 3000\r');
     expect(configLine(gen, 'remote')).toBe("python3 'tools/gen data.py'\r");
+    expect(configLine({ name: 'TS', runtime: 'node', entry: 'src/main.ts', args: ['a b'] }, 'remote')).toBe("npx tsx src/main.ts 'a b'\r");
   });
 
   it('reports a broken tide.json', () => {

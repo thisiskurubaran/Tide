@@ -53,7 +53,7 @@ const COMMAND_HELP: [string, string][] = [
   ['rm [-r] <path...>', 'delete files, or folders with -r'],
   ['mv <src...> <dest>', 'move or rename'],
   ['cp [-r] <src...> <dest>', 'copy files, or folders with -r'],
-  ['node <file> [args]', 'run a JavaScript file'],
+  ['node <file> [args]', 'run a JavaScript or TypeScript file (types are stripped, not checked)'],
   ['python <file> [args]', 'run a Python file'],
   ['lua <file> [args]', 'run a Lua file (Lua 5.3)'],
   ['ruby <file> [args]', 'run a Ruby file (Ruby 3.4)'],
@@ -68,6 +68,13 @@ const COMMAND_HELP: [string, string][] = [
   ['clear', 'clear the screen'],
   ['help', 'show this list'],
 ];
+
+// TypeScript runs on the same Node: the supervisor strips the types (see
+// nodejs-project/typescript), so tsx and ts-node are just node.
+export const isTypeScript = (path: string) => /\.(ts|tsx|mts|cts)$/i.test(path) && !/\.d\.[cm]?tsx?$/i.test(path);
+const TS_RUNNERS = ['tsx', 'ts-node', 'ts-node-esm'];
+// Their options that take a value, dropped along with it; other options are dropped alone.
+const TS_RUNNER_VALUE_FLAGS = ['--tsconfig', '-P', '--project', '-r', '--require', '--import', '-C', '--compiler', '-O', '--compilerOptions'];
 
 const errorMessage = (e: unknown) =>
   e instanceof WorkspaceError || e instanceof CommandError || e instanceof PathError || e instanceof ParseError
@@ -94,6 +101,8 @@ export class Shell {
   private typeahead = '';
   private commands: Record<string, Command>;
   private nextId: () => string;
+  // The "not type-checked" note is shown once per terminal.
+  private toldNoTypeCheck = false;
 
   constructor(private opts: ShellOptions) {
     let counter = 0;
@@ -202,7 +211,7 @@ export class Shell {
       );
       return;
     }
-    if (parsed.redirect && ['node', 'python', 'python3', 'lua', 'ruby', 'php', 'run', 'npm', 'pip', 'pip3', 'git'].includes(name)) {
+    if (parsed.redirect && ['node', 'python', 'python3', 'lua', 'ruby', 'php', 'run', 'npm', 'npx', 'pip', 'pip3', 'git', ...TS_RUNNERS].includes(name)) {
       io.err(`${name}: output redirection isn't supported for programs\n`);
       return;
     }
@@ -391,6 +400,7 @@ export class Shell {
       env: (args, io) => this.printEnv(args, io),
       printenv: (args, io) => this.printEnv(args, io),
       node: (args) => this.runProgram('node', args),
+      ...Object.fromEntries(TS_RUNNERS.map((name): [string, Command] => [name, (args) => this.runTsRunner(name, args)])),
       python: (args) => this.runProgram('python', args),
       python3: (args) => this.runProgram('python', args),
       lua: (args) => this.runProgram('lua', args),
@@ -494,6 +504,21 @@ export class Shell {
     await this.startRun(runtime, entry, rest, this.cwd);
   }
 
+  // tsx / ts-node <file> [args]: their options don't apply here, and watch mode isn't available.
+  private async runTsRunner(name: string, args: string[]) {
+    let i = 0;
+    for (; i < args.length && args[i].startsWith('-'); i++) {
+      if (args[i] === '--') {
+        i++;
+        break;
+      }
+      if (TS_RUNNER_VALUE_FLAGS.includes(args[i])) i++;
+    }
+    if (name === 'tsx' && args[i] === 'watch') throw new CommandError('watch mode needs the Remote terminal; run tsx <file> again after a change');
+    if (!args[i]) throw new CommandError(`usage: ${name} <file> [args]`);
+    return this.runProgram('node', args.slice(i));
+  }
+
   private async printEnv(args: string[], io: Io) {
     const env = (await this.opts.projectEnv?.().catch(() => null)) ?? { values: {}, secrets: [] };
     const names = args.length ? args : Object.keys(env.values).sort();
@@ -535,6 +560,8 @@ export class Shell {
   private async npx(args: string[], io: Io) {
     const [bin, ...rest] = args;
     if (!bin) throw new CommandError('usage: npx <command> [args]');
+    // tsx and ts-node need native esbuild or a full compiler; Tide's Node runs .ts itself.
+    if (TS_RUNNERS.includes(bin)) return this.runTsRunner(bin, rest);
     const pkg = await findPackage(this.opts.fs, this.cwd);
     const path = await resolveBin(this.opts.fs, pkg?.dir ?? '', bin);
     if (!path) throw new CommandError(`${bin} isn't installed in node_modules. Install it with npm install ${bin}; Local mode doesn't download packages on the fly.`);
@@ -647,6 +674,10 @@ export class Shell {
       complete: async () => null,
     });
     this.running = { id, stdin, entry, args };
+    if (runtime === 'node' && isTypeScript(entry) && !this.toldNoTypeCheck) {
+      this.toldNoTypeCheck = true;
+      this.write(`${ansi.dim}tide: running TypeScript without type-checking${ansi.reset}\n`);
+    }
     stdin.read('');
 
     const root = this.opts.projectRoot;

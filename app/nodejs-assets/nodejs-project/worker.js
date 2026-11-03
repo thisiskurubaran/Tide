@@ -50,4 +50,6 @@ net.Server.prototype.listen = function (/** @type {any[]} */ ...args) {
 
 // Look like `node <entry> <args>`: argv[1] is the script and require.main is it.
 process.argv = [process.argv[0], workerData.entry, ...process.argv.slice(2)];
-/** @type {any} */ (Module).runMain();
+const typescript = require('./typescript');
+if (typescript.isTs(workerData.entry)) typescript.runTypeScript(workerData.entry);
+else /** @type {any} */ (Module).runMain();

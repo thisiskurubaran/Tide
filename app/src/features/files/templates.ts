@@ -31,6 +31,28 @@ export const templates: Template[] = [
     },
   },
   {
+    id: 'typescript-script',
+    label: 'TypeScript script',
+    description: 'An index.ts with types, run directly. Types are stripped, not checked.',
+    run: { runtime: 'node', entry: 'index.ts' },
+    files: {
+      'index.ts': [
+        'interface Person {',
+        '  name: string;',
+        '  age?: number;',
+        '}',
+        '',
+        'function greet(person: Person): string {',
+        "  return person.age === undefined ? `Hello, ${person.name}!` : `Hello, ${person.name} (${person.age})!`;",
+        '}',
+        '',
+        "const people: Person[] = [{ name: process.argv[2] ?? 'world' }, { name: 'Ada', age: 36 }];",
+        'for (const person of people) console.log(greet(person));',
+        '',
+      ].join('\n'),
+    },
+  },
+  {
     id: 'python-hello',
     label: 'Python hello',
     description: 'A single main.py that asks for your name.',

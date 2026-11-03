@@ -323,6 +323,47 @@ describe('shell', () => {
     expect(await run('run nope')).toContain('no configuration named "nope"; tide.json has Default, Server');
   });
 
+  it('runs TypeScript with node, run, tsx and ts-node, noting once that types are not checked', async () => {
+    const { run, runner, workspace, memfs } = await setup();
+    await memfs.writeFile('projects/demo/index.ts', 'const n: number = 1;\n');
+    const exit = () => runner.listener?.({ type: 'exit', id: 'r1', code: 0 });
+    const first = await run('node index.ts world');
+    expect(runner.requests[0]).toEqual({ type: 'run', id: 'r1', runtime: 'node', entry: 'projects/demo/index.ts', cwd: 'projects/demo', args: ['world'] });
+    expect(first).toContain('tide: running TypeScript without type-checking');
+    exit();
+    await tick();
+
+    expect(await run('npx tsx index.ts a')).not.toContain('type-checking');
+    exit();
+    await run('npx ts-node --transpile-only -P tsconfig.json index.ts b');
+    exit();
+    await run('tsx -- index.ts c');
+    exit();
+    await workspace.writeFile('demo', 'tide.json', JSON.stringify({ runtime: 'node', entry: 'index.ts' }));
+    await run('run');
+    exit();
+    expect(runner.requests.slice(1).map((r) => [r.runtime, r.entry, r.args])).toEqual([
+      ['node', 'projects/demo/index.ts', ['a']],
+      ['node', 'projects/demo/index.ts', ['b']],
+      ['node', 'projects/demo/index.ts', ['c']],
+      ['node', 'projects/demo/index.ts', []],
+    ]);
+    expect(await run('tsx watch index.ts')).toContain('watch mode needs the Remote terminal');
+    expect(await run('npx tsx')).toContain('usage: tsx <file>');
+  });
+
+  it('runs package.json scripts that use tsx', async () => {
+    const { run, runner, memfs } = await setup();
+    await memfs.writeFile('projects/demo/src/main.ts', '');
+    await memfs.writeFile('projects/demo/package.json', JSON.stringify({ scripts: { start: 'tsx src/main.ts --port 1', dev: 'npx ts-node src/main.ts' } }));
+    await run('npm start');
+    expect(runner.requests[0]).toMatchObject({ runtime: 'node', entry: 'projects/demo/src/main.ts', args: ['--port', '1'] });
+    runner.listener?.({ type: 'exit', id: 'r1', code: 0 });
+    await tick();
+    await run('npm run dev');
+    expect(runner.requests[1]).toMatchObject({ runtime: 'node', entry: 'projects/demo/src/main.ts', args: [] });
+  });
+
   it('shell writes replace an open editor buffer', async () => {
     const { run, buffers } = await setup();
     await buffers.getState().load('demo', 'index.js');

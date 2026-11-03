@@ -8,7 +8,8 @@ import { useColors, useColorScheme } from '../../theme/theme';
 import { Asset } from 'expo-asset';
 import { File } from 'expo-file-system';
 
-import { hasMermaid, imageType, jsonToHtml, localImages, markdownToHtml, mermaidScripts, notebookToHtml, PageScripts, previewKind, previewPage } from './render';
+import { hasMath, KatexAssets, mathAssets } from './math';
+import { hasMermaid, imageType, jsonToHtml, localImages, markdownToHtml, mermaidScripts, notebookToHtml, PageScripts, previewKind, previewPage, svgToHtml } from './render';
 
 const RENDER_DELAY_MS = 250;
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
@@ -17,6 +18,7 @@ const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 // images go in as data URIs.
 export async function previewBody(project: string, path: string, content: string): Promise<string> {
   const kind = previewKind(path);
+  if (kind === 'svg') return svgToHtml(content);
   let body = kind === 'notebook' ? notebookToHtml(content) : kind === 'json' ? jsonToHtml(content) : markdownToHtml(content);
   for (const img of localImages(body, path)) {
     const type = imageType(img.path);
@@ -44,6 +46,24 @@ function loadMermaid(): Promise<string> {
   return mermaidLibrary;
 }
 
+// KaTeX's script and its CSS (fonts inlined), read once, the first time a
+// document has math.
+let katexAssets: Promise<KatexAssets> | null = null;
+export function loadKatex(): Promise<KatexAssets> {
+  katexAssets ??= (async () => {
+    /* eslint-disable @typescript-eslint/no-require-imports */
+    const assets = [require('../../../assets/katex/katex.js.txt'), require('../../../assets/katex/katex.css.txt')].map((m) => Asset.fromModule(m));
+    /* eslint-enable @typescript-eslint/no-require-imports */
+    await Promise.all(assets.map((a) => a.downloadAsync()));
+    const [script, css] = await Promise.all(assets.map((a) => new File(a.localUri ?? a.uri).text()));
+    return { script, css };
+  })().catch((e) => {
+    katexAssets = null;
+    throw e;
+  });
+  return katexAssets;
+}
+
 const nonce = () => Array.from({ length: 4 }, () => Math.random().toString(36).slice(2)).join('');
 
 // Rendered Markdown, notebook or JSON tree for the open file, following edits as you
@@ -55,10 +75,16 @@ export function PreviewPane({ project, path }: { project: string; path: string }
   const [html, setHtml] = useState<string | null>(null);
   const [mermaid, setMermaid] = useState<string | null>(null);
   const diagrams = html !== null && hasMermaid(html);
+  const [katex, setKatex] = useState<KatexAssets | null>(null);
+  const math = html !== null && hasMath(html);
 
   useEffect(() => {
     if (diagrams && mermaid === null) loadMermaid().then(setMermaid, () => undefined);
   }, [diagrams, mermaid]);
+
+  useEffect(() => {
+    if (math && katex === null) loadKatex().then(setKatex, () => undefined);
+  }, [math, katex]);
 
   useEffect(() => {
     if (content === undefined) buffersStore.getState().load(project, path).catch(() => setHtml('<p>This file could not be opened.</p>'));
@@ -78,8 +104,13 @@ export function PreviewPane({ project, path }: { project: string; path: string }
   }, [content, path, project]);
 
   const scheme = useColorScheme();
-  // Scripts run only for diagrams, and only Mermaid's (see mermaidScripts).
-  const run = useMemo<PageScripts | undefined>(() => (diagrams && mermaid ? mermaidScripts(mermaid, scheme === 'dark', nonce()) : undefined), [diagrams, mermaid, scheme]);
+  const extras = useMemo(() => (html !== null ? mathAssets(html, katex) : null), [html, katex]);
+  // Scripts run only for diagrams and math, and only Mermaid's and KaTeX's (see mermaidScripts).
+  const run = useMemo<PageScripts | undefined>(() => {
+    const n = nonce();
+    const scripts = [...(diagrams && mermaid ? mermaidScripts(mermaid, scheme === 'dark', n).scripts : []), ...(extras?.scripts ?? [])];
+    return scripts.length ? { nonce: n, scripts } : undefined;
+  }, [diagrams, mermaid, scheme, extras]);
   const page = useMemo(
     () =>
       previewPage(
@@ -95,8 +126,9 @@ export function PreviewPane({ project, path }: { project: string; path: string }
         },
         fontSize,
         run,
+        extras?.css,
       ),
-    [html, colors, fontSize, run],
+    [html, colors, fontSize, run, extras],
   );
 
   return (

@@ -30,13 +30,13 @@ export const manifests: ExtensionManifest[] = [
   {
     id: 'format-lint',
     name: 'Format & Lint',
-    tagline: 'Prettier, ESLint, autopep8 and pyflakes, with a Problems panel.',
+    tagline: 'Prettier, ESLint and Ruff, with a Problems panel.',
     icon: 'check-circle',
     features: [
       'Format document with Prettier: JS, TS, JSX, JSON, CSS, SCSS, HTML, Markdown and YAML',
-      'Format Python with autopep8',
+      "Format Python with Ruff, using the project's ruff.toml or pyproject.toml",
       'Format on save, if you turn it on',
-      'ESLint warnings for JavaScript and pyflakes warnings for Python, inline as you type',
+      'ESLint warnings for JavaScript and Ruff warnings for Python, inline as you type, offline',
       'Problems panel listing every warning in open files',
     ],
   },

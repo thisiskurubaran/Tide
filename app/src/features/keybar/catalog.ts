@@ -133,6 +133,12 @@ const SYMBOL_NAMES: Record<string, string> = {
   '</': 'Closing tag',
   '//': 'Line comment',
   '/*  */': 'Block comment',
+  ':=': 'Colon equals',
+  '::': 'Double colon',
+  '->': 'Thin arrow',
+  '&&': 'And and',
+  '||': 'Or or',
+  '$()': 'Command substitution',
 };
 
 // What holding a symbol key offers. `cursor` puts the caret inside a pair,
@@ -167,11 +173,28 @@ const EDIT = ['undo', 'redo', 'find', 'expand', 'copy', PASTE];
 export const DEFAULT_EDITOR_KEYS = [TRACKPAD, SELECT_MODE, 'left', 'up', 'down', 'right', 'tab', ...chars('{}()[];:"\'=<>/\\'), ...EDIT];
 export const DEFAULT_TERMINAL_KEYS = [TRACKPAD, 'esc', 'tab', 'ctrl-c', 'ctrl-l', 'left', 'up', 'down', 'right', ...chars('/-~.|>"\'*_'), PASTE];
 
+const NAV = [TRACKPAD, SELECT_MODE, 'left', 'up', 'down', 'right', 'tab'];
+
 // Starting points per language; users can change them in Settings.
 export const LANGUAGE_PRESETS: Partial<Record<Language, string[]>> = {
   python: [TRACKPAD, SELECT_MODE, 'left', 'up', 'down', 'right', 'tab', ...chars(':()[]{}=_\'".#'), text('self.'), ...EDIT],
   javascript: [TRACKPAD, SELECT_MODE, 'left', 'up', 'down', 'right', 'tab', ...chars('{}()[];=<>\'"`'), text('=>'), text('const '), ...EDIT],
   html: [TRACKPAD, SELECT_MODE, 'left', 'up', 'down', 'right', 'tab', ...chars('<>/="\''), text('</'), ...EDIT],
+  go: [...NAV, ...chars('{}()[]:=.*&"`'), text(':='), ...EDIT],
+  rust: [...NAV, ...chars("{}()[];:&<>'\"!"), text('::'), text('->'), text('let '), ...EDIT],
+  c: [...NAV, ...chars('{}()[];*&<>"#'), text('->'), ...EDIT],
+  cpp: [...NAV, ...chars('{}()[];*&<>"#'), text('->'), text('::'), ...EDIT],
+  java: [...NAV, ...chars('{}()[];.<>="@'), text('->'), ...EDIT],
+  csharp: [...NAV, ...chars('{}()[];.<>="'), text('=>'), ...EDIT],
+  kotlin: [...NAV, ...chars('{}()[]:.<>="?'), text('->'), text('val '), ...EDIT],
+  swift: [...NAV, ...chars('{}()[]:.<>="?!'), text('->'), text('let '), ...EDIT],
+  dart: [...NAV, ...chars('{}()[];.<>="\''), text('=>'), ...EDIT],
+  shell: [...NAV, ...chars('$|>&"\'{}[]-#'), text('&&'), text('$()'), ...EDIT],
+  powershell: [...NAV, ...chars('$|{}()[]-"\'@'), ...EDIT],
+  makefile: [...NAV, ...chars(':=$()@%#'), ...EDIT],
+  yaml: [...NAV, ...chars(':-"\'#|>[]{}&*'), ...EDIT],
+  toml: [...NAV, ...chars('[]="\'.#{}'), ...EDIT],
+  xml: [TRACKPAD, SELECT_MODE, 'left', 'up', 'down', 'right', 'tab', ...chars('<>/="\''), text('</'), ...EDIT],
 };
 
 export interface KeyFace {

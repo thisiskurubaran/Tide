@@ -1,10 +1,20 @@
-import { jsonToHtml, localImages, markdownToHtml, notebookToHtml, previewKind, viewerOnly } from './render';
+import { jsonToHtml, localImages, markdownToHtml, notebookToHtml, previewKind, svgToHtml, viewerOnly, viewerFirst } from './render';
 
 describe('preview rendering', () => {
   it('knows which files it previews', () => {
     expect(previewKind('README.md')).toBe('markdown');
     expect(previewKind('nb/analysis.ipynb')).toBe('notebook');
     expect(previewKind('index.js')).toBeNull();
+  });
+
+  it('shows SVG files as an image, so their scripts never run', () => {
+    expect(previewKind('assets/Logo.SVG')).toBe('svg');
+    expect(viewerFirst('svg')).toBe(false);
+    const html = svgToHtml('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script><circle r="4"/></svg>');
+    expect(html).toMatch(/^<div[^>]*><img src="data:image\/svg\+xml;charset=utf-8,%3Csvg/);
+    expect(html).not.toContain('<script');
+    expect(html).not.toContain('<svg');
+    expect(svgToHtml('not an image')).toContain('no &lt;svg&gt;');
   });
 
   it('renders GitHub-flavoured Markdown', () => {

@@ -24,6 +24,21 @@ const LAYOUTS: { value: EditorLayout; label: string }[] = [
   { value: 'css', label: 'CSS' },
   { value: 'markdown', label: 'Markdown' },
   { value: 'json', label: 'JSON' },
+  { value: 'go', label: 'Go' },
+  { value: 'rust', label: 'Rust' },
+  { value: 'c', label: 'C' },
+  { value: 'cpp', label: 'C++' },
+  { value: 'java', label: 'Java' },
+  { value: 'csharp', label: 'C#' },
+  { value: 'kotlin', label: 'Kotlin' },
+  { value: 'swift', label: 'Swift' },
+  { value: 'dart', label: 'Dart' },
+  { value: 'shell', label: 'Shell' },
+  { value: 'powershell', label: 'PowerShell' },
+  { value: 'makefile', label: 'Makefile' },
+  { value: 'yaml', label: 'YAML' },
+  { value: 'toml', label: 'TOML' },
+  { value: 'xml', label: 'XML' },
 ];
 
 // Settings, Key bar: which keys sit above the keyboard, for the editor (per

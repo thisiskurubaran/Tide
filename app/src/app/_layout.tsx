@@ -21,6 +21,7 @@ import { useChromeTheme, useColors } from '../theme/theme';
 import { captureConsole } from '../features/support/logs';
 import { supportStore } from '../features/support/store';
 import { WasmHost } from '../runtime/wasm';
+import { RuffHost } from '../extensions/formatLint/RuffHost';
 
 // Before anything else logs, so bug reports include start-up warnings.
 captureConsole();
@@ -82,6 +83,7 @@ export default function RootLayout() {
     <>
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }} />
       <WasmHost />
+      <RuffHost />
     </>
   );
 }

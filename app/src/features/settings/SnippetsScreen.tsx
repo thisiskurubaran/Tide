@@ -24,6 +24,17 @@ const LANGUAGES: { value: '' | Language; label: string }[] = [
   { value: 'lua', label: 'Lua' },
   { value: 'sql', label: 'SQL' },
   { value: 'markdown', label: 'Markdown' },
+  { value: 'go', label: 'Go' },
+  { value: 'rust', label: 'Rust' },
+  { value: 'java', label: 'Java' },
+  { value: 'c', label: 'C / C++' },
+  { value: 'csharp', label: 'C#' },
+  { value: 'kotlin', label: 'Kotlin' },
+  { value: 'swift', label: 'Swift' },
+  { value: 'dart', label: 'Dart' },
+  { value: 'shell', label: 'Shell' },
+  { value: 'yaml', label: 'YAML' },
+  { value: 'xml', label: 'XML' },
 ];
 
 const EXAMPLES: Snippet[] = [
