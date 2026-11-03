@@ -1,6 +1,5 @@
 .claude
 CLAUDE.md
 PLAN.md
-docs
-docs/*
+/docs/
 .DS_Store

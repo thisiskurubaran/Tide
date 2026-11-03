@@ -1,6 +1,7 @@
 // Parquet files as tables, read with hyparquet (pure JS). Snappy-compressed
 // and uncompressed files read; other codecs (gzip, zstd, brotli) don't.
-import { parquetMetadata, parquetReadObjects } from 'hyparquet';
+// The package root resolves to its Node entry (imports fs) outside browsers.
+import { parquetMetadata, parquetReadObjects } from 'hyparquet/src/index.js';
 
 import { MAX_ROWS, Table } from './table';
 

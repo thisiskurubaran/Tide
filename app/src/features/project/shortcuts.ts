@@ -22,8 +22,7 @@ export type Shortcut =
   | 'new-terminal'
   | 'split'
   | 'preview'
-  | 'symbols'
-  | 'docs';
+  | 'symbols';
 
 type KeyEvent = { key: string; code?: string; metaKey: boolean; shiftKey: boolean; altKey: boolean };
 
@@ -39,7 +38,7 @@ export function shortcutFor(e: KeyEvent): Shortcut | null {
     if (e.code === 'BracketLeft') return 'prev-tab';
     if (e.code === 'BracketRight') return 'next-tab';
     if (e.code === 'Slash' || key === '?') return 'keyboard-shortcuts';
-    return key === 'p' ? 'palette' : key === 'f' ? 'search' : key === 'v' ? 'preview' : key === 'o' ? 'symbols' : key === 'd' ? 'docs' : null;
+    return key === 'p' ? 'palette' : key === 'f' ? 'search' : key === 'v' ? 'preview' : key === 'o' ? 'symbols' : null;
   }
   if (/^[1-9]$/.test(key)) return `tab-${Number(key) as TabNumber}`;
   switch (key) {
@@ -78,7 +77,6 @@ export const SHORTCUT_HELP: { group: string; items: [keys: string, title: string
       ['⇧⌘P', 'Command palette'],
       ['⇧⌘F', 'Search in project'],
       ['⇧⌘O', 'Go to a symbol in the file'],
-      ['⇧⌘D', 'Look up the word at the cursor in offline docs'],
       ['⌘S', 'Save'],
       ['⌘W', 'Close file'],
       ['⇧⌘[  ⇧⌘]', 'Previous / next file'],

@@ -30,13 +30,12 @@ const mark = require('../../../assets/icons/splash.png');
 
 export { projectHref } from './href';
 
-// Everything outside a project, under the title. As labeled chips: six icons don't fit beside it.
+// Everything outside a project, under the title. As labeled chips: five icons don't fit beside it.
 const PLACES = [
   { icon: 'github', label: 'GitHub', href: '/github', testID: 'open-github' },
   { icon: 'server', label: 'SSH', href: '/ssh', testID: 'open-ssh' },
   { icon: 'database', label: 'Databases', href: '/databases', testID: 'open-databases' },
   { icon: 'tool', label: 'Tools', href: '/tools', testID: 'open-tools' },
-  { icon: 'book', label: 'Docs', href: '/docs', testID: 'open-docs' },
   { icon: 'package', label: 'Extensions', href: '/extensions', testID: 'open-extensions' },
 ] as const;
 
