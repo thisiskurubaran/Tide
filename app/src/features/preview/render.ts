@@ -2,10 +2,12 @@
 // WebView. The page runs no scripts; local images are inlined by the caller.
 import { marked } from 'marked';
 
-export type PreviewKind = 'markdown' | 'notebook' | 'json' | 'sqlite' | 'http' | 'openapi' | 'table' | 'parquet';
+export type PreviewKind = 'markdown' | 'notebook' | 'json' | 'sqlite' | 'http' | 'openapi' | 'table' | 'parquet' | 'html';
 
 export function previewKind(path: string): PreviewKind | null {
   if (/\.(md|markdown|mdx)$/i.test(path)) return 'markdown';
+  // Opens as source; the eye button shows the page.
+  if (/\.html?$/i.test(path)) return 'html';
   // API specs by their usual names: openapi.yaml, swagger.json, petstore.openapi.yml…
   if (/(^|\/|\.)(openapi|swagger)[^/]*\.(ya?ml|json)$/i.test(path)) return 'openapi';
   if (/\.ipynb$/i.test(path)) return 'notebook';

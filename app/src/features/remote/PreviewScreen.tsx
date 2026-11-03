@@ -34,6 +34,8 @@ export function PreviewScreen() {
   const [toolsOpen, setToolsOpen] = useState(false);
   const [liveReload, setLiveReload] = useState(true);
   const evalId = useRef(0);
+  const isFile = url.startsWith('file:');
+  const fileRoot = isFile ? (/^(file:\/\/.*?\/projects\/[^/]+\/)/.exec(url)?.[1] ?? url.slice(0, url.lastIndexOf('/') + 1)) : undefined;
   const auditId = useRef(0);
   const [viewport, setViewport] = useState<ViewportId>('fit');
   const [available, setAvailable] = useState(0);
@@ -90,7 +92,7 @@ export function PreviewScreen() {
         <IconButton icon="x" label="Close preview" onPress={() => router.back()} testID="preview-close" />
         <View style={styles.title}>
           <Text variant="title" numberOfLines={1}>
-            {port ? `Port ${port}` : (/^\w+:\/\/([^/]+)/.exec(url)?.[1] ?? url)}
+            {port ? `Port ${port}` : isFile ? decodeURIComponent(url.split('/').pop() ?? url) : (/^\w+:\/\/([^/]+)/.exec(url)?.[1] ?? url)}
           </Text>
           {((path && path !== '/') || preset.width) && (
             <Text variant="muted" numberOfLines={1}>
@@ -128,6 +130,8 @@ export function PreviewScreen() {
           ref={webview}
           testID="preview-webview"
           source={{ uri: url }}
+          // A project's HTML file from disk may load the rest of its folder, nothing else.
+          {...(isFile ? { originWhitelist: ['*'], allowFileAccess: true, allowFileAccessFromFileURLs: true, allowingReadAccessToURL: fileRoot } : {})}
           // Pages of the project's server stay here; other sites open in Safari.
           onShouldStartLoadWithRequest={(req) => {
             const where = previewNavigation(req.url, url, req.isTopFrame ?? true);

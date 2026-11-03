@@ -144,8 +144,17 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>
       <View style={styles.message} testID={`remote-${status.state}`}>
         {status.state === 'unconfigured' && (
           <>
-            <Text variant="muted">Remote mode runs a real shell in a container on your Tide server.</Text>
-            <Button title="Set up Remote" icon="server" onPress={() => router.push('/settings/remote')} testID="remote-setup" />
+            <Feather name="server" size={22} color={colors.mutedForeground} />
+            <Text variant="label" style={styles.center}>
+              Remote isn't set up
+            </Text>
+            <Text variant="muted" style={styles.center}>
+              Remote runs a real Linux shell, for npm builds, Docker and compilers, on a server you host. The Local terminal works without one.
+            </Text>
+            <View style={styles.actions}>
+              <Button title="Use Local" variant="outline" icon="smartphone" onPress={() => setMode('local')} testID="remote-use-local" />
+              <Button title="Set up Remote" icon="server" onPress={() => router.push('/settings/remote')} testID="remote-setup" />
+            </View>
           </>
         )}
         {(status.state === 'connecting' || status.state === 'off') && <Text variant="muted">Starting the container and syncing files...</Text>}
@@ -298,6 +307,7 @@ const useStyles = makeStyles((colors) => ({
   tabs: { alignItems: 'center', gap: spacing.xs },
   tab: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radius.sm },
   tabOn: { backgroundColor: colors.secondary },
-  message: { flex: 1, padding: spacing.md, gap: spacing.md, alignItems: 'flex-start' },
+  message: { flex: 1, padding: spacing.lg, gap: spacing.sm, alignItems: 'center', justifyContent: 'center' },
+  center: { textAlign: 'center', maxWidth: 420 },
   actions: { flexDirection: 'row', gap: spacing.sm },
 }));

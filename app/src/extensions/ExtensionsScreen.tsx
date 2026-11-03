@@ -8,7 +8,7 @@ import { Button, IconButton } from '../components/Button';
 import type { IconName } from '../components/Button';
 import { Text } from '../components/Text';
 import { makeStyles, useColors } from '../theme/theme';
-import { borderWidth, radius, spacing } from '../theme/tokens';
+import { borderWidth, fontSizes, radius, spacing } from '../theme/tokens';
 import { ExtensionManifest, manifests } from './manifests';
 import { extensionsStore, useExtensions } from './state';
 import { isActive } from './store';
@@ -73,11 +73,24 @@ function ExtensionCard({ manifest: m }: { manifest: ExtensionManifest }) {
       )}
 
       <View style={styles.actions}>
-        <Text variant="muted" style={styles.flex} testID={`ext-${m.id}-status`}>
-          {installed ? 'Installed' : 'Free'}
-        </Text>
         {installed ? (
-          <Button title="Remove" variant="outline" onPress={() => store.uninstall(m.id)} testID={`ext-${m.id}-remove`} />
+          <View style={[styles.flex, styles.status]}>
+            <Feather name="check-circle" size={15} color={colors.success} />
+            <Text style={{ color: colors.success }} testID={`ext-${m.id}-status`}>
+              Installed
+            </Text>
+          </View>
+        ) : (
+          <Text variant="muted" style={styles.flex} testID={`ext-${m.id}-status`}>
+            Free
+          </Text>
+        )}
+        {installed ? (
+          <Pressable onPress={() => store.uninstall(m.id)} accessibilityRole="button" accessibilityLabel={`Remove ${m.name}`} hitSlop={10} testID={`ext-${m.id}-remove`}>
+            <Text variant="muted" style={styles.remove}>
+              Remove
+            </Text>
+          </Pressable>
         ) : (
           <Button title="Install" icon="download" onPress={() => store.install(m.id)} testID={`ext-${m.id}-install`} />
         )}
@@ -114,10 +127,11 @@ function ExtensionSettings({ manifest: m }: { manifest: ExtensionManifest }) {
 
 function SettingSwitch({ label, value, onChange, testID }: { label: string; value: boolean; onChange(v: boolean): void; testID: string }) {
   const styles = useStyles();
+  const colors = useColors();
   return (
     <View style={styles.settingRow}>
       <Text style={styles.flex}>{label}</Text>
-      <Switch testID={testID} value={value} onValueChange={onChange} />
+      <Switch testID={testID} value={value} onValueChange={onChange} trackColor={{ true: colors.brand, false: colors.secondary }} />
     </View>
   );
 }
@@ -154,4 +168,6 @@ const useStyles = makeStyles((colors) => ({
   },
   settings: { paddingHorizontal: spacing.md, paddingBottom: spacing.md, gap: spacing.sm },
   settingRow: { flexDirection: 'row', alignItems: 'center', minHeight: 40 },
+  status: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  remove: { fontSize: fontSizes.sm, textDecorationLine: 'underline' },
 }));

@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
-import { AppState, StyleSheet, View } from 'react-native';
+import { AppState, StyleSheet, useWindowDimensions, View } from 'react-native';
 import WebView, { WebViewMessageEvent } from 'react-native-webview';
 import * as Clipboard from 'expo-clipboard';
 
@@ -18,6 +18,9 @@ import { classify, formatBytes, TOO_LARGE_BYTES } from './largeFiles';
 import type { Shortcut } from '../project/shortcuts';
 import editorHtml from './editorHtml.generated';
 import { makeStyles, useColorScheme } from '../../theme/theme';
+
+// Narrower windows (phones, Slide Over) don't show the minimap.
+export const MINIMAP_MIN_WIDTH = 600;
 
 export interface EditorHandle {
   send(msg: ToEditor): void;
@@ -60,7 +63,9 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
   const wordWrap = useSettings((s) => s.wordWrap);
   const folding = useSettings((s) => s.folding);
   const indentGuides = useSettings((s) => s.indentGuides);
-  const minimap = useSettings((s) => s.minimap);
+  // A minimap is noise at phone width; it shows on iPad-sized windows.
+  const wideEnough = useWindowDimensions().width >= MINIMAP_MIN_WIDTH;
+  const minimap = useSettings((s) => s.minimap) && wideEnough;
   const keymap = useSettings((s) => s.keymap);
   const emmet = useSettings((s) => s.emmet);
   const snippets = useSettings((s) => s.snippets);

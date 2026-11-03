@@ -12,6 +12,8 @@ export const CHANGELOG: Release[] = [
       'Everything in Tide is free: every feature and every extension, with no subscription',
       'Support Tide with an optional tip, in Settings; tips unlock nothing',
       'Up to 6 terminals and 10 snapshots per project, for everyone',
+      'Preview HTML files with the eye button: their CSS, scripts and images load, and saving reloads the page',
+      'Wrapped lines keep their indentation, and a cleaner look for Settings, Extensions and the projects list',
       'Suggest message: a commit message written by AI from your changes, in Source Control and Git Tools',
       'Breadcrumbs above the editor: the file\'s folders and the function or class the cursor is in; tap to jump',
       'Tide suggests a free extension when a project would use it, such as Format & Lint for a project with ESLint',

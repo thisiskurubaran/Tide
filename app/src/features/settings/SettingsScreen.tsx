@@ -12,7 +12,7 @@ import { Text } from '../../components/Text';
 import { settingsStore, useSettings } from '../../state';
 import { ContrastSetting, EditorOptionKey, FONT_SIZE_MAX, FONT_SIZE_MIN, ThemeSetting } from '../../state/settings';
 import { makeStyles, useColors } from '../../theme/theme';
-import { borderWidth, radius, spacing } from '../../theme/tokens';
+import { borderWidth, radius, spacing, fontSizes } from '../../theme/tokens';
 import { useExtensions } from '../../extensions/state';
 import { useGitSettings } from '../git/settings';
 import { crashReportsAvailable } from '../privacy/crashReports';
@@ -123,7 +123,7 @@ export function SettingsScreen() {
               ['wordWrap', 'Word wrap'],
               ['folding', 'Code folding'],
               ['indentGuides', 'Indent guides'],
-              ['minimap', 'Minimap'],
+              ['minimap', 'Minimap (iPad and wide windows)'],
             ] as [EditorOptionKey, string][]
           ).map(([key, label]) => (
             <Row key={key} label={label}>
@@ -281,14 +281,15 @@ export function LinkRow({ label, detail, onPress, testID }: { label: string; det
   const colors = useColors();
   return (
     <Pressable testID={testID} accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
-      <Text variant="label" style={styles.rowLabel}>
-        {label}
-      </Text>
-      {detail ? (
-        <Text variant="muted" numberOfLines={1} style={styles.detail}>
-          {detail}
-        </Text>
-      ) : null}
+      {/* The detail goes under the label, so neither gets cut off on a phone. */}
+      <View style={styles.rowLabel}>
+        <Text variant="label">{label}</Text>
+        {detail ? (
+          <Text variant="muted" numberOfLines={2} style={styles.detail}>
+            {detail}
+          </Text>
+        ) : null}
+      </View>
       <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
     </Pressable>
   );
@@ -335,7 +336,7 @@ const useStyles = makeStyles((colors) => ({
   },
   pressed: { backgroundColor: colors.secondary },
   rowLabel: { flex: 1 },
-  detail: { maxWidth: '50%' },
+  detail: { fontSize: fontSizes.sm, marginTop: 1 },
   stepper: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   stepValue: { minWidth: 24, textAlign: 'center' },
   note: { padding: spacing.md },

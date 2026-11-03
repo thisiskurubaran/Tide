@@ -147,6 +147,12 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
       <HttpPane project={project} path={path!} />
     ) : previewKind(path!) === 'openapi' ? (
       <OpenApiPane project={project} path={path!} />
+    ) : previewKind(path!) === 'html' ? (
+      (() => {
+        // Loaded on first use, like the other viewers that pull in native modules.
+        const { HtmlFilePreview } = require('../preview/HtmlFilePreview') as typeof import('../preview/HtmlFilePreview');
+        return <HtmlFilePreview project={project} path={path!} />;
+      })()
     ) : previewKind(path!) === 'table' || previewKind(path!) === 'parquet' ? (
       (() => {
         // Loaded on first use: Parquet support pulls in hyparquet.

@@ -63,8 +63,8 @@ export function SuggestionBanner({ project }: { project: string }) {
 }
 
 const useStyles = makeStyles(() => ({
-  banner: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, margin: spacing.sm, borderRadius: radius.lg },
-  flex: { flex: 1, fontSize: 14 },
-  install: { paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.md },
-  installText: { fontWeight: '600', fontSize: 14 },
+  banner: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.sm + 2, paddingVertical: spacing.xs + 2, marginHorizontal: spacing.sm, marginTop: spacing.xs, borderRadius: radius.md },
+  flex: { flex: 1, fontSize: 13, lineHeight: 17 },
+  install: { paddingHorizontal: spacing.sm + 4, paddingVertical: 5, borderRadius: radius.sm },
+  installText: { fontWeight: '600', fontSize: 13 },
 }));

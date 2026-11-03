@@ -14,9 +14,17 @@ const hostOf = (url: string) => {
   }
 };
 
+// A project's own HTML file opened straight from disk: other files in the
+// project folder (links between pages) stay in the preview.
+const projectRoot = (url: string) => /^(file:\/\/.*?\/projects\/[^/]+\/)/.exec(url)?.[1] ?? null;
+
 export function previewNavigation(target: string, start: string, isTopFrame = true): PreviewNavigation {
   // Frames inside the page (embeds) and the page's own internal documents load as part of it.
   if (!isTopFrame || /^(about:blank|data:|blob:)/i.test(target)) return 'allow';
+  if (/^file:/i.test(target)) {
+    const root = projectRoot(start);
+    return root !== null && target.startsWith(root) && !target.slice(root.length).split(/[?#]/)[0].split('/').includes('..') ? 'allow' : 'block';
+  }
   if (!/^https?:/i.test(target)) return /^(mailto|tel):/i.test(target) ? 'external' : 'block';
   // Another port on the same host is still the project (a second dev server, the remote preview proxy).
   return hostOf(target) !== null && hostOf(target) === hostOf(start) ? 'allow' : 'external';

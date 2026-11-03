@@ -2,7 +2,7 @@ import Feather from '@expo/vector-icons/Feather';
 import * as Clipboard from 'expo-clipboard';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, FlatList, Image, Pressable, ScrollView, View } from 'react-native';
+import { Alert, FlatList, Image, Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ActionSheet } from '../../components/ActionSheet';
@@ -30,7 +30,8 @@ const mark = require('../../../assets/icons/splash.png');
 
 export { projectHref } from './href';
 
-// Everything outside a project, under the title. As labeled chips: five icons don't fit beside it.
+// Everything outside a project, under the title, as labeled chips that wrap
+// onto a second row on phones rather than running off the edge.
 const PLACES = [
   { icon: 'github', label: 'GitHub', href: '/github', testID: 'open-github' },
   { icon: 'server', label: 'SSH', href: '/ssh', testID: 'open-ssh' },
@@ -87,7 +88,7 @@ export function ProjectsScreen() {
         {__DEV__ && <IconButton icon="cpu" label="Runtime spike" onPress={() => router.push('/debug')} />}
         <IconButton icon="settings" label="Settings" onPress={() => router.push('/settings')} testID="open-settings" />
       </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.placesBar} contentContainerStyle={styles.places}>
+      <View style={styles.places}>
         {PLACES.map((p) => (
           <Pressable
             key={p.href}
@@ -100,7 +101,7 @@ export function ProjectsScreen() {
             <Text variant="label">{p.label}</Text>
           </Pressable>
         ))}
-      </ScrollView>
+      </View>
 
       <FlatList
         data={projects}
@@ -225,8 +226,7 @@ const useStyles = makeStyles((colors) => ({
   },
   mark: { width: 32, height: 32 },
   headerTitle: { flex: 1 },
-  placesBar: { flexGrow: 0, marginBottom: spacing.md },
-  places: { gap: spacing.sm, paddingHorizontal: spacing.md },
+  places: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, paddingHorizontal: spacing.md, marginBottom: spacing.md },
   place: {
     flexDirection: 'row',
     alignItems: 'center',
