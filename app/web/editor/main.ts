@@ -45,11 +45,13 @@ import {
   CodeFont,
   EditorDiagnostic,
   EditorFeatures,
+  EditorGestures,
   EditorKey,
   EditorOptions,
   FromEditor,
   Language,
   NO_FEATURES,
+  NO_GESTURES,
   parseToEditor,
   SelectUnit,
   ToEditor,
@@ -67,11 +69,14 @@ import {
   minimalChange,
   setBreakpoints,
 } from './features';
-import { pinchToZoom } from '../pinch';
+import { attachGestures, createPullPill, PULL_PILL_CSS } from './gestures';
 import { languageServices, ServiceHost, serviceCompletions, serviceKind } from './langservices';
 import { languageExtension } from './languages';
 import { optionsExtension } from './options';
 import { snippetSource } from './snippets';
+import { a11yExtension, gotoProblem } from './a11y';
+import { closePeek, PeekConfig, peekAt, peekExtension, showPeek } from './peek';
+import { problemExtensions } from './problems';
 import { buildTheme, FONT_FAMILY } from './theme';
 
 const CHANGE_DEBOUNCE_MS = 150;
@@ -109,6 +114,8 @@ const languageConf = new Compartment();
 const themeConf = new Compartment();
 const featureConf = new Compartment();
 const optionsConf = new Compartment();
+// Gutter shapes and the error lens (problems.ts); the lens is a setting.
+const problemsConf = new Compartment();
 let themeExtension: Extension = [];
 let theme: EditorTheme | null = null;
 let features: EditorFeatures = NO_FEATURES;
@@ -123,6 +130,12 @@ let pendingCursor: ReturnType<typeof setTimeout> | null = null;
 const requests = createRequests(post);
 const currentFile = () => currentPath;
 const featureExtension = () => featureExtensions(features, currentFile, post, requests.ask);
+const problemExtension = () => problemExtensions({ errorLens: options.errorLens !== false });
+const peekConfig: PeekConfig = {
+  request: (offset) => currentPath !== null && post({ type: 'peek', path: currentPath, offset }),
+  open: (path, line) => post({ type: 'openAt', path, line }),
+  theme: () => themeExtension,
+};
 
 // Per-file state the app pushes that has to outlive tab switches.
 const diagnostics = new Map<string, EditorDiagnostic[]>();
@@ -187,6 +200,9 @@ function baseExtensions(lang: Language): Extension[] {
     // Before lineNumbers so the breakpoint gutter sits on the outside.
     featureConf.of(featureExtension()),
     lineNumbers(),
+    problemsConf.of(problemExtension()),
+    peekExtension(peekConfig),
+    a11yExtension(currentFile, () => options.screenReader === true),
     optionsConf.of(optionExtension()),
     highlightActiveLine(),
     highlightActiveLineGutter(),
@@ -258,7 +274,13 @@ function open(path: string, content: string, lang: Language) {
     view.setState(cached);
     // The theme and features may have changed while this file was in the background.
     view.dispatch({
-      effects: [themeConf.reconfigure(themeExtension), featureConf.reconfigure(featureExtension()), optionsConf.reconfigure(optionExtension())],
+      effects: [
+        themeConf.reconfigure(themeExtension),
+        featureConf.reconfigure(featureExtension()),
+        optionsConf.reconfigure(optionExtension()),
+        problemsConf.reconfigure(problemExtension()),
+        closePeek,
+      ],
     });
   } else {
     view.setState(EditorState.create({ doc: content, extensions: baseExtensions(lang) }));
@@ -406,7 +428,7 @@ function handle(msg: ToEditor) {
       return view.contentDOM.blur();
     case 'options':
       options = msg.options;
-      view.dispatch({ effects: optionsConf.reconfigure(optionExtension()) });
+      view.dispatch({ effects: [optionsConf.reconfigure(optionExtension()), problemsConf.reconfigure(problemExtension())] });
       return view.requestMeasure();
     case 'features':
       features = msg.features;
@@ -433,6 +455,19 @@ function handle(msg: ToEditor) {
       return;
     case 'complete':
       return startCompletion(view);
+    case 'peek':
+      return peekConfig.request(view.state.selection.main.head);
+    case 'showPeek':
+      if (msg.path !== currentPath) return;
+      return view.dispatch({ effects: showPeek(peekAt(view.state, msg.offset, msg.target)) });
+    case 'gotoProblem': {
+      const text = gotoProblem(view, msg.direction);
+      // Said by the app: VoiceOver focus is on the app's action, not the page.
+      return post({ type: 'announce', text });
+    }
+    case 'setGestures':
+      gestures = msg.gestures;
+      return;
   }
 }
 
@@ -443,14 +478,58 @@ window.tide = {
   },
 };
 
-pinchToZoom(view.scrollDOM, {
-  get: () => parseFloat(view.dom.style.fontSize) || 14,
-  preview: (size) => {
-    view.dom.style.fontSize = `${size}px`;
-    view.requestMeasure();
+// Touch gestures (gestures.ts). Off until the app says which are on.
+let gestures: EditorGestures = NO_GESTURES;
+// iOS has its own three-finger undo swipe, which arrives as a historyUndo /
+// historyRedo beforeinput; when both fire for one swipe, only the first counts.
+const HISTORY_DEDUPE_MS = 600;
+let gestureHistoryAt = -Infinity;
+let systemHistoryAt = -Infinity;
+document.addEventListener(
+  'beforeinput',
+  (e) => {
+    if (e.inputType !== 'historyUndo' && e.inputType !== 'historyRedo') return;
+    if (performance.now() - gestureHistoryAt < HISTORY_DEDUPE_MS) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    } else systemHistoryAt = performance.now();
   },
-  // The app saves it, which sends it back with the theme.
-  commit: (fontSize) => post({ type: 'zoom', fontSize }),
+  true,
+);
+const pullStyle = document.createElement('style');
+pullStyle.textContent = PULL_PILL_CSS;
+document.head.appendChild(pullStyle);
+const pullPill = createPullPill(document.body);
+attachGestures(view.dom, {
+  flags: () => gestures,
+  fontSize: () => parseFloat(view.dom.style.fontSize) || 14,
+  scrollTop: () => view.scrollDOM.scrollTop,
+  inContent: (target) => target instanceof Node && view.contentDOM.contains(target),
+  onEvent(e) {
+    switch (e.type) {
+      case 'tab':
+        return post({ type: 'shortcut', id: e.direction === 'next' ? 'next-tab' : 'prev-tab' });
+      case 'zoom':
+        view.dom.style.fontSize = `${e.fontSize}px`;
+        view.requestMeasure();
+        // The app saves it, which sends it back with the theme.
+        if (e.done) post({ type: 'zoom', fontSize: e.fontSize });
+        return;
+      case 'history':
+        if (performance.now() - systemHistoryAt < HISTORY_DEDUPE_MS) return;
+        gestureHistoryAt = performance.now();
+        (e.action === 'undo' ? undo : redo)(view);
+        return;
+      case 'pull':
+        return pullPill.update(e.distance, e.armed);
+      case 'pullEnd':
+        pullPill.hide();
+        if (e.open) post({ type: 'shortcut', id: 'palette' });
+        return;
+      case 'actions':
+        return post({ type: 'actions' });
+    }
+  },
 });
 
 window.addEventListener('error', (e) => post({ type: 'error', message: String(e.message) }));

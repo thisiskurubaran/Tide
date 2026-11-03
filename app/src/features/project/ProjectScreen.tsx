@@ -47,6 +47,7 @@ import { StatusBar, countProblems } from './StatusBar';
 import { Activity, ActivityBar, ActivityItem } from './ActivityBar';
 import { TideWave } from '../../components/TideWave';
 import { EditorTour, resetEditorTour, useTourTarget } from '../onboarding/tour';
+import { runActivity } from '../widgets/runActivity';
 import { gitStatusStore, useGitStatus } from '../git/status';
 import { useDiagnostics } from '../../extensions/diagnostics';
 import { recentsStore } from '../../state/recents';
@@ -135,6 +136,9 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
   const [running, setRunning] = useState(false);
   const [mainHeight, setMainHeight] = useState(0);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [liveWindow, setLiveWindow] = useState(false);
+  // Two-finger tap in the editor: actions for the word at the cursor.
+  const [editorActions, setEditorActions] = useState(false);
   const [sidebarRatio, setSidebarRatio] = useState(0);
   const [bodyWidth, setBodyWidth] = useState(0);
   const [previewRatio, setPreviewRatio] = useState(0.5);
@@ -282,6 +286,11 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     }
   }
 
+  // What the Live Activity calls a run: tests, a server, or another task.
+  const runKind = (line: string): 'tests' | 'server' | 'task' =>
+    /\b(test|jest|vitest|pytest|mocha)\b/.test(line) ? 'tests' : /\b(dev|start|serve|server)\b|vite|next|http\.server|flask|uvicorn/.test(line) ? 'server' : 'task';
+  const startActivity = (line: string) => runActivity.onRunStart(project, line.trim(), runKind(line));
+
   async function runProject(config = selectedConfig) {
     if (!config) {
       Alert.alert('Nothing to run', projectTasks.error ?? 'Add a tide.json with "runtime" and "entry" to say how to run this project.');
@@ -292,6 +301,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     countRun();
     await buffersStore.getState().flushProject(project);
     setTerminalHidden(false);
+    startActivity(line);
     terminal.current?.input(line);
   }
 
@@ -363,6 +373,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     haptic('press');
     await buffersStore.getState().flushProject(project);
     setTerminalHidden(false);
+    startActivity(line);
     if (task.newTerminal) {
       terminal.current?.newTerminal();
       // The new terminal needs a moment before it takes input.
@@ -380,6 +391,9 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
       if (launch.line) openAt(launch.file, launch.line);
       else openFile(launch.file);
     }
+    // From the Live Activity's Stop and the Control Center's Run tests.
+    if (launch.stop) terminal.current?.input('\x03');
+    if (launch.tests) setTests({});
     if (!launch.run) return;
     // Through a ref: by then tide.json has been read, which this render hadn't.
     const timer = setTimeout(() => latestRun.current().catch((e) => console.warn('Run failed', e)), LAUNCH_RUN_DELAY_MS);
@@ -415,6 +429,18 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
       const [target] = await findDefinition(extensions, project, path, offset);
       if (target) openAt(target.path, target.line, target.column);
     },
+    // A few lines around the definition, shown inline under the cursor line.
+    async peek(path, offset) {
+      const [target] = await findDefinition(extensions, project, path, offset);
+      if (!target) return null;
+      const buffered = buffersStore.getState().buffers[bufferKey(project, target.path)]?.content;
+      const content = buffered ?? (await workspace.readFile(project, target.path).catch(() => null));
+      if (content === null) return null;
+      const lines = content.split('\n');
+      const startLine = Math.max(1, target.line - 2);
+      return { path: target.path, line: target.line, startLine, text: lines.slice(startLine - 1, startLine - 1 + 12).join('\n') };
+    },
+    openAt: (path, line) => openAt(path, line),
     cursor: (path, offset) => {
       cursor.current = { path, offset };
       cursorStore.setState({ path, offset });
@@ -530,6 +556,8 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     },
     { id: 'terminal.close', title: 'Close terminal', icon: 'x-square', run: () => terminal.current?.closeTerminal() },
     { id: 'terminal.next', title: 'Next terminal', icon: 'terminal', run: () => terminal.current?.nextTerminal() },
+    { id: 'peek', title: 'Peek definition', icon: 'eye', hint: '⌥F12', run: () => editor.current?.send({ type: 'peek' }) },
+    { id: 'live-preview', title: liveWindow ? 'Close the live preview window' : 'Live preview window', icon: 'monitor', run: () => setLiveWindow((on) => !on) },
     { id: 'tour', title: 'Show the editor tour again', icon: 'compass', run: () => resetEditorTour() },
     { id: 'keyboard-shortcuts', title: 'Keyboard shortcuts', icon: 'command', hint: '⇧⌘?', run: () => setShortcutsOpen(true) },
     { id: 'toggle-terminal', title: 'Toggle terminal', icon: 'terminal', hint: '⌘J', run: () => setTerminalHidden((h) => !h) },
@@ -618,6 +646,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
   const run = (id: string) => () => commands.find((c) => c.id === id)?.run();
   const moreActions = [
     { label: 'All commands', icon: 'command' as const, onPress: () => setPalette('commands') },
+    { label: liveWindow ? 'Close live preview' : 'Live preview window', icon: 'monitor' as const, onPress: () => setLiveWindow((on) => !on) },
     { label: 'Go to symbol', icon: 'list' as const, onPress: () => setOutline(true) },
     { label: 'TODOs in project', icon: 'check-square' as const, onPress: () => setTodos(true) },
     { label: 'Run tests', icon: 'check-circle' as const, onPress: () => setTests({}) },
@@ -669,6 +698,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     return () => clearTimeout(t);
   }, [runResult]);
   const onProgramExit = (code: number) => {
+    runActivity.onExit(code);
     haptic(code === 0 ? 'success' : 'warning');
     setRunResult(code === 0 ? 'success' : 'error');
   };
@@ -798,6 +828,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
                   setFocusedPane('left');
                 }}
                 onShortcut={onShortcut}
+                onActions={() => setEditorActions(true)}
               />
               {!sidePreview && viewer(tabs.active)}
             </View>
@@ -829,12 +860,19 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
                       setFocusedPane('right');
                     }}
                     onShortcut={onShortcut}
+                    onActions={() => setEditorActions(true)}
                   />
                   {viewer(split.path)}
                 </View>
               </>
             )}
             {!keyboardOpen && <SuggestionBanner project={project} />}
+            {liveWindow &&
+              (() => {
+                // Loaded on first use: it pulls in a WebView.
+                const { LivePreviewWindow } = require('../preview/LivePreviewWindow') as typeof import('../preview/LivePreviewWindow');
+                return <LivePreviewWindow project={project} path={current ?? null} onClose={() => setLiveWindow(false)} />;
+              })()}
           </View>
           <View
             style={[
@@ -855,6 +893,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
               onShowProblems={() => setProblems(true)}
               onBusyChange={setRunning}
               onExit={onProgramExit}
+              onOutput={(text) => runActivity.onOutput(text)}
               onHide={() => {
                 terminal.current?.blur();
                 setTerminalHidden(true);
@@ -914,6 +953,23 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
         </>
       )}
       <EditorTour />
+      <ActionSheet
+        title={editorActions ? 'Actions' : null}
+        actions={[
+          {
+            label: 'Go to definition',
+            icon: 'corner-down-right',
+            onPress: () => cursor.current && editorHost.definition(cursor.current.path, cursor.current.offset),
+          },
+          { label: 'Peek definition', icon: 'eye', onPress: () => editor.current?.send({ type: 'peek' }) },
+          { label: 'Look up in docs', icon: 'book', onPress: lookUpInDocs },
+          { label: 'Find in file', icon: 'search', onPress: () => editor.current?.send({ type: 'find' }) },
+          { label: 'Select line', icon: 'minus', onPress: () => editor.current?.send({ type: 'select', unit: 'line' }) },
+          { label: 'Select all', icon: 'maximize', onPress: () => editor.current?.send({ type: 'select', unit: 'all' }) },
+          { label: 'Command palette', icon: 'command', onPress: () => setPalette('commands') },
+        ]}
+        onClose={() => setEditorActions(false)}
+      />
       <ActionSheet title={moreOpen ? project : null} actions={moreActions} onClose={() => setMoreOpen(false)} />
 
       <CommandPalette
@@ -949,6 +1005,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
         onOpen={(path, line) => (line ? openAt(path, line) : openFile(path))}
         onTerminal={(line) => {
           setTerminalHidden(false);
+          runActivity.onRunStart(project, line, 'tests');
           terminal.current?.input(`${line}\r`);
         }}
       />

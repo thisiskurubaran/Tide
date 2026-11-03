@@ -1,7 +1,7 @@
 import Feather from '@expo/vector-icons/Feather';
 import { router } from 'expo-router';
 import { ReactNode, useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, Switch, View } from 'react-native';
+import { Alert, Platform, Pressable, ScrollView, Switch, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { IconButton } from '../../components/Button';
@@ -36,6 +36,7 @@ export function SettingsScreen() {
   const terminalFontSize = useSettings((s) => s.terminalFontSize);
   const crashReports = useSettings((s) => s.crashReports);
   const haptics = useSettings((s) => s.haptics);
+  const liveActivities = useSettings((s) => s.liveActivities);
   const contrast = useSettings((s) => s.contrast);
   const matchChrome = useSettings((s) => s.matchChrome);
   const themesOn = useExtensions((s) => isActive(s, 'themes'));
@@ -52,6 +53,7 @@ export function SettingsScreen() {
     indentGuides: useSettings((s) => s.indentGuides),
     minimap: useSettings((s) => s.minimap),
     emmet: useSettings((s) => s.emmet),
+    errorLens: useSettings((s) => s.errorLens),
   };
   const snippetCount = useSettings((s) => s.snippets.length);
   const aiKey = useAiSettings((s) => s.hasKey);
@@ -148,6 +150,7 @@ export function SettingsScreen() {
               ['folding', 'Code folding'],
               ['indentGuides', 'Indent guides'],
               ['minimap', 'Minimap (iPad and wide windows)'],
+              ['errorLens', 'Show problems at the end of the line'],
             ] as [EditorOptionKey, string][]
           ).map(([key, label]) => (
             <Row key={key} label={label}>
@@ -174,6 +177,7 @@ export function SettingsScreen() {
             onPress={() => router.push('/settings/snippets')}
             testID="settings-snippets"
           />
+          <LinkRow label="Gestures" detail="Swipe, pinch and pull in the editor" onPress={() => router.push('/settings/gestures')} testID="settings-gestures" />
           <Row label="Key bindings">
             <Segmented<KeymapSetting>
               testID="editor-keymap"
@@ -198,6 +202,16 @@ export function SettingsScreen() {
               trackColor={{ true: colors.brand, false: colors.secondary }}
             />
           </Row>
+          {Platform.OS === 'ios' && (
+            <Row label="Live Activities for runs and tests">
+              <Switch
+                testID="settings-live-activities"
+                value={liveActivities}
+                onValueChange={(on) => settings.setLiveActivities(on)}
+                trackColor={{ true: colors.brand, false: colors.secondary }}
+              />
+            </Row>
+          )}
         </Section>
 
         <Section title="Extensions">

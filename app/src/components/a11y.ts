@@ -7,9 +7,11 @@ interface SystemA11y {
   reduceMotion: boolean;
   // iOS Increase Contrast, Android high contrast text.
   increaseContrast: boolean;
+  // VoiceOver / TalkBack is running.
+  screenReader: boolean;
 }
 
-let state: SystemA11y = { reduceMotion: false, increaseContrast: false };
+let state: SystemA11y = { reduceMotion: false, increaseContrast: false, screenReader: false };
 const listeners = new Set<() => void>();
 let started = false;
 
@@ -23,6 +25,12 @@ function start() {
   started = true;
   AccessibilityInfo.isReduceMotionEnabled?.().then((reduceMotion) => set({ reduceMotion }), () => undefined);
   AccessibilityInfo.addEventListener?.('reduceMotionChanged', (reduceMotion) => set({ reduceMotion }));
+  // react-native-web always reports a screen reader, which would turn
+  // gestures off in the browser build; only trust it on iOS and Android.
+  if (Platform.OS !== 'web') {
+    AccessibilityInfo.isScreenReaderEnabled?.().then((screenReader) => set({ screenReader }), () => undefined);
+    AccessibilityInfo.addEventListener?.('screenReaderChanged', (screenReader) => set({ screenReader }));
+  }
   if (Platform.OS === 'ios') {
     AccessibilityInfo.isDarkerSystemColorsEnabled?.().then((increaseContrast) => set({ increaseContrast }), () => undefined);
     AccessibilityInfo.addEventListener?.('darkerSystemColorsChanged', (increaseContrast) => set({ increaseContrast }));
@@ -40,6 +48,7 @@ const subscribe = (l: () => void) => {
 
 export const useSystemA11y = () => useSyncExternalStore(subscribe, () => state);
 export const useReduceMotion = () => useSystemA11y().reduceMotion;
+export const useScreenReader = () => useSystemA11y().screenReader;
 
 // Slide for most people, none with Reduce Motion on.
 export const useModalAnimation = (normal: 'slide' | 'fade' = 'slide') => (useReduceMotion() ? 'none' : normal);

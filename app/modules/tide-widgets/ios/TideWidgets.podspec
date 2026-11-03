@@ -2,7 +2,7 @@ Pod::Spec.new do |s|
   s.name           = 'TideWidgets'
   s.version        = '1.0.0'
   s.summary        = 'Home Screen widgets and Live Activities for Tide'
-  s.description    = 'Shares recent projects with the widget extension and runs the deploy Live Activity'
+  s.description    = 'Shares recent projects with the widget extension and runs the deploy and run Live Activities'
   s.author         = ''
   s.homepage       = 'https://docs.expo.dev/modules/'
   s.platforms      = {

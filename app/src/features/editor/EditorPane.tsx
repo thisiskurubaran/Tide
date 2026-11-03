@@ -3,6 +3,7 @@ import { AppState, StyleSheet, useWindowDimensions, View } from 'react-native';
 import WebView, { WebViewMessageEvent } from 'react-native-webview';
 import * as Clipboard from 'expo-clipboard';
 
+import { announce, useScreenReader } from '../../components/a11y';
 import { Button } from '../../components/Button';
 import { Text } from '../../components/Text';
 import { breakpointsStore, fileBreakpoints, useBreakpoints } from '../../extensions/debugger/breakpoints';
@@ -13,11 +14,17 @@ import { useEditorTheme } from '../../extensions/themes';
 import { buffersStore, settingsStore, useBuffers, useSettings, workspace } from '../../state';
 import { bufferKey } from '../../state/buffers';
 import { spacing } from '../../theme/tokens';
-import { CompletionResult, DEFAULT_CODE_FONT, EditorFeatures, EditorRequest, HoverResult, isCodeFont, languageFor, NO_FEATURES, parseFromEditor, ToEditor } from './bridge';
+import { ALL_GESTURES, CompletionResult, DEFAULT_CODE_FONT, EditorFeatures, EditorRequest, HoverResult, isCodeFont, languageFor, NO_FEATURES, NO_GESTURES, parseFromEditor, ToEditor } from './bridge';
+import type { PeekTarget } from './bridge';
 import { classify, formatBytes, TOO_LARGE_BYTES } from './largeFiles';
 import type { Shortcut } from '../project/shortcuts';
 import editorHtml from './editorHtml.generated';
 import { makeStyles, useColorScheme } from '../../theme/theme';
+
+const PROBLEM_ACTIONS = [
+  { name: 'nextProblem', label: 'Next problem' },
+  { name: 'previousProblem', label: 'Previous problem' },
+];
 
 // Narrower windows (phones, Slide Over) don't show the minimap.
 export const MINIMAP_MIN_WIDTH = 600;
@@ -34,6 +41,10 @@ export interface EditorHost {
   definition(path: string, offset: number): void;
   cursor(path: string, offset: number): void;
   save(path: string): void;
+  // Peek definition at `offset`: a few lines around the definition, or null.
+  peek?(path: string, offset: number): Promise<PeekTarget | null>;
+  // "Open" in a peek: show `path` at a 1-based line, opening its tab if needed.
+  openAt?(path: string, line: number): void;
 }
 
 interface EditorPaneProps {
@@ -44,10 +55,12 @@ interface EditorPaneProps {
   onBrowse(): void;
   onShortcut(id: Shortcut): void;
   onFocusChange(focused: boolean): void;
+  // A two-finger tap in the editor.
+  onActions?(): void;
 }
 
 export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function EditorPane(
-  { project, path, features, host, onBrowse, onFocusChange, onShortcut },
+  { project, path, features, host, onBrowse, onFocusChange, onShortcut, onActions },
   ref,
 ) {
   const styles = useStyles();
@@ -71,6 +84,11 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
   const snippets = useSettings((s) => s.snippets);
   const codeFont = useSettings((s) => s.codeFont);
   const ligatures = useSettings((s) => s.ligatures);
+  // Missing in settings saved before the option existed: on.
+  const errorLens = useSettings((s) => s.errorLens) !== false;
+  const gestureSettings = useSettings((s) => s.gestures);
+  // Gestures would fight VoiceOver / TalkBack's own, so they are all off while one runs.
+  const screenReader = useScreenReader();
   const bufferContent = useBuffers((s) => (path ? s.buffers[bufferKey(project, path)]?.content : undefined));
   // fileDiagnostics builds a new array; compare its items so a re-render isn't a new value every time.
   const diagnostics = useDiagnostics(useShallow((s) => (path ? fileDiagnostics(s, project, path, EDITOR_SOURCE) : null)));
@@ -118,6 +136,12 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
   );
   useEffect(sendFont, [sendFont]);
 
+  const sendGestures = useCallback(
+    () => send({ type: 'setGestures', gestures: screenReader ? NO_GESTURES : { ...ALL_GESTURES, ...gestureSettings } }),
+    [send, screenReader, gestureSettings],
+  );
+  useEffect(sendGestures, [sendGestures]);
+
   const sendFeatures = useCallback(() => send({ type: 'features', features: isLarge ? NO_FEATURES : features }), [send, features, isLarge]);
   useEffect(sendFeatures, [sendFeatures]);
 
@@ -125,11 +149,15 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
     () =>
       send({
         type: 'options',
-        options: isLarge
-          ? { wordWrap: false, folding: false, indentGuides: false, minimap: false, keymap }
-          : { wordWrap, folding, indentGuides, minimap, keymap, emmet, snippets },
+        options: {
+          ...(isLarge
+            ? { wordWrap: false, folding: false, indentGuides: false, minimap: false, keymap }
+            : { wordWrap, folding, indentGuides, minimap, keymap, emmet, snippets, errorLens }),
+          // Only when on, so the editor's options stay as they were for everyone else.
+          ...(screenReader ? { screenReader } : {}),
+        },
       }),
-    [send, wordWrap, folding, indentGuides, minimap, keymap, emmet, snippets, isLarge],
+    [send, wordWrap, folding, indentGuides, minimap, keymap, emmet, snippets, errorLens, screenReader, isLarge],
   );
   useEffect(sendOptions, [sendOptions]);
 
@@ -220,6 +248,7 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
         ready.current = true;
         sendTheme();
         sendFont();
+        sendGestures();
         sendOptions();
         sendFeatures();
         openCurrent().then(() => {
@@ -242,6 +271,21 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
         return;
       case 'definition':
         hostRef.current.definition(msg.path, msg.offset);
+        return;
+      case 'peek': {
+        const peek = hostRef.current.peek;
+        if (!peek) return;
+        peek(msg.path, msg.offset)
+          .catch(() => null)
+          .then((target) => send({ type: 'showPeek', path: msg.path, offset: msg.offset, target }));
+        return;
+      }
+      case 'openAt':
+        if (hostRef.current.openAt) hostRef.current.openAt(msg.path, msg.line);
+        else if (msg.path === pathRef.current) send({ type: 'goto', path: msg.path, line: msg.line });
+        return;
+      case 'announce':
+        announce(msg.text);
         return;
       case 'cursor':
         hostRef.current.cursor(msg.path, msg.offset);
@@ -273,6 +317,9 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
       case 'shortcut':
         onShortcut(msg.id);
         return;
+      case 'actions':
+        onActions?.();
+        return;
       case 'error':
         console.warn('Editor error:', msg.message);
         return;
@@ -280,7 +327,16 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
   }
 
   return (
-    <View style={styles.container}>
+    <View
+      testID="editor-pane"
+      style={styles.container}
+      // VoiceOver / TalkBack actions: the editor moves to the problem and says what it is.
+      accessibilityActions={PROBLEM_ACTIONS}
+      onAccessibilityAction={(e) => {
+        const direction = e.nativeEvent.actionName === 'nextProblem' ? 1 : e.nativeEvent.actionName === 'previousProblem' ? -1 : 0;
+        if (direction) send({ type: 'gotoProblem', direction });
+      }}
+    >
       {/* The default type argument makes WebView's props `WebViewProps & undefined`, i.e. never. */}
       <WebView<object>
         ref={webview}

@@ -17,7 +17,8 @@ const RELOAD_DELAY_MS = 300;
 // stylesheets, scripts and images load. Saving reloads it (swapping only the
 // stylesheets when just CSS changed); the expand button opens it full screen
 // with dev tools, device widths and page checks.
-export function HtmlFilePreview({ project, path }: { project: string; path: string }) {
+// `compact` drops the floating tools, for the small live preview window.
+export function HtmlFilePreview({ project, path, compact }: { project: string; path: string; compact?: boolean }) {
   const styles = useStyles();
   const colors = useColors();
   const webview = useRef<WebView<object>>(null);
@@ -73,6 +74,7 @@ export function HtmlFilePreview({ project, path }: { project: string; path: stri
           style={styles.web}
         />
       )}
+      {!compact && (
       <View style={[styles.tools, { backgroundColor: colors.card, borderColor: colors.border }]}>
         <IconButton icon="refresh-cw" label="Reload" onPress={() => webview.current?.reload()} testID="html-preview-reload" />
         <IconButton
@@ -82,6 +84,7 @@ export function HtmlFilePreview({ project, path }: { project: string; path: stri
           testID="html-preview-full"
         />
       </View>
+      )}
     </View>
   );
 }

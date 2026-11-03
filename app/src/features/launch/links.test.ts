@@ -28,3 +28,13 @@ describe('send links', () => {
     expect(launchParams({ send: '1', run: '1' })?.send).toBeUndefined();
   });
 });
+
+describe('tests and stop links', () => {
+  it('round-trips them', () => {
+    expect(projectLink('habit tracker', { tests: true })).toBe('tide://project/habit%20tracker?tests=1');
+    expect(projectPath('web', { stop: true })).toBe('/project/web?stop=1');
+    expect(launchParams({ tests: '1' })).toEqual({ file: undefined, line: undefined, run: false, tests: true });
+    expect(launchParams({ stop: 'true' })?.stop).toBe(true);
+    expect(launchParams({ run: '1' })).not.toHaveProperty('tests');
+  });
+});

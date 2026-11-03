@@ -1,4 +1,5 @@
 import { createMemoryFs } from '../features/files/memoryFs';
+import { ALL_GESTURES } from '../features/editor/bridge';
 import { createSettingsStore } from './settings';
 import { createFsStorage } from './storage';
 
@@ -90,5 +91,18 @@ describe('settings store', () => {
     const restarted = createSettingsStore(storage);
     await flush();
     expect(restarted.getState().matchChrome).toBe(false);
+  });
+
+  it('has every gesture on by default and saves each switch', async () => {
+    const storage = createFsStorage(createMemoryFs());
+    await storage.setItem('settings', JSON.stringify({ state: { theme: 'dark', editorFontSize: 14, terminalFontSize: 13 }, version: 1 }));
+    const settings = createSettingsStore(storage);
+    await flush();
+    expect(settings.getState().gestures).toEqual(ALL_GESTURES);
+    settings.getState().setGesture('undo', false);
+    await flush();
+    const restarted = createSettingsStore(storage);
+    await flush();
+    expect(restarted.getState().gestures).toEqual({ ...ALL_GESTURES, undo: false });
   });
 });

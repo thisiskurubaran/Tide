@@ -1,5 +1,6 @@
-// The widget extension: Recent Projects on the Home Screen, and the deploy
-// Live Activity on the Lock Screen and in the Dynamic Island.
+// The widget extension: Recent Projects on the Home Screen, the deploy and run
+// Live Activities on the Lock Screen and in the Dynamic Island, and the Run
+// project / Run tests controls (iOS 18) in Control Center.
 /** @type {import('@bacons/apple-targets/app.plugin').ConfigFunction} */
 module.exports = (config) => ({
   type: 'widget',
@@ -9,7 +10,7 @@ module.exports = (config) => ({
   bundleIdentifier: '.widget',
   displayName: 'Tide',
   deploymentTarget: '16.4',
-  frameworks: ['SwiftUI', 'WidgetKit', 'ActivityKit'],
+  frameworks: ['SwiftUI', 'WidgetKit', 'ActivityKit', 'AppIntents'],
   colors: {
     $accent: '#2dd4bf',
     // apple-targets 5 reads two-mode colors as { light, dark }; other keys

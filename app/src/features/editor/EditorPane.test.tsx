@@ -3,6 +3,8 @@
 import { act, render, screen } from '@testing-library/react-native';
 
 jest.mock('@expo/vector-icons/Feather', () => 'Feather');
+let mockScreenReader = false;
+jest.mock('../../components/a11y', () => ({ ...jest.requireActual('../../components/a11y'), useScreenReader: () => mockScreenReader }));
 let mockSent: { type: string; language?: string; options?: Record<string, boolean>; features?: Record<string, boolean>; font?: string; ligatures?: boolean }[] = [];
 let mockOnMessage: (e: { nativeEvent: { data: string } }) => void = () => undefined;
 jest.mock('react-native-webview', () => {
@@ -50,7 +52,7 @@ jest.mock('../../state', () => {
 });
 
 import { settingsStore, workspace } from '../../state';
-import { NO_FEATURES } from './bridge';
+import { ALL_GESTURES, NO_FEATURES, NO_GESTURES } from './bridge';
 import { EditorPane } from './EditorPane';
 import { LARGE_CHARS } from './largeFiles';
 
@@ -99,4 +101,60 @@ it("doesn't open binary files", async () => {
   await openFile('image.png');
   expect(mockSent.find((m) => m.type === 'open')).toBeUndefined();
   expect(screen.getByTestId('editor-refused')).toBeTruthy();
+});
+
+describe('gestures', () => {
+  const gestures = () => (mockSent.filter((m) => m.type === 'setGestures').pop() as { gestures?: unknown } | undefined)?.gestures;
+
+  it('sends the gesture settings, all on by default', async () => {
+    await openFile('small.ts');
+    expect(gestures()).toEqual(ALL_GESTURES);
+    await act(async () => settingsStore.setState({ gestures: { ...ALL_GESTURES, pinch: false } } as never));
+    expect(gestures()).toEqual({ ...ALL_GESTURES, pinch: false });
+    await act(async () => settingsStore.setState({ gestures: undefined } as never));
+  });
+
+  it('turns every gesture off while a screen reader runs', async () => {
+    mockScreenReader = true;
+    try {
+      await openFile('small.ts');
+      expect(gestures()).toEqual(NO_GESTURES);
+    } finally {
+      mockScreenReader = false;
+    }
+  });
+
+  it('shows the editor actions on a two-finger tap', async () => {
+    const onActions = jest.fn();
+    mockSent = [];
+    await render(
+      <EditorPane project="p" path="small.ts" features={features} host={host} onBrowse={() => undefined} onShortcut={() => undefined} onFocusChange={() => undefined} onActions={onActions} />,
+    );
+    await act(async () => mockOnMessage({ nativeEvent: { data: JSON.stringify({ type: 'actions' }) } }));
+    expect(onActions).toHaveBeenCalledTimes(1);
+  });
+});
+
+it('answers a peek from the editor and follows Open', async () => {
+  const target = { path: 'small.ts', line: 1, text: 'const a = 1;', startLine: 1 };
+  const peek = jest.fn(async () => target);
+  const openAt = jest.fn();
+  mockSent = [];
+  await render(
+    <EditorPane project="p" path="small.ts" features={features} host={{ ...host, peek, openAt }} onBrowse={() => undefined} onShortcut={() => undefined} onFocusChange={() => undefined} />,
+  );
+  await act(async () => mockOnMessage({ nativeEvent: { data: JSON.stringify({ type: 'ready' }) } }));
+  await act(async () => mockOnMessage({ nativeEvent: { data: JSON.stringify({ type: 'peek', path: 'small.ts', offset: 6 }) } }));
+  expect(peek).toHaveBeenCalledWith('small.ts', 6);
+  expect(mockSent.find((m) => m.type === 'showPeek')).toEqual({ type: 'showPeek', path: 'small.ts', offset: 6, target });
+  await act(async () => mockOnMessage({ nativeEvent: { data: JSON.stringify({ type: 'openAt', path: 'other.ts', line: 3 }) } }));
+  expect(openAt).toHaveBeenCalledWith('other.ts', 3);
+});
+
+it('moves between problems from the accessibility actions', async () => {
+  await openFile('small.ts');
+  const container = screen.getByTestId('editor-pane');
+  expect(container.props.accessibilityActions.map((a: { label: string }) => a.label)).toEqual(['Next problem', 'Previous problem']);
+  await act(async () => container.props.onAccessibilityAction({ nativeEvent: { actionName: 'previousProblem' } }));
+  expect(mockSent.pop()).toEqual({ type: 'gotoProblem', direction: -1 });
 });

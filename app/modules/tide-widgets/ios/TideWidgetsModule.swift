@@ -40,5 +40,38 @@ public class TideWidgetsModule: Module {
         await activity.end(content, dismissalPolicy: .after(Date().addingTimeInterval(5 * 60)))
       }
     }
+
+    // A dev server, test run or task. Returns the activity's id, or nil when
+    // Live Activities are off.
+    AsyncFunction("startRunActivity") { (project: String, command: String, kind: String, detail: String) throws -> String? in
+      guard ActivityAuthorizationInfo().areActivitiesEnabled else { return nil }
+      let state = TideRunAttributes.ContentState(status: "running", startedAt: Date(), endedAt: nil, detail: detail, progress: nil)
+      let activity = try Activity.request(
+        attributes: TideRunAttributes(project: project, command: command, kind: kind),
+        content: ActivityContent(state: state, staleDate: nil)
+      )
+      return activity.id
+    }
+
+    // Keeps the start time; progress is nil for runs that don't report any.
+    AsyncFunction("updateRunActivity") { (id: String, status: String, detail: String, progress: Double?) async in
+      guard let activity = Activity<TideRunAttributes>.activities.first(where: { $0.id == id }) else { return }
+      var state = activity.content.state
+      state.status = status
+      state.detail = detail
+      state.progress = progress
+      await activity.update(ActivityContent(state: state, staleDate: nil))
+    }
+
+    // Stops the timer and leaves the result on the Lock Screen for a few minutes.
+    AsyncFunction("endRunActivity") { (id: String, status: String, detail: String) async in
+      guard let activity = Activity<TideRunAttributes>.activities.first(where: { $0.id == id }) else { return }
+      var state = activity.content.state
+      state.status = status
+      state.detail = detail
+      state.endedAt = Date()
+      if status == "passed" && state.progress != nil { state.progress = 1 }
+      await activity.end(ActivityContent(state: state, staleDate: nil), dismissalPolicy: .after(Date().addingTimeInterval(5 * 60)))
+    }
   }
 }

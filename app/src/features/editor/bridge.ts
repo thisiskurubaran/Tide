@@ -56,6 +56,10 @@ export interface EditorOptions {
   keymap: KeymapSetting;
   emmet?: boolean;
   snippets?: Snippet[];
+  // The first problem on a line shown at its end. Missing means on.
+  errorLens?: boolean;
+  // VoiceOver / TalkBack is running: the editor announces the line and its problems.
+  screenReader?: boolean;
 }
 
 // Code fonts bundled in assets/fonts (Regular only). The id is what Settings
@@ -73,6 +77,25 @@ export const CODE_FONTS: Record<CodeFont, { name: string; family: string; postSc
 export const DEFAULT_CODE_FONT: CodeFont = 'jetbrains-mono';
 
 export const isCodeFont = (v: unknown): v is CodeFont => typeof v === 'string' && Object.prototype.hasOwnProperty.call(CODE_FONTS, v);
+
+// Touch gestures in the editor, each switchable in Settings > Gestures. They
+// are all off while a screen reader is running.
+export interface EditorGestures {
+  // Two-finger horizontal swipe: next / previous tab.
+  tabs: boolean;
+  // Pinch: code font size.
+  pinch: boolean;
+  // Three-finger horizontal swipe: left undoes, right redoes.
+  undo: boolean;
+  // Pull down at the top of the file: command palette.
+  pullPalette: boolean;
+  // Two-finger tap: editor actions.
+  twoFingerTap: boolean;
+}
+
+export const GESTURE_KEYS = ['tabs', 'pinch', 'undo', 'pullPalette', 'twoFingerTap'] as const satisfies readonly (keyof EditorGestures)[];
+export const ALL_GESTURES: EditorGestures = { tabs: true, pinch: true, undo: true, pullPalette: true, twoFingerTap: true };
+export const NO_GESTURES: EditorGestures = { tabs: false, pinch: false, undo: false, pullPalette: false, twoFingerTap: false };
 
 export const NO_FEATURES: EditorFeatures = { language: false, breakpoints: false, conflicts: false };
 
@@ -92,6 +115,10 @@ export interface CompletionItem {
 }
 
 export type CompletionResult = { from: number; items: CompletionItem[] };
+
+// What Peek definition shows: `text` is a few lines around the definition,
+// starting at `startLine`; `line` is the definition's own line. All 1-based.
+export type PeekTarget = { path: string; line: number; text: string; startLine: number };
 export type HoverResult = { text: string; from: number; to: number };
 
 export type EditorRequest =
@@ -135,7 +162,15 @@ export type ToEditor =
   // Where the debugger is paused, or null when it isn't.
   | { type: 'execLine'; path: string | null; line: number }
   // Opens the completion list (the accessory bar has no Ctrl-Space).
-  | { type: 'complete' };
+  | { type: 'complete' }
+  // Peek definition at the cursor: the editor answers with a 'peek' message.
+  | { type: 'peek' }
+  // The answer to a 'peek' message from `path` at `offset`; null when nothing was found.
+  | { type: 'showPeek'; path: string; offset: number; target: PeekTarget | null }
+  // Moves the cursor to the next (1) or previous (-1) problem and announces it.
+  | { type: 'gotoProblem'; direction: 1 | -1 }
+  // Which touch gestures are on (all off while a screen reader runs).
+  | { type: 'setGestures'; gestures: EditorGestures };
 
 export type FromEditor =
   | { type: 'ready' }
@@ -158,7 +193,15 @@ export type FromEditor =
   // Breakpoints in a file after a gutter tap, or after edits moved them. 1-based.
   | { type: 'breakpointsChanged'; path: string; lines: number[] }
   // What the built-in CSS/HTML/JSON services found in a file, for the Problems panel.
-  | { type: 'serviceDiagnostics'; path: string; items: EditorDiagnostic[] };
+  | { type: 'serviceDiagnostics'; path: string; items: EditorDiagnostic[] }
+  // ⌥F12 or a 'peek' message: Peek definition at `offset`.
+  | { type: 'peek'; path: string; offset: number }
+  // "Open" in a peek: go to a 1-based line in a file, which may not be open.
+  | { type: 'openAt'; path: string; line: number }
+  // Something for VoiceOver / TalkBack to say, e.g. after Next problem.
+  | { type: 'announce'; text: string }
+  // A two-finger tap in the editor: show the editor actions.
+  | { type: 'actions' };
 
 const EXTENSIONS: Record<string, Language> = {
   js: 'javascript',
@@ -220,6 +263,10 @@ const TO_EDITOR = new Set<ToEditor['type']>([
   'complete',
   'select',
   'copy',
+  'peek',
+  'showPeek',
+  'gotoProblem',
+  'setGestures',
 ]);
 const FROM_EDITOR = new Set<FromEditor['type']>([
   'ready',
@@ -235,12 +282,18 @@ const FROM_EDITOR = new Set<FromEditor['type']>([
   'breakpointsChanged',
   'clipboard',
   'zoom',
+  'peek',
+  'openAt',
+  'announce',
+  'actions',
 ]);
 
 // Extra checks for messages whose fields pick a code path in the WebView; an
 // unknown font id would otherwise leave the editor with a fallback font.
 const VALID: Partial<Record<string, (msg: Record<string, unknown>) => boolean>> = {
   setFont: (msg) => isCodeFont(msg.font) && typeof msg.ligatures === 'boolean',
+  setGestures: (msg) =>
+    typeof msg.gestures === 'object' && msg.gestures !== null && GESTURE_KEYS.every((k) => typeof (msg.gestures as Record<string, unknown>)[k] === 'boolean'),
 };
 
 function parse<T extends { type: string }>(raw: string, types: Set<string>): T | null {

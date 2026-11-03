@@ -58,6 +58,7 @@
       },
       "appleTeamId": "9CYJBSWY2X",
       "infoPlist": {
+        "CADisableMinimumFrameDurationOnPhone": true,
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
         },

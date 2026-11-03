@@ -37,11 +37,13 @@ interface TerminalPanelProps {
   onBusyChange?(busy: boolean): void;
   // A program in the active terminal finished.
   onExit?(code: number): void;
+  // Output of the active terminal, for the run Live Activity.
+  onOutput?(text: string): void;
   // Hides the panel (the chevron in its header).
   onHide?(): void;
 }
 
-export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>(function TerminalPanel({ project, onFocusChange, onShortcut, onOpenFile, onShowProblems, onBusyChange, onExit, onHide }, ref) {
+export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>(function TerminalPanel({ project, onFocusChange, onShortcut, onOpenFile, onShowProblems, onBusyChange, onExit, onOutput, onHide }, ref) {
   const styles = useStyles();
   const colors = useColors();
   const mode = useRunner((s) => s.mode);
@@ -137,7 +139,10 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>
         onShortcut={onShortcut}
         onFound={(index, count) => id === tabs.active && setFound({ index, count })}
         onOpenFile={onOpenFile}
-        onOutput={(data) => collector(id).write(data)}
+        onOutput={(data) => {
+          collector(id).write(data);
+          if (id === tabs.active) onOutput?.(data);
+        }}
         onSubmit={() => collector(id).reset()}
         onExit={(code) => id === tabs.active && onExit?.(code)}
         onBusy={(busy) =>

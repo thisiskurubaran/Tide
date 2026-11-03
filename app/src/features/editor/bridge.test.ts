@@ -1,4 +1,4 @@
-import { CODE_FONTS, isCodeFont, languageFor, parseFromEditor, parseToEditor } from './bridge';
+import { ALL_GESTURES, CODE_FONTS, isCodeFont, languageFor, parseFromEditor, parseToEditor } from './bridge';
 
 describe('languageFor', () => {
   it.each([
@@ -51,6 +51,15 @@ describe('message parsing', () => {
     expect(parseToEditor(JSON.stringify({ type: 'setFont' }))).toBeNull();
     // Only the app sends it.
     expect(parseFromEditor(JSON.stringify(msg))).toBeNull();
+  });
+
+  it('accepts setGestures only with every flag as a boolean, and actions from the editor', () => {
+    const msg = { type: 'setGestures', gestures: ALL_GESTURES };
+    expect(parseToEditor(JSON.stringify(msg))).toEqual(msg);
+    expect(parseToEditor(JSON.stringify({ type: 'setGestures', gestures: { ...ALL_GESTURES, pinch: 'yes' } }))).toBeNull();
+    expect(parseToEditor(JSON.stringify({ type: 'setGestures', gestures: { tabs: true } }))).toBeNull();
+    expect(parseToEditor(JSON.stringify({ type: 'setGestures' }))).toBeNull();
+    expect(parseFromEditor(JSON.stringify({ type: 'actions' }))).toEqual({ type: 'actions' });
   });
 });
 

@@ -1,7 +1,7 @@
 import { createStore } from 'zustand';
 import { createJSONStorage, persist, StateStorage } from 'zustand/middleware';
 
-import { type CodeFont, DEFAULT_CODE_FONT, type KeymapSetting, type Snippet } from '../features/editor/bridge';
+import { ALL_GESTURES, type CodeFont, DEFAULT_CODE_FONT, type EditorGestures, type KeymapSetting, type Snippet } from '../features/editor/bridge';
 
 export type { CodeFont };
 
@@ -27,6 +27,8 @@ export interface SettingsState {
   // Emmet in HTML, CSS and JSX, and the user's own snippets.
   emmet: boolean;
   snippets: Snippet[];
+  // The first problem on a line, shown at its end (error lens).
+  errorLens: boolean;
   haptics: boolean;
   // "system" follows the device's Increase Contrast setting.
   contrast: ContrastSetting;
@@ -35,6 +37,12 @@ export interface SettingsState {
   ligatures: boolean;
   // The app's own colors follow the Themes & Icons color theme, when one is chosen.
   matchChrome: boolean;
+  // Runs, tests and deploys on the Lock Screen and in the Dynamic Island (iOS).
+  liveActivities: boolean;
+  setLiveActivities(on: boolean): void;
+  // Touch gestures in the editor (Settings > Gestures).
+  gestures: EditorGestures;
+  setGesture(key: keyof EditorGestures, on: boolean): void;
   setTheme(theme: ThemeSetting): void;
   setEditorFontSize(size: number): void;
   setTerminalFontSize(size: number): void;
@@ -51,7 +59,7 @@ export interface SettingsState {
 
 export type ContrastSetting = 'system' | 'standard' | 'high';
 
-export type EditorOptionKey = 'wordWrap' | 'folding' | 'indentGuides' | 'minimap' | 'emmet';
+export type EditorOptionKey = 'wordWrap' | 'folding' | 'indentGuides' | 'minimap' | 'emmet' | 'errorLens';
 
 export function createSettingsStore(storage: StateStorage) {
   return createStore<SettingsState>()(
@@ -68,11 +76,17 @@ export function createSettingsStore(storage: StateStorage) {
         keymap: 'standard',
         emmet: true,
         snippets: [],
+        errorLens: true,
         haptics: true,
         contrast: 'system',
         codeFont: DEFAULT_CODE_FONT,
         ligatures: false,
         matchChrome: true,
+        liveActivities: true,
+        setLiveActivities: (liveActivities) => set({ liveActivities }),
+        gestures: ALL_GESTURES,
+        // Merged with the defaults, so a gesture added later starts on for settings saved before it.
+        setGesture: (key, on) => set((s) => ({ gestures: { ...ALL_GESTURES, ...s.gestures, [key]: on } })),
         setTheme: (theme) => set({ theme }),
         setEditorFontSize: (size) => set({ editorFontSize: clampFontSize(size) }),
         setTerminalFontSize: (size) => set({ terminalFontSize: clampFontSize(size) }),
@@ -90,7 +104,7 @@ export function createSettingsStore(storage: StateStorage) {
         name: 'settings',
         version: 1,
         storage: createJSONStorage(() => storage),
-        partialize: ({ theme, editorFontSize, terminalFontSize, crashReports, wordWrap, folding, indentGuides, minimap, keymap, emmet, snippets, haptics, contrast, codeFont, ligatures, matchChrome }) => ({
+        partialize: ({ theme, editorFontSize, terminalFontSize, crashReports, wordWrap, folding, indentGuides, minimap, keymap, emmet, snippets, errorLens, haptics, contrast, codeFont, ligatures, matchChrome, gestures, liveActivities }) => ({
           theme,
           editorFontSize,
           terminalFontSize,
@@ -102,11 +116,14 @@ export function createSettingsStore(storage: StateStorage) {
           keymap,
           emmet,
           snippets,
+          errorLens,
           haptics,
           contrast,
           codeFont,
           ligatures,
           matchChrome,
+          liveActivities,
+          gestures,
         }),
       },
     ),

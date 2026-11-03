@@ -1,7 +1,7 @@
 // Tide on the Home Screen and Lock Screen: keeps the widget's recent
 // projects current, and shows deploys as a Live Activity.
 import TideWidgets from '../../../modules/tide-widgets/src';
-import { projectsStore, tabsStore } from '../../state';
+import { projectsStore, settingsStore, tabsStore } from '../../state';
 import { deployStore } from '../deploy';
 import { PROVIDERS } from '../deploy/deploy';
 import { activitySteps, sharedData } from './sync';
@@ -24,6 +24,7 @@ export function startWidgets(): () => void {
   const offDeploys = deployStore.subscribe((next, prev) => {
     for (const step of activitySteps(prev.status, next.status, new Set(live.keys()))) {
       if (step.kind === 'start') {
+        if (settingsStore.getState().liveActivities === false) continue;
         const label = PROVIDERS.find((p) => p.id === step.provider)?.label ?? step.provider;
         live.set(step.project, native.startDeployActivity(step.project, label, step.message).catch(() => null));
       } else {

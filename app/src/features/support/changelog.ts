@@ -11,6 +11,11 @@ export const CHANGELOG: Release[] = [
     items: [
       'Everything in Tide is free: every feature and every extension, with no subscription',
       'Support Tide with an optional tip, in Settings; tips unlock nothing',
+      'Live preview window: a floating preview of your page or dev server that follows your typing; drag it anywhere and resize it',
+      'Gestures: two fingers to switch tabs, pinch to zoom the code, three fingers to undo, pull down for commands; each one can be turned off',
+      'Live Activity and Dynamic Island while a dev server, tests or a task runs, with Stop; Control Center buttons to run a project or its tests',
+      'Peek a definition inline (⌥F12), and see each problem at the end of its line',
+      'Problems marked by shape as well as color, and VoiceOver reads the problem on each line with Next and Previous problem actions',
       'A new look: Tide teal on deep ink, and a wave that rolls under the header while your code runs, settling green or red when it ends',
       'The whole app follows your editor theme, so Dracula, Nord or Solarized Light color every screen; turn it off in Settings › Appearance',
       'Pick a code font: JetBrains Mono, Fira Code, IBM Plex Mono or Source Code Pro, with optional ligatures',
