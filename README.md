@@ -135,6 +135,12 @@ On an iPad, or any screen at least 768 points wide, the file tree stays open on 
 
 The Problems panel (palette: Show problems, or the ⚠ count in the terminal bar) lists errors and warnings from three places: the editor's own CSS/HTML/JSON services, the extensions (ESLint, pyflakes, TypeScript), and program output. Output goes through matchers (`src/features/problems/matchers.ts`) for tsc, ESLint (stylish and compact), pytest, Python tracebacks, Node errors and the `path:line:col: error:` form compilers print; each terminal replaces its own set when a new command starts. Paths are mapped to project files by `src/features/terminal/fileRefs.ts`, which also underlines `file:line[:col]` references in the terminal so a tap opens the file there. "Explain the last error with AI" sends the end of the terminal's output and the file it points at to the AI assistant.
 
+## Editor helpers
+
+- **Breadcrumbs** above the editor show the file's folders and the symbols the cursor is in (`src/features/outline/breadcrumbs.ts`: scopes come from indentation, since the outline has no end lines). Folders open the file tree; symbols jump to their line.
+- **Suggest message** in Source Control and Git Tools writes a commit message from the change (HEAD against the working tree or the index, as a compact diff capped at 12k characters) with the user's own Anthropic key (`src/features/ai/commitMessage.ts`).
+- **Extension suggestions** (`src/extensions/suggest`): when a project's files show an extension would help (ESLint or Prettier config, TypeScript, two or more Python files, a Git repository, `.vscode/launch.json`) and it isn't installed, a banner offers it. "Not now" is remembered per project.
+
 ## Settings
 
 Settings (the gear on the projects list) has the theme (System, Light or Dark, all from the FuseOps tokens), the editor and terminal font sizes, Git, the Remote server and, in builds set up for it, crash reports.

@@ -20,6 +20,8 @@ import type { PanelProps } from '../types';
 import { Branches, CommitInfo, createGitPro, FileChange, isStaged, isUnstaged, PickResult, StashEntry, Status, Tag } from './api';
 import { applyHunk, diffText, Hunk, revertHunk } from './diff';
 import { DiffView } from './DiffView';
+import { changedFiles } from '../../features/git/SourceControlSheet';
+import { SuggestMessageButton } from '../../features/ai/SuggestMessageButton';
 
 type Tab = 'changes' | 'branches' | 'history';
 type Detail =
@@ -272,6 +274,12 @@ function Changes({ git, act, busy, setDetail, ctx, status }: Shared & { status: 
         selectionColor={colors.brand}
         multiline
         style={styles.input}
+      />
+      <SuggestMessageButton
+        changes={() => changedFiles(ctx.project, staged.map((c) => c.path), 'index')}
+        onMessage={setMessage}
+        disabled={busy || staged.length === 0}
+        testID="gp-suggest"
       />
       <View style={styles.actions}>
         <Button title="Pull" variant="outline" icon="download" onPress={() => act(() => git.pull(), true)} disabled={busy} testID="gp-pull" />

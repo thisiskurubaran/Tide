@@ -33,6 +33,19 @@ describe('extensions store', () => {
     expect(restarted.getState().installed).toEqual(['themes']);
   });
 
+  it('remembers turned-down suggestions per project', async () => {
+    const storage = createFsStorage(createMemoryFs());
+    const store = createExtensionsStore(storage);
+    store.getState().dismiss('demo', 'git-pro');
+    store.getState().dismiss('demo', 'git-pro');
+    store.getState().dismiss('other', 'intellisense');
+    expect(store.getState().dismissed).toEqual({ demo: ['git-pro'], other: ['intellisense'] });
+    await flush();
+    const restarted = createExtensionsStore(storage);
+    await flush();
+    expect(restarted.getState().dismissed.demo).toEqual(['git-pro']);
+  });
+
   it('ignores extensions it no longer knows when loading', async () => {
     const storage = createFsStorage(createMemoryFs());
     await storage.setItem('extensions', JSON.stringify({ state: { installed: ['gone', 'git-pro'], prefs: { formatOnSave: true } }, version: 2 }));

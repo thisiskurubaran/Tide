@@ -11,6 +11,9 @@ import { projectTabs } from '../../state/tabs';
 import { makeStyles, useColors } from '../../theme/theme';
 import { borderWidth, fonts, fontSizes, radius, spacing } from '../../theme/tokens';
 import { lastLines, runGit } from './runGit';
+import { createGitPro } from '../../extensions/gitPro/api';
+import type { ChangedFile } from '../ai/commitMessage';
+import { SuggestMessageButton } from '../ai/SuggestMessageButton';
 
 interface Change {
   code: string;
@@ -24,6 +27,21 @@ function describe(code: string) {
   if (code === '??') return 'new';
   const c = code.trim()[0];
   return c === 'M' ? 'modified' : c === 'A' ? 'added' : c === 'D' ? 'deleted' : code.trim();
+}
+
+// HEAD and the working tree (Commit all) or the index (staged changes) of
+// each path, for a suggested commit message.
+export async function changedFiles(project: string, paths: string[], side: 'work' | 'index'): Promise<ChangedFile[]> {
+  // Unsaved edits are part of what gets committed.
+  await buffersStore.getState().flushProject(project);
+  const git = createGitPro((args) => runGit(localRunner, project, args));
+  const out: ChangedFile[] = [];
+  for (const path of paths) {
+    const v = await git.show(path).catch(() => null);
+    if (!v) continue;
+    out.push(v.binary ? { path, before: null, after: null, binary: true } : { path, before: v.head, after: side === 'work' ? v.work : v.index });
+  }
+  return out;
 }
 
 export function SourceControlSheet({ visible, project, onClose }: { visible: boolean; project: string; onClose(): void }) {
@@ -136,6 +154,12 @@ export function SourceControlSheet({ visible, project, onClose }: { visible: boo
             selectionColor={colors.brand}
             multiline
             style={styles.input}
+          />
+          <SuggestMessageButton
+            changes={() => changedFiles(project, repo.changes.map((c) => c.path), 'work')}
+            onMessage={setMessage}
+            disabled={busy !== null || repo.changes.length === 0}
+            testID="sc-suggest"
           />
           <View style={styles.actions}>
             <Button title={busy === 'pull' ? 'Pulling...' : 'Pull'} variant="outline" icon="download" onPress={() => act('pull', [['pull']])} disabled={busy !== null} testID="sc-pull" />

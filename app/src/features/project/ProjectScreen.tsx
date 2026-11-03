@@ -47,6 +47,8 @@ import { PreviewPane } from '../preview/PreviewPane';
 import { previewKind, viewerFirst, viewerOnly } from '../preview/render';
 import { projectFileFor } from '../terminal/fileRefs';
 import { ProblemsPanel } from '../problems/ProblemsPanel';
+import { Breadcrumbs, cursorStore } from '../outline/Breadcrumbs';
+import { SuggestionBanner } from '../../extensions/suggest/SuggestionBanner';
 import { matchOutput } from '../problems/matchers';
 import { DatabasePane } from '../database/DatabasePane';
 import { HttpPane } from '../http/HttpPane';
@@ -355,6 +357,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     },
     cursor: (path, offset) => {
       cursor.current = { path, offset };
+      cursorStore.setState({ path, offset });
     },
     save: (path) => {
       save(path).catch((e) => console.warn('Save failed', e));
@@ -561,7 +564,16 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
           </View>
         )}
         <View style={styles.body}>
+          <SuggestionBanner project={project} />
           <TabBar open={tabs.open} active={current} onSelect={openFile} dirty={dirty} onClose={(path) => closeFile(path)} />
+          {current && !previewing(current) && (
+            <Breadcrumbs
+              project={project}
+              path={current}
+              onShowFiles={() => (wide ? setSidebarHidden(false) : setDrawerOpen(true))}
+              onJump={(line) => openAt(current, line)}
+            />
+          )}
 
           {extensions.map((ext) => ext.bar && <ext.bar key={ext.id} ctx={ctx} />)}
           {/* Both panes stay mounted so the terminal keeps its scrollback and the editor its undo history. */}

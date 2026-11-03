@@ -21,6 +21,9 @@ export interface ExtensionsState {
   // code that ships inside the app on.
   installed: ExtensionId[];
   prefs: ExtensionPrefs;
+  // Suggestions the user turned down ("Not now"), per project.
+  dismissed: Record<string, ExtensionId[]>;
+  dismiss(project: string, id: ExtensionId): void;
   install(id: ExtensionId): void;
   uninstall(id: ExtensionId): void;
   setPref<K extends keyof ExtensionPrefs>(key: K, value: ExtensionPrefs[K]): void;
@@ -36,6 +39,8 @@ export function createExtensionsStore(storage: StateStorage) {
       (set) => ({
         installed: [],
         prefs: DEFAULT_PREFS,
+        dismissed: {},
+        dismiss: (project, id) => set((s) => ({ dismissed: { ...s.dismissed, [project]: [...new Set([...(s.dismissed[project] ?? []), id])] } })),
         install: (id) => set((s) => ({ installed: order([...s.installed, id]) })),
         uninstall: (id) => set((s) => ({ installed: s.installed.filter((i) => i !== id) })),
         setPref: (key, value) => set((s) => ({ prefs: { ...s.prefs, [key]: value } })),
@@ -44,11 +49,11 @@ export function createExtensionsStore(storage: StateStorage) {
         name: 'extensions',
         version: 2,
         storage: createJSONStorage(() => storage),
-        partialize: ({ installed, prefs }) => ({ installed, prefs }),
+        partialize: ({ installed, prefs, dismissed }) => ({ installed, prefs, dismissed }),
         merge: (persisted, current) => {
           const p = (persisted ?? {}) as Partial<ExtensionsState>;
           const known = new Set(manifests.map((m) => m.id));
-          return { ...current, installed: order((p.installed ?? []).filter((id) => known.has(id))), prefs: { ...DEFAULT_PREFS, ...p.prefs } };
+          return { ...current, installed: order((p.installed ?? []).filter((id) => known.has(id))), prefs: { ...DEFAULT_PREFS, ...p.prefs }, dismissed: p.dismissed ?? {} };
         },
       },
     ),
