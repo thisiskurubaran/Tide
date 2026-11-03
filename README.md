@@ -34,6 +34,7 @@ app/                             Expo app (dev client, prebuild, New Architectur
   src/features/openapi           OpenAPI / Swagger viewer: endpoints with example bodies, added to a .http file
   src/features/history           Local history: earlier versions of each file, kept on save under .tide/history
   src/features/data              CSV, TSV and Parquet viewer (hyparquet): sort, filter, column stats, charts
+  src/features/docs              Offline docs downloaded from DevDocs, searched and read without a network
   src/features/todos             The TODO / FIXME list
   src/features/outline           File outline and Go to Symbol (symbols read line by line, per language)
   src/features/notebook          Running Jupyter notebook cells with the device's Python

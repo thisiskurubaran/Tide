@@ -50,6 +50,7 @@ import { ProblemsPanel } from '../problems/ProblemsPanel';
 import { Breadcrumbs, cursorStore } from '../outline/Breadcrumbs';
 import { SuggestionBanner } from '../../extensions/suggest/SuggestionBanner';
 import { matchOutput } from '../problems/matchers';
+import { wordAt } from '../docs/docs';
 import { DatabasePane } from '../database/DatabasePane';
 import { HttpPane } from '../http/HttpPane';
 import { OpenApiPane } from '../openapi/OpenApiPane';
@@ -257,6 +258,14 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     terminal.current?.input(line);
   }
 
+  // The word at the cursor (e.g. "map" in arr.map), searched in offline docs.
+  const lookUpInDocs = () => {
+    const at = cursor.current;
+    const text = at ? buffersStore.getState().buffers[bufferKey(project, at.path)]?.content : undefined;
+    const q = at && text !== undefined ? wordAt(text, at.offset) : '';
+    router.push(q ? { pathname: '/docs', params: { q } } : '/docs');
+  };
+
   // The last error in the active terminal, explained by the AI assistant with
   // the file it points at (or the open file).
   const explainLastError = async () => {
@@ -388,6 +397,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     { id: 'env', title: 'Environment variables…', icon: 'key', run: () => router.push({ pathname: '/env', params: { project } }) },
     { id: 'databases', title: 'Databases…', icon: 'database', run: () => router.push('/databases') },
     { id: 'tools', title: 'Developer tools (JSON, regex, Base64, JWT…)', icon: 'tool', run: () => router.push('/tools') },
+    { id: 'docs', title: 'Look up in docs (offline)', icon: 'book', hint: '⇧⌘D', run: lookUpInDocs },
     { id: 'ai.error', title: 'Explain the last error with AI', icon: 'cpu', run: () => explainLastError() },
     { id: 'problems', title: 'Show problems', icon: 'alert-triangle', run: () => setProblems(true) },
     { id: 'hosts', title: 'GitLab and Bitbucket…', icon: 'gitlab', run: () => router.push('/hosts') },

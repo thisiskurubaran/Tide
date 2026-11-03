@@ -37,6 +37,7 @@ const PLACES = [
   { icon: 'server', label: 'SSH', href: '/ssh', testID: 'open-ssh' },
   { icon: 'database', label: 'Databases', href: '/databases', testID: 'open-databases' },
   { icon: 'tool', label: 'Tools', href: '/tools', testID: 'open-tools' },
+  { icon: 'book', label: 'Docs', href: '/docs', testID: 'open-docs' },
   { icon: 'package', label: 'Extensions', href: '/extensions', testID: 'open-extensions' },
 ] as const;
 
