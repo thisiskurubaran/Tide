@@ -3,7 +3,7 @@
 import { act, render, screen } from '@testing-library/react-native';
 
 jest.mock('@expo/vector-icons/Feather', () => 'Feather');
-let mockSent: { type: string; language?: string; options?: Record<string, boolean>; features?: Record<string, boolean> }[] = [];
+let mockSent: { type: string; language?: string; options?: Record<string, boolean>; features?: Record<string, boolean>; font?: string; ligatures?: boolean }[] = [];
 let mockOnMessage: (e: { nativeEvent: { data: string } }) => void = () => undefined;
 jest.mock('react-native-webview', () => {
   const React = jest.requireActual('react');
@@ -49,7 +49,7 @@ jest.mock('../../state', () => {
   };
 });
 
-import { workspace } from '../../state';
+import { settingsStore, workspace } from '../../state';
 import { NO_FEATURES } from './bridge';
 import { EditorPane } from './EditorPane';
 import { LARGE_CHARS } from './largeFiles';
@@ -84,6 +84,15 @@ it('opens large files as plain text with the extras off', async () => {
   expect(mockSent.filter((m) => m.type === 'options').pop()?.options).toEqual({ wordWrap: false, folding: false, indentGuides: false, minimap: false, keymap: 'standard' });
   expect(mockSent.filter((m) => m.type === 'features').pop()?.features).toEqual(NO_FEATURES);
   expect(screen.getByText(/Large file/)).toBeTruthy();
+});
+
+it('sends the code font on load and when it changes', async () => {
+  await openFile('small.ts');
+  // The mocked settings have no codeFont, like settings saved before the option existed.
+  expect(mockSent.find((m) => m.type === 'setFont')).toEqual({ type: 'setFont', font: 'jetbrains-mono', ligatures: false });
+  await act(async () => settingsStore.setState({ codeFont: 'fira-code', ligatures: true } as never));
+  expect(mockSent.filter((m) => m.type === 'setFont').pop()).toEqual({ type: 'setFont', font: 'fira-code', ligatures: true });
+  await act(async () => settingsStore.setState({ codeFont: undefined, ligatures: undefined } as never));
 });
 
 it("doesn't open binary files", async () => {

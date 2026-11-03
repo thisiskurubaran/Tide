@@ -11,9 +11,10 @@ import { accountStore, useAccount } from '../github/account';
 import { Text } from '../../components/Text';
 import { settingsStore, useSettings } from '../../state';
 import { ContrastSetting, EditorOptionKey, FONT_SIZE_MAX, FONT_SIZE_MIN, ThemeSetting } from '../../state/settings';
-import { makeStyles, useColors } from '../../theme/theme';
+import { makeStyles, useChromeTheme, useColors } from '../../theme/theme';
 import { borderWidth, radius, spacing, fontSizes } from '../../theme/tokens';
 import { useExtensions } from '../../extensions/state';
+import { isActive } from '../../extensions/store';
 import { useGitSettings } from '../git/settings';
 import { crashReportsAvailable } from '../privacy/crashReports';
 import { useRemoteSettings } from '../remote/settings';
@@ -24,6 +25,8 @@ import { Onboarding } from '../onboarding/Onboarding';
 import { useAccounts } from '../hosts/accounts';
 import { useAiSettings } from '../ai/settings';
 import { iconsSupported, setMidnightIcon, usingMidnightIcon } from './appIcon';
+import { CodeFontSection } from './CodeFontSection';
+import { ThemeGrid } from './ThemeGrid';
 
 export function SettingsScreen() {
   const styles = useStyles();
@@ -34,6 +37,9 @@ export function SettingsScreen() {
   const crashReports = useSettings((s) => s.crashReports);
   const haptics = useSettings((s) => s.haptics);
   const contrast = useSettings((s) => s.contrast);
+  const matchChrome = useSettings((s) => s.matchChrome);
+  const themesOn = useExtensions((s) => isActive(s, 'themes'));
+  const chromeTheme = useChromeTheme();
   const keymap = useSettings((s) => s.keymap);
   const githubUser = useAccount((s) => s.user);
   useEffect(() => {
@@ -79,6 +85,22 @@ export function SettingsScreen() {
               ]}
             />
           </Row>
+          {chromeTheme && (
+            <Text variant="muted" style={styles.hint}>
+              {chromeTheme.name} is {chromeTheme.dark ? 'dark' : 'light'}, so the app is too.
+            </Text>
+          )}
+          <ThemeGrid />
+          {themesOn && (
+            <Row label="Match the whole app to the theme">
+              <Switch
+                testID="match-chrome"
+                value={matchChrome}
+                onValueChange={(on) => settings.setMatchChrome(on)}
+                trackColor={{ true: colors.brand, false: colors.secondary }}
+              />
+            </Row>
+          )}
           {iconsSupported() && (
             <Row label="App icon">
               <Segmented<'standard' | 'midnight'>
@@ -116,6 +138,8 @@ export function SettingsScreen() {
             <Stepper testID="terminal-font" value={terminalFontSize} onChange={(n) => settings.setTerminalFontSize(n)} />
           </Row>
         </Section>
+
+        <CodeFontSection />
 
         <Section title="Editor">
           {(
@@ -340,4 +364,5 @@ const useStyles = makeStyles((colors) => ({
   stepper: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   stepValue: { minWidth: 24, textAlign: 'center' },
   note: { padding: spacing.md },
+  hint: { paddingHorizontal: spacing.md, paddingTop: spacing.sm, fontSize: fontSizes.sm },
 }));

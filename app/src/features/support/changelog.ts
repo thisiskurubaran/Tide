@@ -11,6 +11,11 @@ export const CHANGELOG: Release[] = [
     items: [
       'Everything in Tide is free: every feature and every extension, with no subscription',
       'Support Tide with an optional tip, in Settings; tips unlock nothing',
+      'A new look: Tide teal on deep ink, and a wave that rolls under the header while your code runs, settling green or red when it ends',
+      'The whole app follows your editor theme, so Dracula, Nord or Solarized Light color every screen; turn it off in Settings › Appearance',
+      'Pick a code font: JetBrains Mono, Fira Code, IBM Plex Mono or Source Code Pro, with optional ligatures',
+      'New to Tide? Start from a sample project, and a short tour shows Run, files, the palette and the terminal',
+      'Smoother motion: sheets and the file drawer move on springs, and haptics mark saves, runs and results',
       'A new IDE layout: a Run button that turns into Stop, a status bar with branch, problems, line and column, and an activity bar for Files, Search, Git, Terminal and Problems',
       'The terminal opens when you run something and slides up as a sheet you can drag to 30%, 60% or full height',
       'Swipe in from the left edge for your files: file-type icons, git colors, a filter and Move to…',

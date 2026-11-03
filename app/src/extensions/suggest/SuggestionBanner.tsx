@@ -74,7 +74,7 @@ export function SuggestionBanner({ project, bottom = 12 }: { project: string; bo
         style={[styles.install, { backgroundColor: colors.brand }]}
         testID="suggestion-install"
       >
-        <Text style={[styles.installText, { color: colors.background }]}>Install</Text>
+        <Text style={[styles.installText, { color: colors.brandForeground }]}>Install</Text>
       </Pressable>
       <Pressable onPress={() => extensionsStore.getState().dismiss(project, suggestion.id)} accessibilityRole="button" accessibilityLabel="Not now" hitSlop={8} testID="suggestion-dismiss">
         <Feather name="x" size={16} color={colors.mutedForeground} />

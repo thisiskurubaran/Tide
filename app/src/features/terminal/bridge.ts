@@ -2,11 +2,13 @@
 // with the web bundle. The terminal only renders and collects keystrokes; the
 // shell runs on the React Native side.
 import type { TerminalTheme } from '../../theme/terminal';
+import type { CodeFont } from '../editor/bridge';
 import type { Shortcut } from '../project/shortcuts';
 
 export type ToTerminal =
   | { type: 'write'; data: string }
-  | { type: 'setTheme'; theme: TerminalTheme; fontSize: number }
+  // `font` follows the editor's code font; ligatures stay off (xterm draws cell by cell).
+  | { type: 'setTheme'; theme: TerminalTheme; fontSize: number; font?: CodeFont }
   | { type: 'focus' }
   | { type: 'blur' }
   // Finds text in the output and scrollback, from the current match.

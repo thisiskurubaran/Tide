@@ -1,7 +1,9 @@
 import { createStore } from 'zustand';
 import { createJSONStorage, persist, StateStorage } from 'zustand/middleware';
 
-import type { KeymapSetting, Snippet } from '../features/editor/bridge';
+import { type CodeFont, DEFAULT_CODE_FONT, type KeymapSetting, type Snippet } from '../features/editor/bridge';
+
+export type { CodeFont };
 
 export type ThemeSetting = 'system' | 'light' | 'dark';
 
@@ -28,6 +30,11 @@ export interface SettingsState {
   haptics: boolean;
   // "system" follows the device's Increase Contrast setting.
   contrast: ContrastSetting;
+  // Font for the editor and terminal, and whether its ligatures (=> != >=) show.
+  codeFont: CodeFont;
+  ligatures: boolean;
+  // The app's own colors follow the Themes & Icons color theme, when one is chosen.
+  matchChrome: boolean;
   setTheme(theme: ThemeSetting): void;
   setEditorFontSize(size: number): void;
   setTerminalFontSize(size: number): void;
@@ -37,6 +44,9 @@ export interface SettingsState {
   setSnippets(snippets: Snippet[]): void;
   setHaptics(on: boolean): void;
   setContrast(contrast: ContrastSetting): void;
+  setMatchChrome(on: boolean): void;
+  setCodeFont(font: CodeFont): void;
+  setLigatures(on: boolean): void;
 }
 
 export type ContrastSetting = 'system' | 'standard' | 'high';
@@ -60,6 +70,9 @@ export function createSettingsStore(storage: StateStorage) {
         snippets: [],
         haptics: true,
         contrast: 'system',
+        codeFont: DEFAULT_CODE_FONT,
+        ligatures: false,
+        matchChrome: true,
         setTheme: (theme) => set({ theme }),
         setEditorFontSize: (size) => set({ editorFontSize: clampFontSize(size) }),
         setTerminalFontSize: (size) => set({ terminalFontSize: clampFontSize(size) }),
@@ -69,12 +82,15 @@ export function createSettingsStore(storage: StateStorage) {
         setSnippets: (snippets) => set({ snippets }),
         setHaptics: (haptics) => set({ haptics }),
         setContrast: (contrast) => set({ contrast }),
+        setMatchChrome: (matchChrome) => set({ matchChrome }),
+        setCodeFont: (codeFont) => set({ codeFont }),
+        setLigatures: (ligatures) => set({ ligatures }),
       }),
       {
         name: 'settings',
         version: 1,
         storage: createJSONStorage(() => storage),
-        partialize: ({ theme, editorFontSize, terminalFontSize, crashReports, wordWrap, folding, indentGuides, minimap, keymap, emmet, snippets, haptics, contrast }) => ({
+        partialize: ({ theme, editorFontSize, terminalFontSize, crashReports, wordWrap, folding, indentGuides, minimap, keymap, emmet, snippets, haptics, contrast, codeFont, ligatures, matchChrome }) => ({
           theme,
           editorFontSize,
           terminalFontSize,
@@ -88,6 +104,9 @@ export function createSettingsStore(storage: StateStorage) {
           snippets,
           haptics,
           contrast,
+          codeFont,
+          ligatures,
+          matchChrome,
         }),
       },
     ),

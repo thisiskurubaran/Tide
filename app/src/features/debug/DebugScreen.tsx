@@ -75,13 +75,13 @@ const useStyles = makeStyles((colors) => ({
   buttons: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
   button: {
     flex: 1,
-    // FuseOps primary buttons are foreground on background, not brand colored.
-    backgroundColor: colors.foreground,
+    // Matches Button's primary variant.
+    backgroundColor: colors.brand,
     borderRadius: radius.md,
     padding: spacing.md,
     alignItems: 'center',
   },
-  buttonText: { color: colors.background, fontFamily: fonts.sans.medium, fontSize: fontSizes.sm },
+  buttonText: { color: colors.brandForeground, fontFamily: fonts.sans.medium, fontSize: fontSizes.sm },
   output: {
     flex: 1,
     backgroundColor: colors.card,

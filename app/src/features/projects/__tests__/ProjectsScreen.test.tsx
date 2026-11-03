@@ -81,12 +81,36 @@ describe('Projects screen', () => {
   it('keeps the tools and the empty state actions', async () => {
     projectsStore.setState({ projects: [] });
     await render(<ProjectsScreen />);
-    expect(screen.getByText('No projects yet')).toBeTruthy();
+    expect(screen.getByText('Write and run code anywhere')).toBeTruthy();
+    expect(screen.getByText('Portfolio website')).toBeTruthy();
+    expect(screen.getByTestId('empty-open-folder')).toBeTruthy();
     expect(screen.getByTestId('new-project')).toBeTruthy();
     expect(screen.getByTestId('clone-repo')).toBeTruthy();
     for (const id of ['open-github', 'open-ssh', 'open-databases', 'open-tools', 'open-docs', 'open-extensions']) expect(screen.getByTestId(id)).toBeTruthy();
     await fireEvent.press(screen.getByTestId('open-ssh'));
     expect(push).toHaveBeenCalledWith('/ssh');
+  });
+
+  it('creates and opens a sample project from the empty state, ', async () => {
+    projectsStore.setState({ projects: [] });
+    const create = jest.fn(async (name: string) => name);
+    const original = projectsStore.getState().createProject;
+    projectsStore.setState({ createProject: create });
+    try {
+      await render(<ProjectsScreen />);
+      await fireEvent.press(screen.getByTestId('sample-static-site'));
+      expect(create).toHaveBeenCalledWith('portfolio', 'static-site');
+      expect(push).toHaveBeenCalledWith('/project/portfolio');
+    } finally {
+      projectsStore.setState({ createProject: original });
+    }
+  });
+
+  it('opens the clone sheet from the empty state', async () => {
+    projectsStore.setState({ projects: [] });
+    await render(<ProjectsScreen />);
+    await fireEvent.press(screen.getByTestId('empty-clone'));
+    expect(screen.getByText('Clone repository')).toBeTruthy();
   });
 
   it('opens the sheet in clone mode from Clone repo', async () => {

@@ -11,12 +11,12 @@ module.exports = (config) => ({
   deploymentTarget: '16.4',
   frameworks: ['SwiftUI', 'WidgetKit', 'ActivityKit'],
   colors: {
-    $accent: '#7c8cff',
+    $accent: '#2dd4bf',
     // apple-targets 5 reads two-mode colors as { light, dark }; other keys
     // (e.g. { color, darkColor }) produce an empty colorset.
-    $widgetBackground: { light: '#ffffff', dark: '#0d0f0e' },
+    $widgetBackground: { light: '#ffffff', dark: '#0a1115' },
     // The same, under a plain name for the Swift code.
-    TideBackground: { light: '#ffffff', dark: '#0d0f0e' },
+    TideBackground: { light: '#ffffff', dark: '#0a1115' },
   },
   entitlements: {
     'com.apple.security.application-groups': config.ios.entitlements['com.apple.security.application-groups'],

@@ -37,6 +37,6 @@ const GH_STYLE = `<style>
 .gh-item{border:1px solid var(--b,rgba(127,127,127,.3));border-radius:10px;padding:0 12px;margin:0 0 12px}
 .gh-meta{font-size:.85em;opacity:.8;margin:10px 0}
 .gh-body>:first-child{margin-top:0}
-.review-approved{border-color:#3fc095}
-.review-changes_requested{border-color:#f2776d}
+.review-approved{border-color:#4ade80}
+.review-changes_requested{border-color:#fb7185}
 </style>`;

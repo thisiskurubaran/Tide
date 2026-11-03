@@ -17,7 +17,7 @@ import { startQuickActions } from '../features/launch/quickActions';
 import { startCrashReports } from '../features/privacy/crashReports';
 import { remoteSettingsStore } from '../features/remote/settings';
 import { projectsStore, runnerStore, settingsStore, tabsStore, useSettings } from '../state';
-import { useColors } from '../theme/theme';
+import { useChromeTheme, useColors } from '../theme/theme';
 import { captureConsole } from '../features/support/logs';
 import { supportStore } from '../features/support/store';
 import { WasmHost } from '../runtime/wasm';
@@ -38,13 +38,17 @@ export default function RootLayout() {
   const [ready, setReady] = useState(false);
   const theme = useSettings((s) => s.theme);
   const colors = useColors();
+  // A color theme the app follows sets light or dark itself (Solarized Light
+  // makes the whole app light).
+  const chrome = useChromeTheme();
+  const windowScheme = chrome ? (chrome.dark ? 'dark' : 'light') : theme === 'system' ? 'auto' : theme;
 
   // The window takes the app's theme, so the status bar, keyboard and system
   // dialogs match it. Setting the status bar style from JS instead was lost
   // whenever the device switched between light and dark.
   useEffect(() => {
-    Appearance.setColorScheme(theme === 'system' ? 'auto' : theme);
-  }, [theme]);
+    Appearance.setColorScheme(windowScheme);
+  }, [windowScheme]);
 
   useEffect(() => {
     // Keep the splash up until saved tabs and the project list are loaded,

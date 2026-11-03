@@ -1,10 +1,10 @@
-import { ReactNode } from 'react';
-import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ReactNode, useEffect, useRef } from 'react';
+import { Animated, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { borderWidth, radius, spacing } from '../theme/tokens';
 import { makeStyles } from '../theme/theme';
-import { useModalAnimation } from './a11y';
+import { useModalAnimation, useReduceMotion } from './a11y';
 
 interface SheetProps {
   visible: boolean;
@@ -20,6 +20,18 @@ export function Sheet({ visible, onClose, children, scrollable = false }: SheetP
   const styles = useStyles();
   const insets = useSafeAreaInsets();
   const animation = useModalAnimation('fade');
+  // The backdrop fades while the sheet itself rises on a spring.
+  const reduceMotion = useReduceMotion();
+  const rise = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!visible) return;
+    if (reduceMotion) rise.setValue(1);
+    else {
+      rise.setValue(0);
+      Animated.spring(rise, { toValue: 1, damping: 22, stiffness: 240, mass: 0.8, useNativeDriver: true }).start();
+    }
+  }, [visible, reduceMotion, rise]);
+  const lift = { transform: [{ translateY: rise.interpolate({ inputRange: [0, 1], outputRange: [60, 0] }) }] };
   return (
     <Modal visible={visible} transparent animationType={animation} onRequestClose={onClose}>
       {/* The top inset keeps the sheet below the status bar when the keyboard pushes it up. */}
@@ -27,7 +39,7 @@ export function Sheet({ visible, onClose, children, scrollable = false }: SheetP
         <Pressable accessibilityRole="button" style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
         {/* Screen readers stay inside the sheet; the escape gesture closes it. */}
         {scrollable ? (
-          <View style={[styles.sheet, styles.scrollSheet]} accessibilityViewIsModal onAccessibilityEscape={onClose}>
+          <Animated.View style={[styles.sheet, styles.scrollSheet, lift]} accessibilityViewIsModal onAccessibilityEscape={onClose}>
             <ScrollView
               style={styles.scroll}
               contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.md }]}
@@ -36,11 +48,11 @@ export function Sheet({ visible, onClose, children, scrollable = false }: SheetP
             >
               {children}
             </ScrollView>
-          </View>
+          </Animated.View>
         ) : (
-          <View style={[styles.sheet, styles.content, { paddingBottom: insets.bottom + spacing.md }]} accessibilityViewIsModal onAccessibilityEscape={onClose}>
+          <Animated.View style={[styles.sheet, styles.content, { paddingBottom: insets.bottom + spacing.md }, lift]} accessibilityViewIsModal onAccessibilityEscape={onClose}>
             {children}
-          </View>
+          </Animated.View>
         )}
       </KeyboardAvoidingView>
     </Modal>

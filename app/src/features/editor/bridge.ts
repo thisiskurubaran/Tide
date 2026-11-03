@@ -58,6 +58,22 @@ export interface EditorOptions {
   snippets?: Snippet[];
 }
 
+// Code fonts bundled in assets/fonts (Regular only). The id is what Settings
+// stores; `family` is the CSS name the WebViews register; `postScript` is the
+// name React Native resolves (it matches the .ttf file name).
+export type CodeFont = 'jetbrains-mono' | 'fira-code' | 'ibm-plex-mono' | 'source-code-pro';
+
+export const CODE_FONTS: Record<CodeFont, { name: string; family: string; postScript: string }> = {
+  'jetbrains-mono': { name: 'JetBrains Mono', family: 'JetBrains Mono', postScript: 'JetBrainsMono-Regular' },
+  'fira-code': { name: 'Fira Code', family: 'Fira Code', postScript: 'FiraCode-Regular' },
+  'ibm-plex-mono': { name: 'IBM Plex Mono', family: 'IBM Plex Mono', postScript: 'IBMPlexMono-Regular' },
+  'source-code-pro': { name: 'Source Code Pro', family: 'Source Code Pro', postScript: 'SourceCodePro-Regular' },
+};
+
+export const DEFAULT_CODE_FONT: CodeFont = 'jetbrains-mono';
+
+export const isCodeFont = (v: unknown): v is CodeFont => typeof v === 'string' && Object.prototype.hasOwnProperty.call(CODE_FONTS, v);
+
 export const NO_FEATURES: EditorFeatures = { language: false, breakpoints: false, conflicts: false };
 
 export interface EditorDiagnostic {
@@ -85,6 +101,8 @@ export type EditorRequest =
 export type ToEditor =
   | { type: 'open'; path: string; content: string; language: Language }
   | { type: 'setTheme'; theme: EditorTheme; dark: boolean; fontSize: number }
+  // Code font and programming ligatures (=> != >=) for the editor text.
+  | { type: 'setFont'; font: CodeFont; ligatures: boolean }
   | { type: 'undo' }
   | { type: 'redo' }
   | { type: 'find' }
@@ -181,6 +199,7 @@ export function languageFor(path: string): Language {
 const TO_EDITOR = new Set<ToEditor['type']>([
   'open',
   'setTheme',
+  'setFont',
   'undo',
   'redo',
   'find',
@@ -218,11 +237,18 @@ const FROM_EDITOR = new Set<FromEditor['type']>([
   'zoom',
 ]);
 
+// Extra checks for messages whose fields pick a code path in the WebView; an
+// unknown font id would otherwise leave the editor with a fallback font.
+const VALID: Partial<Record<string, (msg: Record<string, unknown>) => boolean>> = {
+  setFont: (msg) => isCodeFont(msg.font) && typeof msg.ligatures === 'boolean',
+};
+
 function parse<T extends { type: string }>(raw: string, types: Set<string>): T | null {
   try {
     const msg: unknown = JSON.parse(raw);
     if (typeof msg === 'object' && msg !== null && types.has((msg as { type?: unknown }).type as string)) {
-      return msg as T;
+      const check = VALID[(msg as { type: string }).type];
+      return !check || check(msg as Record<string, unknown>) ? (msg as T) : null;
     }
   } catch {
     // Not one of ours (e.g. a stray postMessage); ignore it.

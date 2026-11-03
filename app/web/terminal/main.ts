@@ -5,18 +5,31 @@ import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Terminal } from '@xterm/xterm';
 
-import fontRegular from '../../assets/fonts/JetBrainsMono-Regular.ttf';
+import firaCode from '../../assets/fonts/FiraCode-Regular.ttf';
+import ibmPlexMono from '../../assets/fonts/IBMPlexMono-Regular.ttf';
+import jetbrainsMono from '../../assets/fonts/JetBrainsMono-Regular.ttf';
+import sourceCodePro from '../../assets/fonts/SourceCodePro-Regular.ttf';
+import { CODE_FONTS, CodeFont, isCodeFont } from '../../src/features/editor/bridge';
 import { shortcutFor } from '../../src/features/project/shortcuts';
 import { FromTerminal, parseToTerminal, ToTerminal } from '../../src/features/terminal/bridge';
 import { findFileRefs } from '../../src/features/terminal/fileRefs';
 import { controlChar } from '../../src/features/terminal/keys';
 import { pinchToZoom } from '../pinch';
 
-const FONT_FAMILY = 'JetBrains Mono';
+const FONT_FILES: Record<CodeFont, string> = {
+  'jetbrains-mono': jetbrainsMono,
+  'fira-code': firaCode,
+  'ibm-plex-mono': ibmPlexMono,
+  'source-code-pro': sourceCodePro,
+};
+const FONT_FAMILY = CODE_FONTS['jetbrains-mono'].family;
+const fontStack = (family: string) => `'${family}', monospace`;
 
 const style = document.createElement('style');
 style.textContent = `
-  @font-face { font-family: '${FONT_FAMILY}'; src: url(${fontRegular}) format('truetype'); }
+  ${(Object.keys(FONT_FILES) as CodeFont[])
+    .map((id) => `@font-face { font-family: '${CODE_FONTS[id].family}'; src: url(${FONT_FILES[id]}) format('truetype'); }`)
+    .join('\n  ')}
   html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; -webkit-text-size-adjust: 100%; }
   #terminal { position: absolute; inset: 0; padding: 6px 0 0 8px; box-sizing: border-box; }
   .xterm-viewport { scrollbar-width: none; }
@@ -28,7 +41,7 @@ function post(msg: FromTerminal) {
 }
 
 const term = new Terminal({
-  fontFamily: `'${FONT_FAMILY}', monospace`,
+  fontFamily: fontStack(FONT_FAMILY),
   fontSize: 13,
   lineHeight: 1.2,
   // Programs print bare \n; the shell's own output does too.
@@ -117,6 +130,19 @@ async function start() {
   post({ type: 'ready', cols: term.cols, rows: term.rows });
 }
 
+function setFont(font: CodeFont) {
+  const family = CODE_FONTS[font].family;
+  if (term.options.fontFamily === fontStack(family)) return;
+  // Wait for the face so xterm measures the cell size with the real glyphs.
+  document.fonts
+    .load(`13px '${family}'`)
+    .catch(() => undefined)
+    .then(() => {
+      term.options.fontFamily = fontStack(family);
+      fit.fit();
+    });
+}
+
 function handle(msg: ToTerminal) {
   switch (msg.type) {
     case 'write':
@@ -128,6 +154,7 @@ function handle(msg: ToTerminal) {
         term.options.fontSize = msg.fontSize;
         fit.fit();
       }
+      if (isCodeFont(msg.font)) setFont(msg.font);
       return;
     case 'focus':
       return term.focus();

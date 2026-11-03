@@ -1,5 +1,6 @@
 import Feather from '@expo/vector-icons/Feather';
-import { Pressable, View } from 'react-native';
+import { ComponentRef, Ref } from 'react';
+import { LayoutChangeEvent, Pressable, View } from 'react-native';
 
 import type { IconName } from '../../components/Button';
 import { Text } from '../../components/Text';
@@ -24,11 +25,13 @@ interface ActivityBarProps {
   // iPad: a rail down the left edge instead of tabs along the bottom.
   vertical?: boolean;
   bottomInset?: number;
+  // Where the first-run tour points: a ref and layout callback per item.
+  targets?: Partial<Record<Activity, { ref: Ref<ComponentRef<typeof View>>; onLayout(e?: LayoutChangeEvent): void }>>;
 }
 
 // The row of views every desktop IDE has (VS Code's activity bar). On phones
 // it sits at the bottom like a tab bar; on iPad it's a rail beside the files.
-export function ActivityBar({ items, active, onSelect, vertical, bottomInset = 0 }: ActivityBarProps) {
+export function ActivityBar({ items, active, onSelect, vertical, bottomInset = 0, targets }: ActivityBarProps) {
   const styles = useStyles();
   const colors = useColors();
   return (
@@ -39,6 +42,8 @@ export function ActivityBar({ items, active, onSelect, vertical, bottomInset = 0
         return (
           <Pressable
             key={item.id}
+            ref={targets?.[item.id]?.ref}
+            onLayout={targets?.[item.id]?.onLayout}
             onPress={() => onSelect(item.id)}
             accessibilityRole="tab"
             accessibilityState={{ selected: on }}
@@ -84,5 +89,5 @@ const useStyles = makeStyles((colors) => ({
   pressed: { opacity: 0.6 },
   label: { fontFamily: fonts.sans.medium, fontSize: 10 },
   badge: { position: 'absolute', top: -5, left: 12, minWidth: 16, height: 16, borderRadius: 8, paddingHorizontal: 4, alignItems: 'center', justifyContent: 'center' },
-  badgeText: { color: colors.background, fontFamily: fonts.sans.semibold, fontSize: 10 },
+  badgeText: { color: colors.brandForeground, fontFamily: fonts.sans.semibold, fontSize: 10 },
 }));

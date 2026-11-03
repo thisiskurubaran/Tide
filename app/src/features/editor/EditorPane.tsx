@@ -13,7 +13,7 @@ import { useEditorTheme } from '../../extensions/themes';
 import { buffersStore, settingsStore, useBuffers, useSettings, workspace } from '../../state';
 import { bufferKey } from '../../state/buffers';
 import { spacing } from '../../theme/tokens';
-import { CompletionResult, EditorFeatures, EditorRequest, HoverResult, languageFor, NO_FEATURES, parseFromEditor, ToEditor } from './bridge';
+import { CompletionResult, DEFAULT_CODE_FONT, EditorFeatures, EditorRequest, HoverResult, isCodeFont, languageFor, NO_FEATURES, parseFromEditor, ToEditor } from './bridge';
 import { classify, formatBytes, TOO_LARGE_BYTES } from './largeFiles';
 import type { Shortcut } from '../project/shortcuts';
 import editorHtml from './editorHtml.generated';
@@ -69,6 +69,8 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
   const keymap = useSettings((s) => s.keymap);
   const emmet = useSettings((s) => s.emmet);
   const snippets = useSettings((s) => s.snippets);
+  const codeFont = useSettings((s) => s.codeFont);
+  const ligatures = useSettings((s) => s.ligatures);
   const bufferContent = useBuffers((s) => (path ? s.buffers[bufferKey(project, path)]?.content : undefined));
   // fileDiagnostics builds a new array; compare its items so a re-render isn't a new value every time.
   const diagnostics = useDiagnostics(useShallow((s) => (path ? fileDiagnostics(s, project, path, EDITOR_SOURCE) : null)));
@@ -108,6 +110,13 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
     [send, theme, fontSize],
   );
   useEffect(sendTheme, [sendTheme]);
+
+  // A font id saved by a build that had more fonts falls back to the default.
+  const sendFont = useCallback(
+    () => send({ type: 'setFont', font: isCodeFont(codeFont) ? codeFont : DEFAULT_CODE_FONT, ligatures: ligatures === true }),
+    [send, codeFont, ligatures],
+  );
+  useEffect(sendFont, [sendFont]);
 
   const sendFeatures = useCallback(() => send({ type: 'features', features: isLarge ? NO_FEATURES : features }), [send, features, isLarge]);
   useEffect(sendFeatures, [sendFeatures]);
@@ -210,6 +219,7 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
       case 'ready':
         ready.current = true;
         sendTheme();
+        sendFont();
         sendOptions();
         sendFeatures();
         openCurrent().then(() => {

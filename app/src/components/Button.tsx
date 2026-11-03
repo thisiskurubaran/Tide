@@ -17,12 +17,12 @@ interface ButtonProps {
   testID?: string;
 }
 
-// FuseOps buttons: primary is foreground on background, outline sits on a card.
+// Primary is a brand fill with on-brand text; outline sits on a card.
 export function Button({ title, onPress, variant = 'primary', icon, disabled, testID }: ButtonProps) {
   const styles = useStyles();
   const colors = useColors();
   const primary = variant === 'primary';
-  const color = primary ? colors.background : colors.foreground;
+  const color = primary ? colors.brandForeground : colors.foreground;
   const [hovered, setHovered] = useState(false);
   return (
     <Pressable
@@ -94,7 +94,7 @@ const useStyles = makeStyles((colors) => ({
     borderWidth,
     borderColor: 'transparent',
   },
-  primary: { backgroundColor: colors.foreground },
+  primary: { backgroundColor: colors.brand },
   outline: { backgroundColor: colors.card, borderColor: colors.border },
   dimmed: { opacity: 0.6 },
   hovered: { opacity: 0.88 },

@@ -6,7 +6,7 @@ import { ExtensionId, manifests } from './manifests';
 // Settings that belong to one extension. Kept here rather than in the app
 // settings so they go away with the extension's store entry.
 export interface ExtensionPrefs {
-  // Themes & Icons: a theme id from themes/catalog, or null for the default FuseOps theme.
+  // Themes & Icons: a theme id from themes/catalog, or null for Tide's own theme.
   theme: string | null;
   fileIcons: boolean;
   // Format & Lint

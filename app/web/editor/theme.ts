@@ -4,7 +4,9 @@ import { tags as t } from '@lezer/highlight';
 
 import type { EditorTheme } from '../../src/theme/editor';
 
-export const FONT_FAMILY = 'JetBrains Mono';
+// A CSS variable so a 'setFont' message can swap the font without rebuilding
+// the theme. Starts as JetBrains Mono, the default.
+export const FONT_FAMILY = "var(--tide-code-font, 'JetBrains Mono'), monospace";
 
 // #rrggbb plus an alpha byte; themes use six-digit hex colors.
 const alpha = (hex: string, a: number) => (/^#[0-9a-f]{6}$/i.test(hex) ? hex + Math.round(a * 255).toString(16).padStart(2, '0') : hex);

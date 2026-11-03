@@ -29,6 +29,7 @@ import { LanguageSummary, summarizeLanguages } from './summary';
 import { makeStyles, useColors } from '../../theme/theme';
 import { haptic } from '../../components/haptics';
 import { WhatsNewOnUpdate } from '../support/WhatsNew';
+import { EmptyProjects, uniqueProjectName } from '../onboarding/EmptyProjects';
 import { Onboarding } from '../onboarding/Onboarding';
 import { supportStore, useSupport } from '../support/store';
 
@@ -287,8 +288,8 @@ export function ProjectsScreen() {
             accessibilityLabel="New project"
             style={({ pressed }) => [styles.action, styles.actionPrimary, pressed && styles.pressed]}
           >
-            <Feather name="plus" size={16} color={colors.background} />
-            <Text style={[styles.actionText, { color: colors.background }]}>New project</Text>
+            <Feather name="plus" size={16} color={colors.brandForeground} />
+            <Text style={[styles.actionText, { color: colors.brandForeground }]}>New project</Text>
           </Pressable>
           <Pressable
             testID="clone-repo"
@@ -302,17 +303,32 @@ export function ProjectsScreen() {
           </Pressable>
         </View>
 
-        <Text style={styles.section} accessibilityRole="header">
-          Projects
-        </Text>
+        {/* The empty state carries its own heading. */}
+        {projects.length > 0 && (
+          <Text style={styles.section} accessibilityRole="header">
+            Projects
+          </Text>
+        )}
         {projects.length === 0 ? (
-          <View style={styles.empty}>
-            <Feather name="folder-plus" size={22} color={colors.mutedForeground} />
-            <Text variant="label">No projects yet</Text>
-            <Text variant="muted" style={styles.emptyText}>
-              Start one from a template, or clone a repository to get going.
-            </Text>
-          </View>
+          <EmptyProjects
+            onSample={async (sample) => {
+              try {
+                const project = await projectsStore.getState().createProject(uniqueProjectName(sample.name, projectsStore.getState().projects), sample.template);
+                haptic('success');
+                router.push(projectHref(project));
+              } catch (e) {
+                haptic('error');
+                Alert.alert("Couldn't create the project", e instanceof Error ? e.message : String(e));
+              }
+            }}
+            onOpenFolder={() =>
+              openFolderAsProject('')
+                .then((project) => router.push(projectHref(project)))
+                // Closing the picker rejects too; that's not worth an alert.
+                .catch((e: Error) => !/cancel/i.test(e?.message ?? '') && Alert.alert("Couldn't open the folder", e.message))
+            }
+            onClone={() => setCreating('clone')}
+          />
         ) : shown.length === 0 ? (
           <Text variant="muted" style={styles.noMatch}>
             No projects match "{query.trim()}"
@@ -519,17 +535,6 @@ const useStyles = makeStyles((colors) => ({
   metaText: { color: colors.mutedForeground, fontFamily: fonts.mono.regular, fontSize: 11 },
   pill: { paddingHorizontal: 6, paddingVertical: 1, borderRadius: radius.pill },
   pillText: { fontFamily: fonts.mono.semibold, fontSize: 10.5 },
-  empty: {
-    alignItems: 'center',
-    gap: spacing.xs,
-    paddingVertical: spacing.lg,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.lg,
-    borderWidth,
-    borderStyle: 'dashed',
-    borderColor: colors.border,
-  },
-  emptyText: { textAlign: 'center' },
   noMatch: { paddingVertical: spacing.sm },
   list: { borderRadius: radius.lg, borderWidth, borderColor: colors.border, backgroundColor: colors.card, overflow: 'hidden' },
   fileRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm + 2, minHeight: 44, paddingHorizontal: spacing.sm + 4 },

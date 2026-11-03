@@ -2,7 +2,7 @@ import * as Clipboard from 'expo-clipboard';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Feather from '@expo/vector-icons/Feather';
-import { Alert, Animated, Easing, PanResponder, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { Alert, Animated, PanResponder, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { IconButton } from '../../components/Button';
@@ -45,10 +45,12 @@ import { TerminalPanel, TerminalPanelHandle } from './TerminalPanel';
 import { TerminalGrabber, DETENTS } from './TerminalGrabber';
 import { StatusBar, countProblems } from './StatusBar';
 import { Activity, ActivityBar, ActivityItem } from './ActivityBar';
+import { TideWave } from '../../components/TideWave';
+import { EditorTour, resetEditorTour, useTourTarget } from '../onboarding/tour';
 import { gitStatusStore, useGitStatus } from '../git/status';
 import { useDiagnostics } from '../../extensions/diagnostics';
 import { recentsStore } from '../../state/recents';
-import { makeStyles } from '../../theme/theme';
+import { makeStyles, useColors } from '../../theme/theme';
 import { haptic } from '../../components/haptics';
 import { countRun } from '../support/actions';
 import { PreviewPane } from '../preview/PreviewPane';
@@ -91,6 +93,7 @@ const EDGE_OPEN_DX = 40;
 // `launch` comes from a tide:// link or quick action: a file to open, and whether to run.
 export function ProjectScreen({ project, launch }: { project: string; launch?: ProjectLinkOptions | null }) {
   const styles = useStyles();
+  const colors = useColors();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const drawerWidth = Math.min(DRAWER_MAX, width * 0.85);
@@ -227,7 +230,9 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
   }, [project]);
 
   useEffect(() => {
-    Animated.timing(progress, { toValue: drawerOpen ? 1 : 0, duration: reduceMotion ? 0 : 200, useNativeDriver: true }).start();
+    // A spring that follows through like a native drawer; Reduce Motion snaps.
+    if (reduceMotion) progress.setValue(drawerOpen ? 1 : 0);
+    else Animated.spring(progress, { toValue: drawerOpen ? 1 : 0, damping: 26, stiffness: 260, mass: 0.9, useNativeDriver: true }).start();
   }, [drawerOpen, progress, reduceMotion]);
 
   const openFile = (path: string) => {
@@ -450,7 +455,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     { id: 'http.new', title: 'New HTTP requests file', icon: 'send', run: () => newHttpFile().catch((e) => Alert.alert('Could not create the file', String(e?.message ?? e))) },
     { id: 'find', title: 'Find in file', icon: 'search', hint: '⌘F', run: () => editor.current?.send({ type: 'find' }) },
     { id: 'goto-line', title: 'Go to line', icon: 'corner-down-right', hint: '⌘L', run: () => current && setGoingToLine(true) },
-    { id: 'save', title: 'Save file', icon: 'save', hint: '⌘S', run: () => current && save(current).then(() => haptic('success')) },
+    { id: 'save', title: 'Save file', icon: 'save', hint: '⌘S', run: () => current && save(current).then(() => haptic('tap')) },
     { id: 'close-tab', title: 'Close file', icon: 'x', hint: '⌘W', run: () => current && closeFile(current) },
     ...(wide ? [{ id: 'split', title: splitOn ? 'Close the second editor' : 'Split editor', icon: 'columns' as const, hint: '⌘\\', run: toggleSplit }] : []),
     ...(canToggle(current)
@@ -525,6 +530,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     },
     { id: 'terminal.close', title: 'Close terminal', icon: 'x-square', run: () => terminal.current?.closeTerminal() },
     { id: 'terminal.next', title: 'Next terminal', icon: 'terminal', run: () => terminal.current?.nextTerminal() },
+    { id: 'tour', title: 'Show the editor tour again', icon: 'compass', run: () => resetEditorTour() },
     { id: 'keyboard-shortcuts', title: 'Keyboard shortcuts', icon: 'command', hint: '⇧⌘?', run: () => setShortcutsOpen(true) },
     { id: 'toggle-terminal', title: 'Toggle terminal', icon: 'terminal', hint: '⌘J', run: () => setTerminalHidden((h) => !h) },
     { id: 'local', title: 'Terminal: use Local', icon: 'smartphone', run: () => runnerStore.getState().setMode('local') },
@@ -643,15 +649,29 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     [],
   );
 
-  // A sliding line under the header while something runs.
-  const runProgress = useRef(new Animated.Value(0)).current;
+  const runTarget = useTourTarget('run');
+  const paletteTarget = useTourTarget('palette');
+  const filesTarget = useTourTarget('files');
+  const terminalTarget = useTourTarget('terminal');
+  const tourTargets = { files: filesTarget, terminal: terminalTarget };
+
+  // Opening a project grows the editor in from the card that was tapped.
+  const enter = useRef(new Animated.Value(reduceMotion ? 1 : 0)).current;
   useEffect(() => {
-    if (!running || reduceMotion) return;
-    const loop = Animated.loop(Animated.timing(runProgress, { toValue: 1, duration: 1400, easing: Easing.inOut(Easing.quad), useNativeDriver: true }));
-    runProgress.setValue(0);
-    loop.start();
-    return () => loop.stop();
-  }, [running, reduceMotion, runProgress]);
+    Animated.spring(enter, { toValue: 1, damping: 20, stiffness: 220, mass: 0.9, useNativeDriver: true }).start();
+  }, [enter]);
+
+  // How the last program ended, shown by the wave for a moment.
+  const [runResult, setRunResult] = useState<'success' | 'error' | null>(null);
+  useEffect(() => {
+    if (!runResult) return;
+    const t = setTimeout(() => setRunResult(null), 1500);
+    return () => clearTimeout(t);
+  }, [runResult]);
+  const onProgramExit = (code: number) => {
+    haptic(code === 0 ? 'success' : 'warning');
+    setRunResult(code === 0 ? 'success' : 'error');
+  };
 
   const sidebarWidth = sidebarRatio > 0 && bodyWidth > 0 ? Math.round(sidebarRatio * bodyWidth) : SIDEBAR_WIDTH;
   // iPad: Markdown, HTML and the like show beside their source.
@@ -660,7 +680,12 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
   const terminalShown = !terminalHidden || (keyboardOpen && typingIn === 'terminal');
 
   return (
-    <View style={[styles.screen, { paddingTop: insets.top }]}>
+    <Animated.View
+      style={[
+        styles.screen,
+        { paddingTop: insets.top, opacity: enter, transform: [{ scale: enter.interpolate({ inputRange: [0, 1], outputRange: [0.96, 1] }) }] },
+      ]}
+    >
       <View style={styles.header}>
         <IconButton icon="chevron-left" label="Projects" onPress={() => router.back()} testID="back" />
         <View style={styles.titleBox}>
@@ -692,24 +717,23 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
           accessibilityLabel={running ? 'Stop' : 'Run project'}
           accessibilityHint={running ? undefined : 'Long press for run configurations and tasks'}
           style={({ pressed }) => [styles.run, running && styles.stop, pressed && styles.runPressed]}
+          ref={runTarget.ref}
+          onLayout={runTarget.onLayout}
           testID="run-button"
         >
           <Feather name={running ? 'square' : 'play'} size={13} color={running ? styles.stopText.color : styles.runText.color} />
           <Text style={running ? styles.stopText : styles.runText}>{running ? 'Stop' : 'Run'}</Text>
         </Pressable>
-        <IconButton icon="command" label="Commands" onPress={() => setPalette('commands')} testID="open-palette" />
+        <View ref={paletteTarget.ref} onLayout={paletteTarget.onLayout}>
+          <IconButton icon="command" label="Commands" onPress={() => setPalette('commands')} testID="open-palette" />
+        </View>
       </View>
-      <View style={styles.progressTrack}>
-        {running && (
-          <Animated.View
-            style={[
-              styles.progress,
-              reduceMotion
-                ? { width: '100%' }
-                : { transform: [{ translateX: runProgress.interpolate({ inputRange: [0, 1], outputRange: [-160, width] }) }] },
-            ]}
-          />
-        )}
+      <View style={styles.waveTrack}>
+        <TideWave
+          state={running ? 'running' : (runResult ?? 'idle')}
+          color={colors.brand}
+          done={{ success: colors.success, error: colors.destructive }}
+        />
       </View>
 
       {deployStatus && (
@@ -726,7 +750,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
         </Pressable>
       )}
       <View style={[styles.body, wide && styles.row]} onLayout={(e) => setBodyWidth(e.nativeEvent.layout.width)}>
-        {wide && <ActivityBar vertical items={activityItems} active={activeActivity} onSelect={onActivity} />}
+        {wide && <ActivityBar vertical items={activityItems} active={activeActivity} onSelect={onActivity} targets={tourTargets} />}
         {wide && !sidebarHidden && (
           <>
             <View style={[styles.sidebar, { width: sidebarWidth }]} testID="sidebar">
@@ -830,6 +854,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
               onOpenFile={openPrinted}
               onShowProblems={() => setProblems(true)}
               onBusyChange={setRunning}
+              onExit={onProgramExit}
               onHide={() => {
                 terminal.current?.blur();
                 setTerminalHidden(true);
@@ -860,7 +885,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
           />
         </View>
       )}
-      {!wide && !chromeHidden && <ActivityBar items={activityItems} active={activeActivity} onSelect={onActivity} bottomInset={insets.bottom} />}
+      {!wide && !chromeHidden && <ActivityBar items={activityItems} active={activeActivity} onSelect={onActivity} bottomInset={insets.bottom} targets={tourTargets} />}
 
       {!wide && (
         <>
@@ -888,6 +913,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
           </Animated.View>
         </>
       )}
+      <EditorTour />
       <ActionSheet title={moreOpen ? project : null} actions={moreActions} onClose={() => setMoreOpen(false)} />
 
       <CommandPalette
@@ -976,7 +1002,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
         }}
         onClose={() => setGoingToLine(false)}
       />
-    </View>
+    </Animated.View>
   );
 }
 
@@ -1000,11 +1026,10 @@ const useStyles = makeStyles((colors) => ({
   subtitleText: { fontFamily: fonts.sans.regular, fontSize: 11, color: colors.mutedForeground },
   run: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 30, paddingLeft: 10, paddingRight: 12, borderRadius: radius.pill, backgroundColor: colors.brand, marginHorizontal: 2 },
   runPressed: { opacity: 0.75 },
-  runText: { fontFamily: fonts.sans.semibold, fontSize: 13, color: colors.background },
+  runText: { fontFamily: fonts.sans.semibold, fontSize: 13, color: colors.brandForeground },
   stop: { backgroundColor: colors.destructiveSoft, borderWidth, borderColor: colors.destructive },
   stopText: { fontFamily: fonts.sans.semibold, fontSize: 13, color: colors.destructive },
-  progressTrack: { height: 2, overflow: 'hidden', backgroundColor: colors.border },
-  progress: { position: 'absolute', top: 0, bottom: 0, width: 160, backgroundColor: colors.brand },
+  waveTrack: { borderBottomWidth: borderWidth, borderColor: colors.border, backgroundColor: colors.card },
   edge: { position: 'absolute', left: 0, bottom: 0, width: EDGE_WIDTH },
   body: { flex: 1 },
   row: { flexDirection: 'row' },

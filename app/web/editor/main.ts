@@ -36,8 +36,13 @@ import {
   lineNumbers,
 } from '@codemirror/view';
 
-import fontRegular from '../../assets/fonts/JetBrainsMono-Regular.ttf';
+import firaCode from '../../assets/fonts/FiraCode-Regular.ttf';
+import ibmPlexMono from '../../assets/fonts/IBMPlexMono-Regular.ttf';
+import jetbrainsMono from '../../assets/fonts/JetBrainsMono-Regular.ttf';
+import sourceCodePro from '../../assets/fonts/SourceCodePro-Regular.ttf';
 import {
+  CODE_FONTS,
+  CodeFont,
   EditorDiagnostic,
   EditorFeatures,
   EditorKey,
@@ -72,14 +77,27 @@ import { buildTheme, FONT_FAMILY } from './theme';
 const CHANGE_DEBOUNCE_MS = 150;
 const CURSOR_DEBOUNCE_MS = 200;
 
+const FONT_FILES: Record<CodeFont, string> = {
+  'jetbrains-mono': jetbrainsMono,
+  'fira-code': firaCode,
+  'ibm-plex-mono': ibmPlexMono,
+  'source-code-pro': sourceCodePro,
+};
+const fontFaces = (Object.keys(FONT_FILES) as CodeFont[])
+  .map((id) => `@font-face { font-family: '${CODE_FONTS[id].family}'; src: url(${FONT_FILES[id]}) format('truetype'); }`)
+  .join('\n');
+
 const style = document.createElement('style');
 style.textContent = `
-  @font-face { font-family: '${FONT_FAMILY}'; src: url(${fontRegular}) format('truetype'); }
+  ${fontFaces}
   html, body { margin: 0; height: 100%; overscroll-behavior: none; -webkit-text-size-adjust: 100%; }
   #editor { height: 100%; }
   .cm-editor { height: 100%; font-size: 14px; }
   .cm-editor.cm-focused { outline: none; }
-  .cm-scroller { font-family: '${FONT_FAMILY}', monospace; line-height: 1.5; font-variant-ligatures: none; }
+  :root { --tide-liga: none; --tide-features: "liga" 0, "calt" 0; }
+  .cm-scroller { font-family: ${FONT_FAMILY}; line-height: 1.5; }
+  /* Ligatures are off by default: in code, => and != usually read better as typed. */
+  .cm-content { font-variant-ligatures: var(--tide-liga); font-feature-settings: var(--tide-features); }
 `;
 document.head.appendChild(style);
 
@@ -336,6 +354,18 @@ function copy(cut: boolean) {
   if (cut) view.dispatch({ changes: parts.map(({ from, to }) => ({ from, to })), userEvent: 'delete.cut' });
 }
 
+function setFont(font: CodeFont, ligatures: boolean) {
+  const root = document.documentElement.style;
+  root.setProperty('--tide-code-font', `'${CODE_FONTS[font].family}'`);
+  root.setProperty('--tide-liga', ligatures ? 'normal' : 'none');
+  root.setProperty('--tide-features', ligatures ? '"liga" 1, "calt" 1' : '"liga" 0, "calt" 0');
+  // Glyph widths change with the font; remeasure once it has loaded.
+  document.fonts
+    .load(`14px '${CODE_FONTS[font].family}'`)
+    .catch(() => undefined)
+    .then(() => view.requestMeasure());
+}
+
 function handle(msg: ToEditor) {
   switch (msg.type) {
     case 'open':
@@ -348,6 +378,8 @@ function handle(msg: ToEditor) {
       // Indent guides take their colors from the theme.
       view.dispatch({ effects: [themeConf.reconfigure(themeExtension), optionsConf.reconfigure(optionExtension())] });
       return view.requestMeasure();
+    case 'setFont':
+      return setFont(msg.font, msg.ligatures);
     case 'undo':
       return undo(view);
     case 'redo':

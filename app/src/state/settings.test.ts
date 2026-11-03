@@ -65,4 +65,30 @@ describe('settings store', () => {
     await flush();
     expect(restarted.getState().keymap).toBe('vim');
   });
+
+  it('defaults to JetBrains Mono without ligatures, including for settings saved before the option existed', async () => {
+    const storage = createFsStorage(createMemoryFs());
+    await storage.setItem('settings', JSON.stringify({ state: { theme: 'light', editorFontSize: 15 }, version: 1 }));
+    const settings = createSettingsStore(storage);
+    await flush();
+    expect(settings.getState()).toMatchObject({ codeFont: 'jetbrains-mono', ligatures: false });
+    settings.getState().setCodeFont('fira-code');
+    settings.getState().setLigatures(true);
+    await flush();
+    const restarted = createSettingsStore(storage);
+    await flush();
+    expect(restarted.getState()).toMatchObject({ codeFont: 'fira-code', ligatures: true });
+  });
+
+  it('matches the app chrome to the color theme by default, and remembers turning it off', async () => {
+    const storage = createFsStorage(createMemoryFs());
+    const settings = createSettingsStore(storage);
+    await flush();
+    expect(settings.getState().matchChrome).toBe(true);
+    settings.getState().setMatchChrome(false);
+    await flush();
+    const restarted = createSettingsStore(storage);
+    await flush();
+    expect(restarted.getState().matchChrome).toBe(false);
+  });
 });

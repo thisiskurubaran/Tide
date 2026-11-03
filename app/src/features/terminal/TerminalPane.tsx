@@ -46,13 +46,15 @@ interface TerminalPaneProps {
   onSubmit?(): void;
   // Local shell only: a command started (true) or the prompt is back (false).
   onBusy?(busy: boolean): void;
+  // A program it ran finished, with its exit code.
+  onExit?(code: number): void;
 }
 
 // Output from fast programs arrives in many small chunks; batching them keeps
 // the number of injectJavaScript calls to roughly one per frame.
 const FLUSH_MS = 16;
 
-export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(function TerminalPane({ project, onFocusChange, onShortcut, createBackend, onFound, onOpenFile, onOutput, onSubmit, onBusy }, ref) {
+export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(function TerminalPane({ project, onFocusChange, onShortcut, createBackend, onFound, onOpenFile, onOutput, onSubmit, onBusy, onExit }, ref) {
   const styles = useStyles();
   const webview = useRef<WebView<object>>(null);
   const ready = useRef(false);
@@ -62,13 +64,14 @@ export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(functi
   const scheme = useColorScheme();
   const theme = useTerminalTheme(scheme);
   const fontSize = useSettings((s) => s.terminalFontSize);
+  const font = useSettings((s) => s.codeFont);
 
   const send = useCallback((msg: ToTerminal) => {
     if (!ready.current) return;
     webview.current?.injectJavaScript(`window.tide && window.tide.receive(${JSON.stringify(JSON.stringify(msg))});true;`);
   }, []);
 
-  const sendTheme = useCallback(() => send({ type: 'setTheme', theme, fontSize }), [send, theme, fontSize]);
+  const sendTheme = useCallback(() => send({ type: 'setTheme', theme, fontSize, font }), [send, theme, fontSize, font]);
   useEffect(sendTheme, [sendTheme]);
 
   const flush = useCallback(() => {
@@ -86,6 +89,8 @@ export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(functi
   submitRef.current = onSubmit;
   const busyRef = useRef(onBusy);
   busyRef.current = onBusy;
+  const exitRef = useRef(onExit);
+  exitRef.current = onExit;
   const write = useCallback(
     (data: string) => {
       const plain = stripAnsi(data);
@@ -113,6 +118,7 @@ export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(functi
       },
       onBusy: (busy) => busyRef.current?.(busy),
       onRunExit: (entry, args, code) => {
+        exitRef.current?.(code);
         if (entry === 'tide:git' && args[0] === 'commit' && code === 0) autoDeployer.onCommit(project).catch(() => undefined);
       },
     });

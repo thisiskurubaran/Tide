@@ -1,5 +1,7 @@
-// FuseOps theme (https://fuseops.in), see docs/brand.md for where each value comes from.
-// Dark is Tide's default; light uses the FuseOps light palette as is.
+// Tide's own identity: deep sea-green ink with a teal brand. Dark is the
+// default; light keeps the same hues, deepened until text passes WCAG AA.
+// When Settings > Appearance > Match the whole app is on and a Themes & Icons
+// theme is chosen, chrome.ts derives these same keys from that theme instead.
 
 export type ColorScheme = 'dark' | 'light';
 
@@ -11,6 +13,8 @@ export interface Colors {
   mutedForeground: string;
   border: string;
   brand: string;
+  // Text and icons drawn on a brand fill (primary buttons, badges).
+  brandForeground: string;
   brandSoft: string;
   success: string;
   successSoft: string;
@@ -23,38 +27,42 @@ export interface Colors {
 
 export const palette: Record<ColorScheme, Colors> = {
   dark: {
-    background: '#0d0f0e',
-    foreground: '#f1f3f2',
-    card: '#151817',
-    secondary: '#1c201e',
-    mutedForeground: '#a3aaa7',
-    border: '#272c2a',
-    brand: '#7c9bff',
-    brandSoft: '#1a2240',
-    success: '#3fc095',
-    successSoft: '#12271f',
-    warning: '#e8b04f',
-    warningSoft: '#2a2213',
-    destructive: '#f2776d',
-    destructiveSoft: '#2c1715',
-    logoAccent: '#1d4ed8',
+    background: '#0a1115',
+    foreground: '#eaf3f2',
+    card: '#122027',
+    secondary: '#17262e',
+    mutedForeground: '#93aaa9',
+    border: '#1d3039',
+    brand: '#2dd4bf',
+    // Teal is light, so dark ink reads on it.
+    brandForeground: '#0a1115',
+    brandSoft: '#0e2f2c',
+    success: '#4ade80',
+    successSoft: '#0f2a1c',
+    warning: '#fbbf24',
+    warningSoft: '#2b2210',
+    destructive: '#fb7185',
+    destructiveSoft: '#2e1419',
+    logoAccent: '#0ea5e9',
   },
   light: {
-    background: '#fcfcfb',
-    foreground: '#111413',
+    background: '#f7fbfa',
+    foreground: '#0b1f24',
     card: '#ffffff',
-    secondary: '#f3f3f1',
-    mutedForeground: '#646b69',
-    border: '#e7e7e4',
-    brand: '#1d4ed8',
-    brandSoft: '#e8eefc',
-    success: '#0f6e4e',
-    successSoft: '#e3f2ec',
+    secondary: '#ebf3f2',
+    mutedForeground: '#4f6866',
+    border: '#d3e3e1',
+    // #0d9488 (the logo teal) is only 3.4:1 on the background; teal-700 passes AA.
+    brand: '#0f766e',
+    brandForeground: '#ffffff',
+    brandSoft: '#d5f3ef',
+    success: '#15803d',
+    successSoft: '#dcf5e4',
     warning: '#9a5b00',
     warningSoft: '#fbf0dc',
-    destructive: '#c4372c',
-    destructiveSoft: '#fbe7e5',
-    logoAccent: '#7c9bff',
+    destructive: '#be123c',
+    destructiveSoft: '#fde4e8',
+    logoAccent: '#0d9488',
   },
 };
 
@@ -64,36 +72,40 @@ export const highContrast: Record<ColorScheme, Colors> = {
   dark: {
     ...palette.dark,
     background: '#000000',
-    card: '#0e1110',
-    secondary: '#1f2422',
-    mutedForeground: '#d0d6d3',
-    border: '#6b7471',
-    brand: '#a9bdff',
-    success: '#62e3b5',
-    warning: '#ffcd70',
-    destructive: '#ff9d95',
+    foreground: '#ffffff',
+    card: '#0b1418',
+    secondary: '#16262d',
+    mutedForeground: '#c3d6d4',
+    border: '#5f7a78',
+    brand: '#5eead4',
+    brandForeground: '#000000',
+    success: '#86efac',
+    warning: '#fcd34d',
+    destructive: '#fda4af',
   },
   light: {
     ...palette.light,
     background: '#ffffff',
     foreground: '#000000',
-    secondary: '#ececea',
-    mutedForeground: '#363c3a',
-    border: '#858b89',
-    brand: '#1638a8',
-    success: '#08573d',
-    warning: '#6e4100',
-    destructive: '#9c241b',
+    secondary: '#e6efee',
+    mutedForeground: '#2f4341',
+    border: '#7a8f8d',
+    brand: '#0b4f4a',
+    brandForeground: '#ffffff',
+    success: '#14532d',
+    warning: '#6b3a06',
+    destructive: '#9f1239',
   },
 };
 
 export const colors = palette.dark;
 
-// Hues FuseOps doesn't define, needed for syntax and ANSI magenta/cyan.
-// Picked to sit between the brand blue and success green and pass WCAG AA.
+// Hues the core palette doesn't name, for syntax and ANSI magenta/cyan, plus
+// the dim grey of comments and line numbers. All pass AA on the card color,
+// which the editor uses for the active line.
 export const extended: Record<ColorScheme, { magenta: string; cyan: string; dim: string }> = {
-  dark: { magenta: '#c49bff', cyan: '#4fc6d6', dim: '#7d8582' },
-  light: { magenta: '#7c3aed', cyan: '#0e7490', dim: '#5b6361' },
+  dark: { magenta: '#c4a7ff', cyan: '#38bdf8', dim: '#7a918e' },
+  light: { magenta: '#7c3aed', cyan: '#0369a1', dim: '#5a6f6d' },
 };
 
 // PostScript names, which match the file names in assets/fonts, so the same
@@ -109,7 +121,7 @@ export const fontSizes = { xs: 11, sm: 13, md: 15, lg: 16, xl: 19, xxl: 26 } as 
 
 export const lineHeights = { body: 1.6, heading: 1.12, code: 1.5 } as const;
 
-// FuseOps headings and the wordmark use -0.02em; RN wants absolute points.
+// Headings and the wordmark use -0.02em; RN wants absolute points.
 export const letterSpacing = (fontSize: number) => fontSize * -0.02;
 
 export const spacing = { xs: 4, sm: 8, md: 16, lg: 24, xl: 32 } as const;
