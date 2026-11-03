@@ -22,8 +22,12 @@ const MAX_FONT_SCALE = 1.3;
 // Offered when a key is held, e.g. () for (.
 export type KeyVariant = { label: string; a11y: string; onPress(): void };
 
-// `active` marks a toggle that is on, such as select mode.
-export type KeyItem = { a11y: string; onPress(): void; active?: boolean; variants?: KeyVariant[] } & ({ label: string } | { icon: IconName });
+// `active` marks a toggle that is on, such as select mode; `tone: 'brand'`
+// fills the key with the brand color, e.g. Accept for an AI suggestion.
+export type KeyItem = { a11y: string; onPress(): void; active?: boolean; tone?: 'brand'; variants?: KeyVariant[]; testID?: string } & (
+  | { label: string }
+  | { icon: IconName }
+);
 
 interface KeyBarProps {
   // Groups are separated by a thin divider.
@@ -120,7 +124,8 @@ export function KeyBar({ groups, leading, onHide, onSwipe, testID }: KeyBarProps
                     haptic('tap');
                     k.onPress();
                   }}
-                  style={({ pressed }) => [styles.key, (pressed || k.active) && styles.pressed, k.active && styles.active]}
+                  testID={k.testID}
+                  style={({ pressed }) => [styles.key, (pressed || k.active) && styles.pressed, k.active && styles.active, k.tone === 'brand' && styles.brand, k.tone === 'brand' && pressed && styles.brandPressed]}
                 >
                   <KeyFace item={k} />
                 </Pressable>
@@ -168,7 +173,7 @@ function KeyFace({ item }: { item: KeyItem }) {
   return 'icon' in item ? (
     <Feather name={item.icon} size={16} color={colors.foreground} />
   ) : (
-    <Text style={styles.label} numberOfLines={1} maxFontSizeMultiplier={MAX_FONT_SCALE}>
+    <Text style={[styles.label, item.tone === 'brand' && styles.brandLabel]} numberOfLines={1} maxFontSizeMultiplier={MAX_FONT_SCALE}>
       {item.label}
     </Text>
   );
@@ -286,7 +291,8 @@ function GestureKey({ item, onSwipe, host }: { item: KeyItem; onSwipe?(steps: nu
       onResponderTerminate={end}
       // In a scrolling row, a drag that isn't a swipe or a hold goes to the scroll view.
       onResponderTerminationRequest={() => gesture.current?.mode !== 'swipe' && gesture.current?.mode !== 'variants'}
-      style={[styles.key, (pressed || item.active) && styles.pressed, item.active && styles.active]}
+      testID={item.testID}
+      style={[styles.key, (pressed || item.active) && styles.pressed, item.active && styles.active, item.tone === 'brand' && styles.brand, item.tone === 'brand' && pressed && styles.brandPressed]}
     >
       <KeyFace item={item} />
     </View>
@@ -314,6 +320,9 @@ const useStyles = makeStyles((colors) => ({
   },
   pressed: { backgroundColor: colors.border },
   active: { backgroundColor: colors.brandSoft },
+  brand: { backgroundColor: colors.brand },
+  brandPressed: { opacity: 0.8 },
+  brandLabel: { color: colors.brandForeground },
   label: { fontFamily: fonts.mono.semibold, fontSize: fontSizes.md, color: colors.foreground },
   divider: { width: borderWidth, height: 20, backgroundColor: colors.border, marginHorizontal: spacing.xs },
   edge: { height: KEY_BAR_HEIGHT, alignItems: 'center', justifyContent: 'center', borderLeftWidth: borderWidth, borderColor: colors.border },

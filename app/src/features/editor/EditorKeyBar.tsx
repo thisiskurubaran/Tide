@@ -34,7 +34,8 @@ function action(id: EditorAction, select: boolean): ToEditor {
 // The keys come from Settings, Key bar: per language, or the default list.
 // Select mode makes the arrows, the trackpad and swipes extend the selection.
 // Holding a symbol offers its variants; a pair like () leaves the caret inside.
-export function EditorKeyBar({ send, language }: { send(msg: ToEditor): void; language: Language }) {
+// While an AI suggestion shows (`completion`), Accept, Word and Next lead the row.
+export function EditorKeyBar({ send, language, completion }: { send(msg: ToEditor): void; language: Language; completion?: boolean }) {
   const ids = useKeyBar((s) => editorKeys(s, language));
   const [selecting, setSelecting] = useState(false);
   const paste = () =>
@@ -59,10 +60,15 @@ export function EditorKeyBar({ send, language }: { send(msg: ToEditor): void; la
     return [face.icon ? { ...common, icon: face.icon as IconName } : { ...common, label: face.label! }];
   });
   const trackpad = ids.includes(TRACKPAD) ? <Trackpad testID="editor-trackpad" onStep={(key) => send({ type: 'key', key, select: selecting })} /> : null;
+  const suggestion: KeyItem[] = [
+    { label: '⇥ Accept', a11y: 'Accept suggestion', tone: 'brand', testID: 'completion-accept', onPress: () => send({ type: 'acceptCompletion', part: 'all' }) },
+    { label: 'Word', a11y: 'Accept next word of suggestion', testID: 'completion-word', onPress: () => send({ type: 'acceptCompletion', part: 'word' }) },
+    { label: 'Next ↓', a11y: 'Next suggestion', testID: 'completion-next', onPress: () => send({ type: 'nextCompletion' }) },
+  ];
   return (
     <KeyBar
       testID="keyboard-bar"
-      groups={[items]}
+      groups={completion ? [suggestion, items] : [items]}
       leading={trackpad}
       onSwipe={(by) => send({ type: 'moveCursor', by, select: selecting })}
       onHide={() => send({ type: 'blur' })}

@@ -48,6 +48,7 @@ import { Activity, ActivityBar, ActivityItem } from './ActivityBar';
 import { TideWave } from '../../components/TideWave';
 import { EditorTour, resetEditorTour, useTourTarget } from '../onboarding/tour';
 import { runActivity } from '../widgets/runActivity';
+import { openAgent } from '../agent';
 import { gitStatusStore, useGitStatus } from '../git/status';
 import { useDiagnostics } from '../../extensions/diagnostics';
 import { recentsStore } from '../../state/recents';
@@ -58,6 +59,7 @@ import { PreviewPane } from '../preview/PreviewPane';
 import { previewKind, viewerFirst, viewerOnly } from '../preview/render';
 import { projectFileFor } from '../terminal/fileRefs';
 import { ProblemsPanel } from '../problems/ProblemsPanel';
+import { FixSheet, type FixRequest } from '../problems/FixSheet';
 import { Breadcrumbs, cursorStore } from '../outline/Breadcrumbs';
 import { SuggestionBanner } from '../../extensions/suggest/SuggestionBanner';
 import { matchOutput } from '../problems/matchers';
@@ -139,6 +141,10 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
   const [liveWindow, setLiveWindow] = useState(false);
   // Two-finger tap in the editor: actions for the word at the cursor.
   const [editorActions, setEditorActions] = useState(false);
+  // An inline AI suggestion is showing, so the key bar offers Accept.
+  const [ghost, setGhost] = useState(false);
+  // A problem being fixed with AI, from the error lens or the Problems panel.
+  const [fixRequest, setFixRequest] = useState<FixRequest | null>(null);
   const [sidebarRatio, setSidebarRatio] = useState(0);
   const [bodyWidth, setBodyWidth] = useState(0);
   const [previewRatio, setPreviewRatio] = useState(0.5);
@@ -556,6 +562,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     },
     { id: 'terminal.close', title: 'Close terminal', icon: 'x-square', run: () => terminal.current?.closeTerminal() },
     { id: 'terminal.next', title: 'Next terminal', icon: 'terminal', run: () => terminal.current?.nextTerminal() },
+    { id: 'agent', title: 'Agent: ask for a change across files', icon: 'cpu', run: () => openAgent(project) },
     { id: 'peek', title: 'Peek definition', icon: 'eye', hint: '⌥F12', run: () => editor.current?.send({ type: 'peek' }) },
     { id: 'live-preview', title: liveWindow ? 'Close the live preview window' : 'Live preview window', icon: 'monitor', run: () => setLiveWindow((on) => !on) },
     { id: 'tour', title: 'Show the editor tour again', icon: 'compass', run: () => resetEditorTour() },
@@ -645,6 +652,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
   };
   const run = (id: string) => () => commands.find((c) => c.id === id)?.run();
   const moreActions = [
+    { label: 'Agent', icon: 'cpu' as const, onPress: () => openAgent(project) },
     { label: 'All commands', icon: 'command' as const, onPress: () => setPalette('commands') },
     { label: liveWindow ? 'Close live preview' : 'Live preview window', icon: 'monitor' as const, onPress: () => setLiveWindow((on) => !on) },
     { label: 'Go to symbol', icon: 'list' as const, onPress: () => setOutline(true) },
@@ -829,6 +837,8 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
                 }}
                 onShortcut={onShortcut}
                 onActions={() => setEditorActions(true)}
+                onCompletionState={setGhost}
+                onFixProblem={(path, line) => setFixRequest({ kind: 'problem', path, line })}
               />
               {!sidePreview && viewer(tabs.active)}
             </View>
@@ -861,6 +871,8 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
                     }}
                     onShortcut={onShortcut}
                     onActions={() => setEditorActions(true)}
+                    onCompletionState={setGhost}
+                    onFixProblem={(path, line) => setFixRequest({ kind: 'problem', path, line })}
                   />
                   {viewer(split.path)}
                 </View>
@@ -907,7 +919,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
           {typingIn === 'terminal' && !terminalHidden ? (
             <TerminalKeyBar input={(data) => terminal.current?.input(data)} onHide={() => terminal.current?.blur()} />
           ) : (
-            <EditorKeyBar send={(msg) => editor.current?.send(msg)} language={languageFor(current ?? '')} />
+            <EditorKeyBar send={(msg) => editor.current?.send(msg)} language={languageFor(current ?? '')} completion={ghost} />
           )}
         </View>
       )}
@@ -1041,7 +1053,18 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
           setAiError(null);
         }}
       />
-      <ProblemsPanel visible={problems} project={project} onOpen={openAt} onClose={() => setProblems(false)} onExplainError={() => explainLastError()} />
+      <ProblemsPanel
+        visible={problems}
+        project={project}
+        onOpen={openAt}
+        onClose={() => setProblems(false)}
+        onExplainError={() => explainLastError()}
+        onFix={(request) => {
+          setProblems(false);
+          setFixRequest(request);
+        }}
+      />
+      <FixSheet project={project} request={fixRequest} onClose={() => setFixRequest(null)} />
       <OutlinePanel visible={outline} project={project} path={current ?? null} onOpen={openAt} onClose={() => setOutline(false)} />
       <ShortcutsSheet visible={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       <SnapshotsSheet project={showSnapshots ? project : null} onClose={() => setShowSnapshots(false)} />

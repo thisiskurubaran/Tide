@@ -11,6 +11,11 @@ export const CHANGELOG: Release[] = [
     items: [
       'Everything in Tide is free: every feature and every extension, with no subscription',
       'Support Tide with an optional tip, in Settings; tips unlock nothing',
+      'Bring your own AI: use your Anthropic, OpenAI, Gemini or OpenRouter key, or your own Ollama or LM Studio server; keys stay in the Keychain and requests go straight to the provider',
+      'Agent mode: describe a change and the agent reads, edits and runs your tests, asking before each command; review every change as a diff and keep or reject it',
+      'Inline AI completions as you type: Tab to accept, ⌥→ for one word',
+      'Fix with AI on any problem, previewed as a diff across files before anything changes',
+      'Choose a model for each AI job, see this month\'s usage and cost, and set a monthly limit',
       'Live preview window: a floating preview of your page or dev server that follows your typing; drag it anywhere and resize it',
       'Gestures: two fingers to switch tabs, pinch to zoom the code, three fingers to undo, pull down for commands; each one can be turned off',
       'Live Activity and Dynamic Island while a dev server, tests or a task runs, with Stop; Control Center buttons to run a project or its tests',

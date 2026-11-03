@@ -1,4 +1,3 @@
-import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, TextInput, View } from 'react-native';
 
@@ -15,8 +14,11 @@ import { borderWidth, fonts, fontSizes, radius, spacing } from '../../theme/toke
 import { diffText } from '../../extensions/gitPro/diff';
 import { DiffView } from '../../extensions/gitPro/DiffView';
 import { markdownToHtml } from '../preview/render';
-import { AiAnswer, AiTask, createClient, describeError, lastErrorLine, MODELS, runTask } from './assistant';
-import { getApiKey, useAiSettings } from './settings';
+import { AiAnswer, AiTask, describeError, lastErrorLine, runTask } from './assistant';
+import { useAiSetup } from './AiSetupSheet';
+import { aiReady } from './client';
+import { modelLabel } from './providers/catalog';
+import { useAiSettings } from './settings';
 
 export type AiMode = 'explain' | 'fix' | 'ask' | 'error';
 
@@ -30,13 +32,14 @@ interface AiSheetProps {
   onClose(): void;
 }
 
-// Explain, fix or change the open file with Claude. Changes are
+// Explain, fix or change the open file with the chat model. Changes are
 // shown as a diff and applied to the editor, unsaved, so Undo still works.
 export function AiSheet({ mode, project, path, errorOutput, onClose }: AiSheetProps) {
   const styles = useStyles();
   const colors = useColors();
-  const model = useAiSettings((s) => s.model);
-  const hasKey = useAiSettings((s) => s.hasKey);
+  const model = useAiSettings((s) => s.jobs.chat.model);
+  const ready = useAiSettings((s) => !!s.connected[s.jobs.chat.provider] && !!s.jobs.chat.model);
+  const setup = useAiSetup();
   const [tab, setTab] = useState<AiMode>('explain');
   const [prompt, setPrompt] = useState('');
   const [busy, setBusy] = useState(false);
@@ -54,16 +57,18 @@ export function AiSheet({ mode, project, path, errorOutput, onClose }: AiSheetPr
 
   const run = async () => {
     if (!path) return;
+    if (!aiReady('chat')) {
+      setup.ensure('chat', run);
+      return;
+    }
     setBusy(true);
     setError(null);
     setAnswer(null);
     try {
-      const key = await getApiKey();
-      if (!key) throw new Error('Add your Anthropic API key in Settings, AI assistant.');
       await buffersStore.getState().load(project, path);
       const original = buffersStore.getState().buffers[bufferKey(project, path)]?.content ?? '';
       const task: AiTask = tab === 'ask' ? { kind: 'ask', prompt: prompt.trim() } : tab === 'error' ? { kind: 'error', output: errorOutput ?? '' } : { kind: tab };
-      const result = await runTask(createClient(key), model, task, { path, content: original });
+      const result = await runTask(task, { path, content: original });
       setAnswer({ original, result });
       setView(result.code !== null ? 'changes' : 'answer');
       haptic('success');
@@ -82,12 +87,11 @@ export function AiSheet({ mode, project, path, errorOutput, onClose }: AiSheetPr
     onClose();
   };
 
-  const modelLabel = MODELS.find((m) => m.id === model)?.label ?? model;
   return (
     <Sheet visible={mode !== null} onClose={onClose} scrollable>
       <Text variant="title">AI assistant</Text>
       <Text variant="muted" numberOfLines={1}>
-        {path ?? 'Open a file first'} · {modelLabel}
+        {path ?? 'Open a file first'} · {modelLabel(model)}
       </Text>
       <Segmented<AiMode>
         value={tab}
@@ -120,19 +124,19 @@ export function AiSheet({ mode, project, path, errorOutput, onClose }: AiSheetPr
           testID="ai-prompt"
         />
       )}
-      {hasKey === false && (
+      {!ready && (
         <View style={styles.row}>
           <Text variant="muted" style={styles.flex}>
-            Add your Anthropic API key first.
+            Connect an AI provider with your own key first.
           </Text>
-          <Button title="Settings" variant="outline" onPress={() => (onClose(), router.push('/settings/ai'))} />
+          <Button title="Set up" variant="outline" onPress={() => setup.open()} testID="ai-setup-open" />
         </View>
       )}
       <Button
-        title={busy ? 'Asking Claude…' : tab === 'explain' ? 'Explain this file' : tab === 'fix' ? 'Find and fix bugs' : tab === 'error' ? 'Explain this error' : 'Ask'}
+        title={busy ? 'Asking…' : tab === 'explain' ? 'Explain this file' : tab === 'fix' ? 'Find and fix bugs' : tab === 'error' ? 'Explain this error' : 'Ask'}
         icon="cpu"
         onPress={run}
-        disabled={busy || !path || hasKey === false || (tab === 'ask' && !prompt.trim())}
+        disabled={busy || !path || (tab === 'ask' && !prompt.trim())}
         testID="ai-run"
       />
       {busy && <ActivityIndicator color={colors.mutedForeground} />}
@@ -170,6 +174,7 @@ export function AiSheet({ mode, project, path, errorOutput, onClose }: AiSheetPr
           )}
         </>
       )}
+      {setup.sheet}
     </Sheet>
   );
 }

@@ -170,7 +170,7 @@ export function SettingsScreen() {
               trackColor={{ true: colors.brand, false: colors.secondary }}
             />
           </Row>
-          <LinkRow label="AI assistant" detail={aiKey ? 'Anthropic key saved' : 'Claude, with your own API key'} onPress={() => router.push('/settings/ai')} testID="settings-ai" />
+          <LinkRow label="AI assistant" detail={aiKey ? 'Connected · models, completions and spend limit' : 'Claude, GPT, Gemini or your own server, with your own key'} onPress={() => router.push('/settings/ai')} testID="settings-ai" />
           <LinkRow
             label="Snippets"
             detail={snippetCount ? `${snippetCount} saved` : 'Your own, with tab stops'}

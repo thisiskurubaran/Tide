@@ -1,7 +1,15 @@
-// The AI assistant: explains, fixes or changes the open file with
-// Claude, through the official Anthropic SDK and the user's own API key. The
-// request goes straight from the device to Anthropic; Tide has no server.
-import Anthropic from '@anthropic-ai/sdk';
+// The AI assistant: explains, fixes or changes the open file with the
+// model picked for the chat job (Claude through the official Anthropic SDK,
+// or an OpenAI-style provider) and the user's own key. The request goes
+// straight from the device to the provider; Tide has no server.
+import { chat } from './client';
+import { modelLabel, PROVIDERS } from './providers/catalog';
+import { AiError } from './providers/types';
+import { aiSettings } from './settings';
+
+export { AiError } from './providers/types';
+export { describeError } from './providers/errors';
+export { createClient } from './providers/anthropic';
 
 export type AiModel = 'claude-opus-5-5' | 'claude-sonnet-5-5' | 'claude-haiku-5-5';
 
@@ -57,47 +65,21 @@ export function extractCode(text: string): string | null {
   return blocks.length ? blocks[blocks.length - 1][1] : null;
 }
 
-export class AiError extends Error {}
-
-// Readable messages for the errors the API can give.
-export function describeError(e: unknown): string {
-  if (e instanceof Anthropic.AuthenticationError) return 'Anthropic didn’t accept the API key. Check it in Settings, AI assistant.';
-  if (e instanceof Anthropic.PermissionDeniedError) return 'This API key can’t use that model.';
-  if (e instanceof Anthropic.RateLimitError) return 'Too many requests for this API key right now. Try again in a minute.';
-  if (e instanceof Anthropic.BadRequestError) return `Anthropic couldn’t take the request: ${e.message}`;
-  if (e instanceof Anthropic.APIConnectionError) return 'Couldn’t reach Anthropic. Check the connection.';
-  if (e instanceof Anthropic.APIError) return `Anthropic answered with an error (${e.status ?? 'no status'}): ${e.message}`;
-  return e instanceof Error ? e.message : String(e);
+// Who answered, for messages: "Claude" for Anthropic, else the model.
+function modelName(): string {
+  const ref = aiSettings.getState().jobs.chat;
+  return ref.provider === 'anthropic' ? 'Claude' : modelLabel(ref.model) || PROVIDERS[ref.provider].name;
 }
 
-export function createClient(apiKey: string, fetchImpl?: typeof fetch): Anthropic {
-  // The key is the user's own and stays on their device, so running "in a
-  // browser" (the web build) exposes nothing that isn't already theirs.
-  return new Anthropic({ apiKey, dangerouslyAllowBrowser: true, maxRetries: 2, ...(fetchImpl ? { fetch: fetchImpl } : {}) });
-}
-
-export async function runTask(client: Anthropic, model: AiModel, task: AiTask, file: AiFile): Promise<AiAnswer> {
+export async function runTask(task: AiTask, file: AiFile, signal?: AbortSignal): Promise<AiAnswer> {
   if (file.content.length > MAX_FILE_CHARS) throw new AiError(`This file is too big to send (${Math.round(file.content.length / 1000)}k characters). Select the part you want help with instead.`);
-  // Opus and Sonnet can hand a declined request to another model server-side.
-  const fallback = model === 'claude-haiku-5-5' ? {} : { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const };
-  const message = await client.beta.messages.create({
-    model,
-    max_tokens: 16000,
-    system: SYSTEM,
-    messages: [{ role: 'user', content: prompt(task, file) }],
-    ...fallback,
-  });
-  if (message.stop_reason === 'refusal') {
-    throw new AiError(`Claude declined this request${message.stop_details?.explanation ? `: ${message.stop_details.explanation}` : '.'}`);
+  const result = await chat({ job: 'chat', system: SYSTEM, messages: [{ role: 'user', content: prompt(task, file) }], maxTokens: 16000, signal });
+  if (result.stop === 'refusal') {
+    throw new AiError(`${modelName()} declined this request${result.refusal ? `: ${result.refusal}` : '.'}`, 'refusal');
   }
-  const text = message.content
-    .filter((b): b is Extract<typeof b, { type: 'text' }> => b.type === 'text')
-    .map((b) => b.text)
-    .join('\n')
-    .trim();
-  const truncated = message.stop_reason === 'max_tokens' ? '\n\n_The answer was cut off at the length limit._' : '';
+  const truncated = result.stop === 'length' ? '\n\n_The answer was cut off at the length limit._' : '';
   // A cut-off answer's code block may be incomplete, so it isn't offered to apply.
-  return { text: text + truncated, code: task.kind === 'explain' || truncated ? null : extractCode(text) };
+  return { text: result.text + truncated, code: task.kind === 'explain' || truncated ? null : extractCode(result.text) };
 }
 
 // The line that names the error, for showing above the button.

@@ -77,16 +77,21 @@ const MARKERS: Record<Severity, ShapeMarker> = { error: new ShapeMarker('error')
 
 // ---- Error lens ----
 
+// "✦ Fix" after the lens message on error and warning lines, when the app says AI is set up.
+export type FixHandler = (line: number) => void;
+export const fixable = (severity: Severity) => severity === 'error' || severity === 'warning';
+
 class LensWidget extends WidgetType {
   constructor(
     readonly severity: Severity,
     readonly message: string,
     readonly line: number,
+    readonly onFix: FixHandler | null = null,
   ) {
     super();
   }
   eq(other: LensWidget) {
-    return other.severity === this.severity && other.message === this.message && other.line === this.line;
+    return other.severity === this.severity && other.message === this.message && other.line === this.line && !other.onFix === !this.onFix;
   }
   toDOM(view: EditorView) {
     const pill = document.createElement('span');
@@ -101,6 +106,19 @@ class LensWidget extends WidgetType {
     // One line only; long messages end in an ellipsis, the tap shows all of it.
     text.textContent = this.message.split('\n')[0];
     pill.append(shape, text);
+    if (this.onFix && fixable(this.severity)) {
+      const onFix = this.onFix;
+      const fix = document.createElement('span');
+      fix.className = 'cm-error-lens-fix';
+      fix.textContent = '✦ Fix';
+      fix.onmousedown = (e) => e.preventDefault();
+      fix.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onFix(this.line);
+      };
+      pill.append(fix);
+    }
     pill.onmousedown = (e) => e.preventDefault();
     pill.onclick = (e) => {
       e.preventDefault();
@@ -164,24 +182,26 @@ interface Marks {
   lens: DecorationSet;
 }
 
-function buildMarks(state: EditorState, lens: boolean): Marks {
+function buildMarks(state: EditorState, lens: boolean, onFix: FixHandler | null = null): Marks {
   const lines = lineProblems(problems(state));
   const nums = [...lines.keys()].sort((a, b) => a - b);
   const gutterRanges = nums.map((n) => MARKERS[lines.get(n)!.severity].range(state.doc.line(n).from));
   const lensRanges = lens
     ? nums.map((n) => {
         const { first } = lines.get(n)!;
-        return Decoration.widget({ widget: new LensWidget(first.severity, first.message, n), side: 1 }).range(state.doc.line(n).to);
+        return Decoration.widget({ widget: new LensWidget(first.severity, first.message, n, onFix), side: 1 }).range(state.doc.line(n).to);
       })
     : [];
   return { gutter: RangeSet.of(gutterRanges), lens: Decoration.set(lensRanges) };
 }
 
-export function problemExtensions(options: { errorLens: boolean }): Extension[] {
+// `onFix`: shows "✦ Fix" in the lens of error and warning lines; null hides it.
+export function problemExtensions(options: { errorLens: boolean; onFix?: FixHandler | null }): Extension[] {
+  const onFix = options.onFix ?? null;
   const marks = StateField.define<Marks>({
-    create: (state) => buildMarks(state, options.errorLens),
+    create: (state) => buildMarks(state, options.errorLens, onFix),
     update(value, tr) {
-      if (tr.docChanged || tr.effects.some((e) => e.is(setDiagnosticsEffect)) || tr.reconfigured) return buildMarks(tr.state, options.errorLens);
+      if (tr.docChanged || tr.effects.some((e) => e.is(setDiagnosticsEffect)) || tr.reconfigured) return buildMarks(tr.state, options.errorLens, onFix);
       return value;
     },
     provide: (f) => EditorView.decorations.from(f, (m) => m.lens),

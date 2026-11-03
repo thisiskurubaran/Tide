@@ -63,6 +63,45 @@ describe('message parsing', () => {
   });
 });
 
+describe('inline completion messages', () => {
+  const to = (m: object) => parseToEditor(JSON.stringify(m));
+  const from = (m: object) => parseFromEditor(JSON.stringify(m));
+
+  it('accepts well-formed messages both ways', () => {
+    expect(to({ type: 'setCompletions', enabled: true, model: 'claude-haiku-5-5' })).toBeTruthy();
+    expect(to({ type: 'setCompletions', enabled: false })).toBeTruthy();
+    expect(to({ type: 'completion', requestId: 4, text: 'foo()' })).toBeTruthy();
+    expect(to({ type: 'acceptCompletion', part: 'word' })).toBeTruthy();
+    expect(to({ type: 'dismissCompletion' })).toBeTruthy();
+    expect(to({ type: 'nextCompletion' })).toBeTruthy();
+    expect(from({ type: 'requestCompletion', requestId: 1, path: 'a.ts', prefix: 'con', suffix: '' })).toBeTruthy();
+    expect(from({ type: 'completionState', visible: true })).toBeTruthy();
+  });
+
+  it('rejects bad fields and the wrong direction', () => {
+    expect(to({ type: 'setCompletions', enabled: 'yes' })).toBeNull();
+    expect(to({ type: 'setCompletions', enabled: true, model: 3 })).toBeNull();
+    expect(to({ type: 'completion', requestId: '4', text: 'x' })).toBeNull();
+    expect(to({ type: 'completion', requestId: 4 })).toBeNull();
+    expect(to({ type: 'acceptCompletion', part: 'line' })).toBeNull();
+    expect(from({ type: 'requestCompletion', requestId: 1, path: 'a.ts', prefix: 'x' })).toBeNull();
+    expect(from({ type: 'completionState' })).toBeNull();
+    expect(from({ type: 'completion', requestId: 1, text: 'x' })).toBeNull();
+    expect(to({ type: 'requestCompletion', requestId: 1, path: 'a', prefix: '', suffix: '' })).toBeNull();
+  });
+});
+
+describe('fix with AI messages', () => {
+  it('accepts setAiFix and fixProblem with valid fields, each in its own direction', () => {
+    expect(parseToEditor(JSON.stringify({ type: 'setAiFix', enabled: true }))).toEqual({ type: 'setAiFix', enabled: true });
+    expect(parseToEditor(JSON.stringify({ type: 'setAiFix', enabled: 'yes' }))).toBeNull();
+    expect(parseFromEditor(JSON.stringify({ type: 'fixProblem', path: 'a.ts', line: 3 }))).toEqual({ type: 'fixProblem', path: 'a.ts', line: 3 });
+    expect(parseFromEditor(JSON.stringify({ type: 'fixProblem', path: 'a.ts', line: 0 }))).toBeNull();
+    expect(parseFromEditor(JSON.stringify({ type: 'fixProblem', path: 3, line: 1 }))).toBeNull();
+    expect(parseToEditor(JSON.stringify({ type: 'fixProblem', path: 'a.ts', line: 3 }))).toBeNull();
+  });
+});
+
 describe('code fonts', () => {
   it('knows the bundled fonts by id', () => {
     expect(Object.keys(CODE_FONTS)).toEqual(['jetbrains-mono', 'fira-code', 'ibm-plex-mono', 'source-code-pro']);

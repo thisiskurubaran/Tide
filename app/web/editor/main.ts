@@ -77,6 +77,7 @@ import { snippetSource } from './snippets';
 import { a11yExtension, gotoProblem } from './a11y';
 import { closePeek, PeekConfig, peekAt, peekExtension, showPeek } from './peek';
 import { problemExtensions } from './problems';
+import { acceptCompletion as acceptGhost, dismissCompletion, ghostExtension, ghostOf, GhostHost, nextCompletion, setCompletions, setGhostTheme, showCompletion } from './ghost';
 import { buildTheme, FONT_FAMILY } from './theme';
 
 const CHANGE_DEBOUNCE_MS = 150;
@@ -130,7 +131,10 @@ let pendingCursor: ReturnType<typeof setTimeout> | null = null;
 const requests = createRequests(post);
 const currentFile = () => currentPath;
 const featureExtension = () => featureExtensions(features, currentFile, post, requests.ask);
-const problemExtension = () => problemExtensions({ errorLens: options.errorLens !== false });
+// "✦ Fix" in the lens, when the app says AI is set up ('setAiFix').
+let aiFix = false;
+const fixProblem = (line: number) => currentPath !== null && post({ type: 'fixProblem', path: currentPath, line });
+const problemExtension = () => problemExtensions({ errorLens: options.errorLens !== false, onFix: aiFix ? fixProblem : null });
 const peekConfig: PeekConfig = {
   request: (offset) => currentPath !== null && post({ type: 'peek', path: currentPath, offset }),
   open: (path, line) => post({ type: 'openAt', path, line }),
@@ -158,6 +162,8 @@ const services: ServiceHost = {
     post({ type: 'serviceDiagnostics', path, items });
   },
 };
+// AI inline completions (ghost.ts).
+const ghostHost: GhostHost = { post, path: currentFile };
 const breakpointsByPath = new Map<string, number[]>();
 let execLine: { path: string; line: number } | null = null;
 
@@ -197,6 +203,7 @@ const appShortcuts = Prec.highest(
 function baseExtensions(lang: Language): Extension[] {
   return [
     appShortcuts,
+    ghostExtension(ghostHost),
     // Before lineNumbers so the breakpoint gutter sits on the outside.
     featureConf.of(featureExtension()),
     lineNumbers(),
@@ -266,6 +273,8 @@ const view = new EditorView({
 
 function open(path: string, content: string, lang: Language) {
   flushChange();
+  // A suggestion belongs to the moment it was made, not to the cached state.
+  dismissCompletion(view);
   if (currentPath !== null) states.set(currentPath, view.state);
   currentPath = path;
   currentLang = lang;
@@ -336,6 +345,7 @@ function pressKey(key: EditorKey, select = false) {
     case 'end':
       return (select ? selectLineBoundaryForward : cursorLineBoundaryForward)(view);
     case 'tab':
+      if (ghostOf(view.state)) return acceptGhost(view, 'all');
       if (completionStatus(view.state) === 'active') return acceptCompletion(view);
       if (!view.state.selection.main.empty) return indentMore(view);
       typeText(view.state.facet(indentUnit));
@@ -395,6 +405,7 @@ function handle(msg: ToEditor) {
     case 'setTheme':
       theme = msg.theme;
       themeExtension = buildTheme(msg.theme, msg.dark);
+      setGhostTheme(msg.theme);
       document.body.style.backgroundColor = msg.theme.background;
       view.dom.style.fontSize = `${msg.fontSize}px`;
       // Indent guides take their colors from the theme.
@@ -468,6 +479,20 @@ function handle(msg: ToEditor) {
     case 'setGestures':
       gestures = msg.gestures;
       return;
+    case 'setAiFix':
+      if (aiFix === msg.enabled) return;
+      aiFix = msg.enabled;
+      return view.dispatch({ effects: problemsConf.reconfigure(problemExtension()) });
+    case 'setCompletions':
+      return setCompletions(view, msg.enabled, msg.model);
+    case 'completion':
+      return showCompletion(view, msg.requestId, msg.text);
+    case 'acceptCompletion':
+      return acceptGhost(view, msg.part);
+    case 'dismissCompletion':
+      return dismissCompletion(view);
+    case 'nextCompletion':
+      return nextCompletion(view, ghostHost);
   }
 }
 

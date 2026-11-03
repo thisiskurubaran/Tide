@@ -1,9 +1,8 @@
 // "Suggest message" in the commit boxes: the change as a compact unified
-// diff, and a commit message from Claude for it (the user's own key).
-import type Anthropic from '@anthropic-ai/sdk';
-
+// diff, and a commit message for it from the chat model (the user's own key).
 import { diffText } from '../../extensions/gitPro/diff';
-import { AiError, AiModel } from './assistant';
+import { chat } from './client';
+import { AiError } from './providers/types';
 
 export interface ChangedFile {
   path: string;
@@ -42,20 +41,11 @@ const SYSTEM = `You write git commit messages. Reply with the message only: no p
 First line: a summary in the imperative mood ("Add", "Fix", "Rename"), at most 72 characters, no trailing period.
 If the change needs more explanation, add a blank line and a short body, wrapped at 72 characters, saying what changed and why. Small changes need no body.`;
 
-export async function suggestCommitMessage(client: Anthropic, model: AiModel, diff: string): Promise<string> {
+export async function suggestCommitMessage(diff: string, signal?: AbortSignal): Promise<string> {
   if (!diff.trim()) throw new AiError('There are no changes to describe.');
-  const message = await client.messages.create({
-    model,
-    max_tokens: 1000,
-    system: SYSTEM,
-    messages: [{ role: 'user', content: `Write a commit message for this change:\n\n${diff}` }],
-  });
-  if (message.stop_reason === 'refusal') throw new AiError('Claude declined to write this message.');
-  const text = message.content
-    .filter((b): b is Extract<typeof b, { type: 'text' }> => b.type === 'text')
-    .map((b) => b.text)
-    .join('\n');
-  return cleanMessage(text);
+  const result = await chat({ job: 'chat', system: SYSTEM, messages: [{ role: 'user', content: `Write a commit message for this change:\n\n${diff}` }], maxTokens: 1000, signal });
+  if (result.stop === 'refusal') throw new AiError('The model declined to write this message.', 'refusal');
+  return cleanMessage(result.text);
 }
 
 // Strips fences, quotes and a "Commit message:" lead-in some answers add anyway.

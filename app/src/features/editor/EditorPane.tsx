@@ -17,6 +17,8 @@ import { spacing } from '../../theme/tokens';
 import { ALL_GESTURES, CompletionResult, DEFAULT_CODE_FONT, EditorFeatures, EditorRequest, HoverResult, isCodeFont, languageFor, NO_FEATURES, NO_GESTURES, parseFromEditor, ToEditor } from './bridge';
 import type { PeekTarget } from './bridge';
 import { classify, formatBytes, TOO_LARGE_BYTES } from './largeFiles';
+import { useInlineCompletions } from './useInlineCompletions';
+import { useAiFix } from './useAiFix';
 import type { Shortcut } from '../project/shortcuts';
 import editorHtml from './editorHtml.generated';
 import { makeStyles, useColorScheme } from '../../theme/theme';
@@ -57,10 +59,14 @@ interface EditorPaneProps {
   onFocusChange(focused: boolean): void;
   // A two-finger tap in the editor.
   onActions?(): void;
+  // AI ghost text appeared or went away, e.g. to show Accept in the key bar.
+  onCompletionState?(visible: boolean): void;
+  // "✦ Fix" tapped in the error lens of a 1-based line. Without it the button isn't shown.
+  onFixProblem?(path: string, line: number): void;
 }
 
 export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function EditorPane(
-  { project, path, features, host, onBrowse, onFocusChange, onShortcut, onActions },
+  { project, path, features, host, onBrowse, onFocusChange, onShortcut, onActions, onCompletionState, onFixProblem },
   ref,
 ) {
   const styles = useStyles();
@@ -107,6 +113,14 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
     // Double-encoded so the payload is a JS string literal, not code.
     webview.current?.injectJavaScript(`window.tide && window.tide.receive(${JSON.stringify(JSON.stringify(msg))});true;`);
   }, []);
+
+  // AI inline completions, off for large and refused files.
+  const inline = useInlineCompletions(send, !!path && !isLarge && refused?.path !== path);
+  const onCompletionStateRef = useRef(onCompletionState);
+  onCompletionStateRef.current = onCompletionState;
+  const onFixProblemRef = useRef(onFixProblem);
+  onFixProblemRef.current = onFixProblem;
+  const aiFix = useAiFix(send, !!onFixProblem && !!path && !isLarge && refused?.path !== path);
 
   const pendingReveal = useRef<{ path: string; line: number; column?: number } | null>(null);
   const opened = useRef<string | null>(null);
@@ -251,6 +265,8 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
         sendGestures();
         sendOptions();
         sendFeatures();
+        inline.sendCompletions();
+        aiFix.sendAiFix();
         openCurrent().then(() => {
           sendMarks();
           sendPaused();
@@ -320,6 +336,15 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
       case 'actions':
         onActions?.();
         return;
+      case 'requestCompletion':
+        inline.requestCompletion(msg);
+        return;
+      case 'completionState':
+        onCompletionStateRef.current?.(msg.visible);
+        return;
+      case 'fixProblem':
+        onFixProblemRef.current?.(msg.path, msg.line);
+        return;
       case 'error':
         console.warn('Editor error:', msg.message);
         return;
@@ -351,6 +376,7 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
           webview.current?.reload();
         }}
         onLoadStart={() => {
+          onCompletionStateRef.current?.(false);
           ready.current = false;
           opened.current = null;
         }}

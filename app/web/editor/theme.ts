@@ -43,6 +43,8 @@ function problemStyles(theme: EditorTheme) {
     },
     '.cm-error-lens-shape': { flex: 'none', fontSize: '0.85em' },
     '.cm-error-lens-text': { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: '0' },
+    // "✦ Fix" with AI, in Tide's teal.
+    '.cm-error-lens-fix': { flex: 'none', marginLeft: '4px', padding: '0 6px', borderRadius: '999px', color: '#14b8a6', backgroundColor: alpha('#14b8a6', 0.16), fontWeight: '600', cursor: 'pointer' },
     '.cm-diagnosticText::before': { marginRight: '6px' },
     // Peek definition.
     '.cm-peek': {

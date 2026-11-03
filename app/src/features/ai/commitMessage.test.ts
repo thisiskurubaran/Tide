@@ -1,6 +1,12 @@
-import { cleanMessage, formatChanges } from './commitMessage';
-import { createClient } from './assistant';
-import { suggestCommitMessage } from './commitMessage';
+/**
+ * @jest-environment node
+ */
+jest.mock('expo-secure-store', () => require('./testMocks').secureStoreMock());
+jest.mock('../../state', () => require('./testMocks').stateMock());
+
+import { cleanMessage, formatChanges, suggestCommitMessage } from './commitMessage';
+import { aiSettings, setKey } from './settings';
+import { fakeFetch, json } from './testMocks';
 
 describe('commit messages', () => {
   it('formats changes as a compact diff, and cuts big ones', () => {
@@ -28,15 +34,21 @@ describe('commit messages', () => {
     expect(cleanMessage('Fix sum\n\nIt subtracted.')).toBe('Fix sum\n\nIt subtracted.');
   });
 
-  it('asks Claude with the diff and returns the message', async () => {
-    const calls: { body: { model: string; messages: { content: string }[] } }[] = [];
-    const fetchImpl = (async (_url: string, init: { body: string }) => {
-      calls.push({ body: JSON.parse(init.body) });
-      return new Response(JSON.stringify({ id: 'm', type: 'message', role: 'assistant', model: 'claude-haiku-5-5', stop_reason: 'end_turn', content: [{ type: 'text', text: 'Fix sum to add numbers' }], usage: { input_tokens: 1, output_tokens: 1 } }), { status: 200, headers: { 'content-type': 'application/json' } });
-    }) as unknown as typeof fetch;
-    const msg = await suggestCommitMessage(createClient('sk-ant-test', fetchImpl), 'claude-haiku-5-5', '--- modified a.js\n+x');
-    expect(msg).toBe('Fix sum to add numbers');
-    expect(calls[0].body.messages[0].content).toContain('--- modified a.js');
-    await expect(suggestCommitMessage(createClient('k', fetchImpl), 'claude-haiku-5-5', '  ')).rejects.toThrow('no changes');
+  it('asks the chat model with the diff and returns the message', async () => {
+    await setKey('anthropic', 'sk-ant-test');
+    aiSettings.getState().setJob('chat', { provider: 'anthropic', model: 'claude-haiku-5-5' });
+    const f = fakeFetch(() => json({ id: 'm', type: 'message', role: 'assistant', model: 'claude-haiku-5-5', stop_reason: 'end_turn', content: [{ type: 'text', text: 'Fix sum to add numbers' }], usage: { input_tokens: 1, output_tokens: 1 } }));
+    const realFetch = global.fetch;
+    global.fetch = f.fetch;
+    try {
+      const msg = await suggestCommitMessage('--- modified a.js\n+x');
+      expect(msg).toBe('Fix sum to add numbers');
+      expect(f.calls[0].body.model).toBe('claude-haiku-5-5');
+      expect(f.calls[0].body.max_tokens).toBe(1000);
+      expect(f.calls[0].body.messages[0].content).toContain('--- modified a.js');
+      await expect(suggestCommitMessage('  ')).rejects.toThrow('no changes');
+    } finally {
+      global.fetch = realFetch;
+    }
   });
 });

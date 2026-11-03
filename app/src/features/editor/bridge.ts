@@ -170,7 +170,17 @@ export type ToEditor =
   // Moves the cursor to the next (1) or previous (-1) problem and announces it.
   | { type: 'gotoProblem'; direction: 1 | -1 }
   // Which touch gestures are on (all off while a screen reader runs).
-  | { type: 'setGestures'; gestures: EditorGestures };
+  | { type: 'setGestures'; gestures: EditorGestures }
+  // "✦ Fix" in the error lens: on when AI is set up and the app handles 'fixProblem'.
+  | { type: 'setAiFix'; enabled: boolean }
+  // AI inline completions (ghost text): on or off, and the model's id for the hint.
+  | { type: 'setCompletions'; enabled: boolean; model?: string }
+  // The answer to a 'requestCompletion'; '' means nothing to show.
+  | { type: 'completion'; requestId: number; text: string }
+  // The key bar's Accept / Word, Dismiss and Next.
+  | { type: 'acceptCompletion'; part: 'all' | 'word' }
+  | { type: 'dismissCompletion' }
+  | { type: 'nextCompletion' };
 
 export type FromEditor =
   | { type: 'ready' }
@@ -201,7 +211,14 @@ export type FromEditor =
   // Something for VoiceOver / TalkBack to say, e.g. after Next problem.
   | { type: 'announce'; text: string }
   // A two-finger tap in the editor: show the editor actions.
-  | { type: 'actions' };
+  | { type: 'actions' }
+  // "✦ Fix" tapped in the error lens of a 1-based line.
+  | { type: 'fixProblem'; path: string; line: number }
+  // Typing paused: an inline completion for the text around the cursor,
+  // capped to a few thousand characters before and after it.
+  | { type: 'requestCompletion'; requestId: number; path: string; prefix: string; suffix: string }
+  // Ghost text appeared or went away.
+  | { type: 'completionState'; visible: boolean };
 
 const EXTENSIONS: Record<string, Language> = {
   js: 'javascript',
@@ -267,6 +284,12 @@ const TO_EDITOR = new Set<ToEditor['type']>([
   'showPeek',
   'gotoProblem',
   'setGestures',
+  'setAiFix',
+  'setCompletions',
+  'completion',
+  'acceptCompletion',
+  'dismissCompletion',
+  'nextCompletion',
 ]);
 const FROM_EDITOR = new Set<FromEditor['type']>([
   'ready',
@@ -286,12 +309,23 @@ const FROM_EDITOR = new Set<FromEditor['type']>([
   'openAt',
   'announce',
   'actions',
+  'fixProblem',
+  'requestCompletion',
+  'completionState',
 ]);
 
 // Extra checks for messages whose fields pick a code path in the WebView; an
 // unknown font id would otherwise leave the editor with a fallback font.
 const VALID: Partial<Record<string, (msg: Record<string, unknown>) => boolean>> = {
   setFont: (msg) => isCodeFont(msg.font) && typeof msg.ligatures === 'boolean',
+  setAiFix: (msg) => typeof msg.enabled === 'boolean',
+  fixProblem: (msg) => typeof msg.path === 'string' && Number.isInteger(msg.line) && (msg.line as number) > 0,
+  setCompletions: (msg) => typeof msg.enabled === 'boolean' && (msg.model === undefined || typeof msg.model === 'string'),
+  completion: (msg) => Number.isInteger(msg.requestId) && typeof msg.text === 'string',
+  acceptCompletion: (msg) => msg.part === 'all' || msg.part === 'word',
+  requestCompletion: (msg) =>
+    Number.isInteger(msg.requestId) && typeof msg.path === 'string' && typeof msg.prefix === 'string' && typeof msg.suffix === 'string',
+  completionState: (msg) => typeof msg.visible === 'boolean',
   setGestures: (msg) =>
     typeof msg.gestures === 'object' && msg.gestures !== null && GESTURE_KEYS.every((k) => typeof (msg.gestures as Record<string, unknown>)[k] === 'boolean'),
 };

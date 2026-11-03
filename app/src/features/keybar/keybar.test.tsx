@@ -59,6 +59,22 @@ describe('key bars', () => {
     expect(send.mock.calls.map((c) => c[0])).toEqual([{ type: 'key', key: 'tab', select: false }, { type: 'insert', text: 'self.' }, { type: 'complete' }]);
   });
 
+  it('leads with Accept, Word and Next while an AI suggestion shows', async () => {
+    keyBarStore.getState().setEditor('plain', ['tab']);
+    const send = jest.fn();
+    await render(<EditorKeyBar send={send} language="plain" />);
+    expect(screen.queryByLabelText('Accept suggestion')).toBeNull();
+    await render(<EditorKeyBar send={send} language="plain" completion />);
+    await tap('Accept suggestion');
+    await tap('Accept next word of suggestion');
+    await tap('Next suggestion');
+    expect(send.mock.calls.map((c) => c[0])).toEqual([
+      { type: 'acceptCompletion', part: 'all' },
+      { type: 'acceptCompletion', part: 'word' },
+      { type: 'nextCompletion' },
+    ]);
+  });
+
   it('types terminal keys as bytes', async () => {
     keyBarStore.getState().setTerminal(['ctrl-d', text('git status\r')]);
     const input = jest.fn();
