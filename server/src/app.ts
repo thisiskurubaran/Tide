@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import http from 'node:http';
 
-import { WebSocketServer } from 'ws';
+import { type WebSocket, WebSocketServer } from 'ws';
 
 import type { SessionInfo } from '../../shared/protocol.ts';
 import type { Config } from './config.ts';
@@ -11,7 +11,11 @@ import type { SessionManager } from './sessions.ts';
 import { attachSync } from './sync.ts';
 
 const MAX_BODY = 64 * 1024;
-const MAX_MESSAGE = 64 * 1024 * 1024;
+export const MAX_MESSAGE = 64 * 1024 * 1024;
+// A phone that drops off the network never sends a close frame. Each socket is
+// pinged this often and terminated if it didn't answer the previous ping, which
+// runs its close handlers (connection count, watcher, shell).
+const HEARTBEAT_MS = 30_000;
 
 function authorized(config: Config, header: string | undefined) {
   const given = Buffer.from(header?.replace(/^Bearer /, '') ?? '');
@@ -40,7 +44,7 @@ function readJson(req: http.IncomingMessage): Promise<Record<string, unknown>> {
 const json = (res: http.ServerResponse, status: number, body: unknown) =>
   res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body));
 
-export function createApp(config: Config, manager: SessionManager) {
+export function createApp(config: Config, manager: SessionManager, options: { heartbeatMs?: number } = {}) {
   const info = (s: { id: string; project: string; previewKey: string }): SessionInfo => ({
     id: s.id,
     project: s.project,
@@ -75,6 +79,19 @@ export function createApp(config: Config, manager: SessionManager) {
   });
 
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE });
+  const alive = new WeakMap<WebSocket, boolean>();
+  const heartbeat = setInterval(() => {
+    for (const ws of wss.clients) {
+      if (alive.get(ws) === false) {
+        ws.terminate();
+        continue;
+      }
+      alive.set(ws, false);
+      ws.ping();
+    }
+  }, options.heartbeatMs ?? HEARTBEAT_MS);
+  heartbeat.unref();
+  server.on('close', () => clearInterval(heartbeat));
   server.on('upgrade', (req, socket, head) => {
     const m = /^\/sessions\/([A-Za-z0-9_-]+)\/(pty|sync)$/.exec(req.url ?? '');
     const session = m ? manager.get(m[1]) : undefined;
@@ -83,6 +100,8 @@ export function createApp(config: Config, manager: SessionManager) {
       return;
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
+      alive.set(ws, true);
+      ws.on('pong', () => alive.set(ws, true));
       session.connections++;
       manager.touch(session);
       ws.on('close', () => {

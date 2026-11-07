@@ -95,13 +95,67 @@ export type Envelope<T> = { n: number; m: T };
 // relative to the project root; contents are base64 so binary files survive.
 export type SyncFile = { type: 'file'; path: string; data: string };
 export type SyncDelete = { type: 'delete'; path: string };
-// App -> server once per connection: the whole project, before the shell is used.
-export type SyncInit = { type: 'init'; files: { path: string; data: string }[] };
+// App -> server once per connection: the whole project, before the shell is
+// used. Sent in batches that each stay under SyncLimits['initBatchBytes'] of file
+// data; every batch but the last has `more: true`, and the server answers
+// 'ready' after the last one. A single init without `more` is the whole project.
+export type SyncInit = { type: 'init'; files: { path: string; data: string }[]; more?: boolean };
 // Server -> app: the set of ports something is listening on in the container.
 export type SyncPorts = { type: 'ports'; ports: number[] };
+// Server -> app: the container's copy of `path` is over SyncLimits['maxBytes'], so it
+// is not synced. The container's copy wins: the app stops sending that path
+// (and the server drops writes to it) until it shrinks, which the app learns
+// from a 'file' or 'delete' for it.
+export type SyncSkipped = { type: 'skipped'; path: string };
 
 export type SyncToServer = SyncInit | SyncFile | SyncDelete;
-export type SyncToApp = SyncFile | SyncDelete | SyncPorts | { type: 'ready' };
+export type SyncToApp = SyncFile | SyncDelete | SyncPorts | SyncSkipped | { type: 'ready' };
+
+// This file holds types only (shared/ is loaded as CommonJS by the server's
+// typecheck), so sync constants are literal types that each side's runtime
+// values are checked against.
+export type SyncLimits = {
+  // Files bigger than this aren't synced either way.
+  maxBytes: 2097152;
+  // Budget for the base64 file data in one init batch. The server's WebSocket
+  // message limit is 64 MB; one batch is at most this plus one file.
+  initBatchBytes: 8388608;
+};
+
+// Folders never synced, at any depth: dependencies, VCS data, and build or
+// tool caches that are regenerated in the container and can be huge. 'dist',
+// 'build' and 'out' are deliberately not here, since some projects keep
+// sources or checked-in assets in them (batched init keeps big ones safe).
+// The runtime lists (server/src/syncRules.ts, app/src/features/remote/syncRules.ts)
+// must name exactly these (checked by tsc); server/src/watcher.py has a copy
+// that a server test compares.
+export type SyncSkipDir =
+  | 'node_modules'
+  | '.git'
+  | '__pycache__'
+  | '.pylibs'
+  | '.venv'
+  | 'venv'
+  | '.cache'
+  | '.next'
+  | '.nuxt'
+  | '.svelte-kit'
+  | '.turbo'
+  | '.parcel-cache'
+  | '.angular'
+  | '.expo'
+  | '.gradle'
+  | '.dart_tool'
+  | '.pytest_cache'
+  | '.mypy_cache'
+  | '.ruff_cache'
+  | '.tox'
+  | '.nyc_output'
+  | 'coverage'
+  | 'target';
+
+// Resolves to T only when T lists every SyncSkipDir (use with `satisfies`).
+export type AllSyncSkipDirs<T extends readonly SyncSkipDir[]> = [Exclude<SyncSkipDir, T[number]>] extends [never] ? T : never;
 
 // POST /sessions response.
 export type SessionInfo = { id: string; project: string; previewBase: string };

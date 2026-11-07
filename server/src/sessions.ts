@@ -46,6 +46,9 @@ export interface Session {
   lastActive: number;
   connections: number;
   ports: number[];
+  // Files whose container copy is over SyncLimits['maxBytes']. The container's copy
+  // wins: writes from the app to these paths are dropped until they shrink.
+  skipped: Set<string>;
 }
 
 export class SessionManager {
@@ -128,6 +131,7 @@ export class SessionManager {
       lastActive: Date.now(),
       connections: 0,
       ports: [],
+      skipped: new Set(),
     };
     this.sessions.set(id, session);
     return session;
@@ -184,6 +188,18 @@ export class SessionManager {
     stream.resume();
     await new Promise((resolve) => stream.on('end', resolve));
     return (await exec.inspect()).ExitCode ?? 1;
+  }
+
+  // Runs a command to completion and returns its stdout.
+  async output(session: Session, cmd: string[]): Promise<string> {
+    const exec = await session.container.exec({ Cmd: cmd, User: 'tide', AttachStdout: true, AttachStderr: true });
+    const stream = await exec.start({ hijack: true, stdin: false });
+    const out = new PassThrough();
+    const chunks: Buffer[] = [];
+    out.on('data', (d: Buffer) => chunks.push(d));
+    this.docker.modem.demuxStream(stream, out, new PassThrough());
+    await new Promise((resolve) => stream.on('end', resolve));
+    return Buffer.concat(chunks).toString('utf8');
   }
 
   // Long-running exec whose stdout is demuxed; used for the watcher.

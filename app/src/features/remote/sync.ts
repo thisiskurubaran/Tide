@@ -1,4 +1,6 @@
-import type { SyncToApp, SyncToServer } from '@shared/protocol';
+import type { SyncLimits, SyncToApp, SyncToServer } from '@shared/protocol';
+
+import { isSyncSkipped, SYNC_MAX_BYTES } from './syncRules';
 
 // What the sync needs from the workspace; the real one and tests both fit.
 export interface SyncFiles {
@@ -18,8 +20,11 @@ export interface SyncHooks {
 }
 
 // Same limit as the server's watcher: bigger files aren't synced either way.
-export const MAX_SYNC_BYTES = 2 * 1024 * 1024;
+export const MAX_SYNC_BYTES = SYNC_MAX_BYTES;
 const MAX_BASE64 = Math.ceil(MAX_SYNC_BYTES / 3) * 4;
+// The init is sent in batches of about this much file data, so no message
+// comes near the server's 64 MB limit however big the project is.
+export const INIT_BATCH_BYTES: SyncLimits['initBatchBytes'] = 8388608;
 
 // Keeps a project's files in step with its container. `known` holds the last
 // content each side agreed on, so a change applied from one side is not sent
@@ -29,6 +34,10 @@ export class RemoteSync {
   private queue: Promise<void> = Promise.resolve();
   private ready = false;
   private closed = false;
+  // Local changes made before 'ready', sent once it arrives ('all' = full diff).
+  private pending: Set<string> | 'all' | null = null;
+  // Paths whose container copy is too big to sync; the container owns them.
+  private skipped = new Set<string>();
 
   private socket: WebSocket;
   private project: string;
@@ -60,9 +69,17 @@ export class RemoteSync {
   // Called after the app saved, created or deleted files. Diffing against
   // `known` catches renames and deletes made from the file tree too.
   changed(paths?: string[]) {
-    if (!this.ready) return;
+    if (!this.ready) {
+      // The init may already have read these files; diff them after 'ready'.
+      if (!paths) this.pending = 'all';
+      else if (this.pending !== 'all') {
+        this.pending ??= new Set();
+        for (const p of paths) this.pending.add(p);
+      }
+      return;
+    }
     this.enqueue(async () => {
-      const present = await this.files.listFiles(this.project);
+      const present = await this.list();
       const set = new Set(present);
       for (const path of [...this.known.keys()]) {
         if (!set.has(path)) {
@@ -89,32 +106,54 @@ export class RemoteSync {
     if (!this.closed && this.socket.readyState === 1) this.socket.send(JSON.stringify(msg));
   }
 
+  // The project's files that this side owns.
+  private async list(): Promise<string[]> {
+    const all = await this.files.listFiles(this.project);
+    return all.filter((p) => !isSyncSkipped(p) && !this.skipped.has(p));
+  }
+
   private async read(path: string): Promise<string | null> {
     const data = await this.files.readBase64(this.project, path).catch(() => null);
     return data !== null && data.length <= MAX_BASE64 ? data : null;
   }
 
   private async sendInit() {
-    const files: { path: string; data: string }[] = [];
-    for (const path of await this.files.listFiles(this.project)) {
+    let files: { path: string; data: string }[] = [];
+    let size = 0;
+    for (const path of await this.list()) {
       const data = await this.read(path);
       if (data === null) continue;
+      if (files.length && size + data.length > INIT_BATCH_BYTES) {
+        this.send({ type: 'init', files, more: true });
+        files = [];
+        size = 0;
+      }
       this.known.set(path, data);
       files.push({ path, data });
+      size += data.length + path.length;
     }
     this.send({ type: 'init', files });
   }
 
   private async apply(msg: SyncToApp) {
     switch (msg.type) {
-      case 'ready':
+      case 'ready': {
         this.ready = true;
+        const pending = this.pending;
+        this.pending = null;
+        if (pending) this.changed(pending === 'all' ? undefined : [...pending]);
         this.hooks.onReady();
+        return;
+      }
+      case 'skipped':
+        this.known.delete(msg.path);
+        this.skipped.add(msg.path);
         return;
       case 'ports':
         this.hooks.onPorts(msg.ports);
         return;
       case 'file': {
+        this.skipped.delete(msg.path);
         if (this.known.get(msg.path) === msg.data) return;
         const isNew = !this.known.has(msg.path);
         this.known.set(msg.path, msg.data);
@@ -123,11 +162,13 @@ export class RemoteSync {
         if (isNew) this.hooks.onTreeChanged();
         return;
       }
-      case 'delete':
-        if (!this.known.delete(msg.path)) return;
+      case 'delete': {
+        const wasSkipped = this.skipped.delete(msg.path);
+        if (!this.known.delete(msg.path) && !wasSkipped) return;
         await this.files.removeIfPresent(this.project, msg.path);
         this.hooks.onTreeChanged();
         return;
+      }
     }
   }
 }

@@ -5,7 +5,8 @@ import { createWorkspace } from '../files/workspace';
 import { previewUrl, socketUrl } from './api';
 import { RemotePty } from './pty';
 import { normalizeUrl, validateSettings } from './settings';
-import { RemoteSync } from './sync';
+import { INIT_BATCH_BYTES, RemoteSync } from './sync';
+import { isSyncSkipped, SYNC_SKIP_DIRS } from './syncRules';
 
 class FakeSocket {
   readyState = 0;
@@ -31,12 +32,13 @@ class FakeSocket {
 const b64 = (s: string) => Buffer.from(s).toString('base64');
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
-async function setup() {
+async function setup(prepare?: (workspace: ReturnType<typeof createWorkspace>) => Promise<void>) {
   const fs = createMemoryFs();
   const workspace = createWorkspace(fs);
   await workspace.createProject('demo', 'node-hello');
   await workspace.createFolder('demo', '', 'node_modules');
   await workspace.createFile('demo', 'node_modules', 'skip.js', 'x');
+  await prepare?.(workspace);
   const socket = new FakeSocket();
   const hooks = { onFileChanged: jest.fn(), onTreeChanged: jest.fn(), onPorts: jest.fn(), onReady: jest.fn() };
   const sync = new RemoteSync(socket as unknown as WebSocket, 'demo', workspace, hooks);
@@ -99,13 +101,82 @@ describe('RemoteSync', () => {
     ]);
   });
 
-  it('ignores local changes until the first sync is done', async () => {
+  it('sends changes made before the first sync is done once it is', async () => {
     const { socket, workspace, sync } = await setup();
     socket.sent.length = 0;
-    await workspace.writeFile('demo', 'index.js', 'x');
+    await workspace.writeFile('demo', 'index.js', 'edited during init');
     sync.changed(['index.js']);
+    await workspace.createFile('demo', '', 'late.txt', 'late');
+    sync.changed([]);
     await flush();
     expect(socket.sent).toEqual([]);
+    socket.receive({ type: 'ready' });
+    await flush();
+    expect(socket.sent).toEqual([
+      { type: 'file', path: 'index.js', data: b64('edited during init') },
+      { type: 'file', path: 'late.txt', data: b64('late') },
+    ]);
+  });
+
+  it('skips build and cache folders', async () => {
+    const { socket } = await setup(async (workspace) => {
+      await workspace.createFolder('demo', '', '.next');
+      await workspace.createFile('demo', '.next', 'chunk.js', 'built');
+      await workspace.createFolder('demo', '', 'src');
+      await workspace.createFolder('demo', 'src', 'target');
+      await workspace.createFile('demo', 'src/target', 'out.o', 'o');
+      await workspace.createFile('demo', 'src', 'target.rs', 'fn main() {}');
+    });
+    const init = sent(socket)[0];
+    const paths = init.type === 'init' ? init.files.map((f) => f.path) : [];
+    expect(paths).toContain('src/target.rs');
+    expect(paths.filter(isSyncSkipped)).toEqual([]);
+    expect(SYNC_SKIP_DIRS.has('.next')).toBe(true);
+  });
+
+  it('splits a big project into init batches under the budget', async () => {
+    const chunk = 'a'.repeat(1024 * 1024);
+    const { socket } = await setup(async (workspace) => {
+      for (let i = 0; i < 20; i++) await workspace.createFile('demo', '', `big${i}.txt`, chunk);
+    });
+    const inits = sent(socket).filter((m) => m.type === 'init');
+    expect(inits.length).toBeGreaterThan(1);
+    inits.forEach((m, i) => {
+      if (m.type !== 'init') return;
+      expect(m.more).toBe(i < inits.length - 1 ? true : undefined);
+      expect(m.files.reduce((n, f) => n + f.data.length, 0)).toBeLessThanOrEqual(INIT_BATCH_BYTES);
+    });
+    const all = inits.flatMap((m) => (m.type === 'init' ? m.files.map((f) => f.path) : []));
+    expect(all.filter((p) => p.startsWith('big'))).toHaveLength(20);
+  });
+
+  it('stops owning a file the container reports as too big', async () => {
+    const { socket, workspace, sync, hooks } = await setup();
+    socket.receive({ type: 'ready' });
+    socket.receive({ type: 'skipped', path: 'index.js' });
+    await flush();
+    socket.sent.length = 0;
+    await workspace.writeFile('demo', 'index.js', 'stale edit');
+    sync.changed(['index.js']);
+    sync.changed();
+    await flush();
+    expect(socket.sent).toEqual([]);
+
+    // Shrunk in the container: it syncs again.
+    socket.receive({ type: 'file', path: 'index.js', data: b64('small again') });
+    await flush();
+    expect(await workspace.readFile('demo', 'index.js')).toBe('small again');
+    await workspace.writeFile('demo', 'index.js', 'mine');
+    sync.changed(['index.js']);
+    await flush();
+    expect(socket.sent).toEqual([{ type: 'file', path: 'index.js', data: b64('mine') }]);
+
+    // Deleted in the container while skipped: the stale copy goes too.
+    socket.receive({ type: 'skipped', path: 'index.js' });
+    socket.receive({ type: 'delete', path: 'index.js' });
+    await flush();
+    expect(await workspace.stat('demo', 'index.js')).toBeNull();
+    expect(hooks.onTreeChanged).toHaveBeenCalled();
   });
 
   it('reports ports', async () => {
