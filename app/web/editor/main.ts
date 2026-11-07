@@ -57,7 +57,7 @@ import {
   ToEditor,
 } from '../../src/features/editor/bridge';
 import type { EditorTheme } from '../../src/theme/editor';
-import { shortcutFor } from '../../src/features/project/shortcuts';
+import { shortcutFor, type Shortcut } from '../../src/features/project/shortcuts';
 import { insertLiteral, moveCursor } from './cursor';
 import {
   breakpointLines,
@@ -174,6 +174,13 @@ function flushChange() {
   post({ type: 'change', path: currentPath, content: view.state.doc.toString() });
 }
 
+// App shortcuts (close tab, switch tab, run...) act on the buffer, so the
+// last keystrokes go first: the app gets the change before the shortcut.
+function postShortcut(id: Shortcut) {
+  flushChange();
+  post({ type: 'shortcut', id });
+}
+
 const saveKeymap = keymap.of([
   {
     key: 'Mod-s',
@@ -194,7 +201,7 @@ const appShortcuts = Prec.highest(
       const id = shortcutFor(e);
       if (!id || id === 'save') return false;
       e.preventDefault();
-      post({ type: 'shortcut', id });
+      postShortcut(id);
       return true;
     },
   }),
@@ -491,6 +498,10 @@ function handle(msg: ToEditor) {
       return acceptGhost(view, msg.part);
     case 'dismissCompletion':
       return dismissCompletion(view);
+    case 'flush':
+      // Messages arrive in order, so the app has the change before 'flushed'.
+      flushChange();
+      return post({ type: 'flushed', id: msg.id });
     case 'nextCompletion':
       return nextCompletion(view, ghostHost);
   }
@@ -533,7 +544,7 @@ attachGestures(view.dom, {
   onEvent(e) {
     switch (e.type) {
       case 'tab':
-        return post({ type: 'shortcut', id: e.direction === 'next' ? 'next-tab' : 'prev-tab' });
+        return postShortcut(e.direction === 'next' ? 'next-tab' : 'prev-tab');
       case 'zoom':
         view.dom.style.fontSize = `${e.fontSize}px`;
         view.requestMeasure();
@@ -549,7 +560,7 @@ attachGestures(view.dom, {
         return pullPill.update(e.distance, e.armed);
       case 'pullEnd':
         pullPill.hide();
-        if (e.open) post({ type: 'shortcut', id: 'palette' });
+        if (e.open) postShortcut('palette');
         return;
       case 'actions':
         return post({ type: 'actions' });

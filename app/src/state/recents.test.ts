@@ -1,5 +1,6 @@
 import { createMemoryFs } from '../features/files/memoryFs';
 import { MAX_RECENT_FILES, createRecentsStore, timeAgo } from './recents';
+import { hydrated } from './hydrated';
 import { createFsStorage } from './storage';
 import { createTabsStore } from './tabs';
 
@@ -51,6 +52,8 @@ describe('recents store', () => {
 
   it('persists across restarts', async () => {
     const { storage, store } = setup();
+    // Changes made before the saved state loads aren't saved (they'd hold defaults).
+    await hydrated(store);
     store.getState().touchProject('a');
     store.getState().touchFile('a', 'x.js');
     await flush();

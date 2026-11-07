@@ -31,10 +31,17 @@ const PROBLEM_ACTIONS = [
 // Narrower windows (phones, Slide Over) don't show the minimap.
 export const MINIMAP_MIN_WIDTH = 600;
 
+// flush() doesn't wait longer than this for an editor that doesn't answer
+// (still loading, or its web content crashed).
+export const FLUSH_TIMEOUT_MS = 500;
+
 export interface EditorHandle {
   send(msg: ToEditor): void;
   // Moves to a line once `path` is the open file; call it right after opening the tab.
   reveal(path: string, line: number, column?: number): void;
+  // Resolves once typing the editor was still holding back (its change
+  // messages are debounced) has reached the buffer, e.g. before closing a tab.
+  flush(): Promise<void>;
 }
 
 // What the editor asks of the app beyond editing: answered by extensions.
@@ -96,6 +103,8 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
   // Gestures would fight VoiceOver / TalkBack's own, so they are all off while one runs.
   const screenReader = useScreenReader();
   const bufferContent = useBuffers((s) => (path ? s.buffers[bufferKey(project, path)]?.content : undefined));
+  // Deleted on disk while it had unsaved edits (see buffers.ts).
+  const deleted = useBuffers((s) => (path ? s.buffers[bufferKey(project, path)]?.deleted === true : false));
   // fileDiagnostics builds a new array; compare its items so a re-render isn't a new value every time.
   const diagnostics = useDiagnostics(useShallow((s) => (path ? fileDiagnostics(s, project, path, EDITOR_SOURCE) : null)));
   const breakpoints = useBreakpoints((s) => (path ? fileBreakpoints(s, project, path) : null));
@@ -124,6 +133,12 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
 
   const pendingReveal = useRef<{ path: string; line: number; column?: number } | null>(null);
   const opened = useRef<string | null>(null);
+  const flushes = useRef(new Map<number, () => void>());
+  const nextFlush = useRef(0);
+  // Unblocks waiting flush() calls, e.g. when the web content reloads.
+  const settleFlushes = () => {
+    for (const done of [...flushes.current.values()]) done();
+  };
 
   useImperativeHandle(
     ref,
@@ -132,6 +147,20 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
       reveal(target, line, column) {
         if (opened.current === target && pathRef.current === target) send({ type: 'goto', path: target, line, column });
         else pendingReveal.current = { path: target, line, column };
+      },
+      flush() {
+        if (!ready.current) return Promise.resolve();
+        const id = ++nextFlush.current;
+        return new Promise<void>((resolve) => {
+          const done = () => {
+            clearTimeout(timer);
+            flushes.current.delete(id);
+            resolve();
+          };
+          const timer = setTimeout(done, FLUSH_TIMEOUT_MS);
+          flushes.current.set(id, done);
+          send({ type: 'flush', id });
+        });
       },
     }),
     [send],
@@ -279,6 +308,9 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
       case 'save':
         hostRef.current.save(msg.path);
         return;
+      case 'flushed':
+        flushes.current.get(msg.id)?.();
+        return;
       case 'request':
         hostRef.current
           .request(msg)
@@ -371,11 +403,13 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
         onMessage={onMessage}
         // The web content reloads after a crash, so it has to ask for the file again.
         onContentProcessDidTerminate={() => {
+          settleFlushes();
           ready.current = false;
           opened.current = null;
           webview.current?.reload();
         }}
         onLoadStart={() => {
+          settleFlushes();
           onCompletionStateRef.current?.(false);
           ready.current = false;
           opened.current = null;
@@ -401,6 +435,18 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
           </Text>
         </View>
       )}
+      {path && deleted && (
+        <View style={styles.deleted} testID="editor-deleted">
+          <Text variant="muted" style={styles.deletedText}>
+            Deleted on disk. Your changes are kept but not saved.
+          </Text>
+          <Button
+            title="Save as new file"
+            variant="outline"
+            onPress={() => buffersStore.getState().save(project, path, { recreate: true }).catch((e) => console.warn('Save failed', e))}
+          />
+        </View>
+      )}
       {path && refused?.path === path && (
         <View style={styles.empty} testID="editor-refused">
           <Text variant="muted" style={styles.refused}>
@@ -423,6 +469,20 @@ const useStyles = makeStyles((colors) => ({
   webview: { flex: 1, backgroundColor: colors.background },
   banner: { position: 'absolute', right: spacing.sm, bottom: spacing.sm, paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: 6, backgroundColor: colors.secondary, opacity: 0.9 },
   bannerText: { fontSize: 11 },
+  deleted: {
+    position: 'absolute',
+    left: spacing.sm,
+    right: spacing.sm,
+    top: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    padding: spacing.sm,
+    borderRadius: 8,
+    backgroundColor: colors.secondary,
+  },
+  deletedText: { flex: 1, fontSize: 13 },
   refused: { textAlign: 'center', paddingHorizontal: spacing.lg },
   empty: {
     ...StyleSheet.absoluteFill,

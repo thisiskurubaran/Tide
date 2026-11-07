@@ -199,7 +199,9 @@ export type ToEditor =
   // The key bar's Accept / Word, Dismiss and Next.
   | { type: 'acceptCompletion'; part: 'all' | 'word' }
   | { type: 'dismissCompletion' }
-  | { type: 'nextCompletion' };
+  | { type: 'nextCompletion' }
+  // Send any typing still waiting on the change debounce now, then answer 'flushed'.
+  | { type: 'flush'; id: number };
 
 export type FromEditor =
   | { type: 'ready' }
@@ -237,7 +239,9 @@ export type FromEditor =
   // capped to a few thousand characters before and after it.
   | { type: 'requestCompletion'; requestId: number; path: string; prefix: string; suffix: string }
   // Ghost text appeared or went away.
-  | { type: 'completionState'; visible: boolean };
+  | { type: 'completionState'; visible: boolean }
+  // Answers 'flush', after the 'change' it sent (if there was typing pending).
+  | { type: 'flushed'; id: number };
 
 const EXTENSIONS: Record<string, Language> = {
   js: 'javascript',
@@ -377,6 +381,7 @@ const TO_EDITOR = new Set<ToEditor['type']>([
   'acceptCompletion',
   'dismissCompletion',
   'nextCompletion',
+  'flush',
 ]);
 const FROM_EDITOR = new Set<FromEditor['type']>([
   'ready',
@@ -399,6 +404,7 @@ const FROM_EDITOR = new Set<FromEditor['type']>([
   'fixProblem',
   'requestCompletion',
   'completionState',
+  'flushed',
 ]);
 
 // Extra checks for messages whose fields pick a code path in the WebView; an
@@ -413,6 +419,8 @@ const VALID: Partial<Record<string, (msg: Record<string, unknown>) => boolean>> 
   requestCompletion: (msg) =>
     Number.isInteger(msg.requestId) && typeof msg.path === 'string' && typeof msg.prefix === 'string' && typeof msg.suffix === 'string',
   completionState: (msg) => typeof msg.visible === 'boolean',
+  flush: (msg) => Number.isInteger(msg.id),
+  flushed: (msg) => Number.isInteger(msg.id),
   setGestures: (msg) =>
     typeof msg.gestures === 'object' && msg.gestures !== null && GESTURE_KEYS.every((k) => typeof (msg.gestures as Record<string, unknown>)[k] === 'boolean'),
 };

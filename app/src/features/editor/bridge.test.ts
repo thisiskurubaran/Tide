@@ -74,6 +74,14 @@ describe('message parsing', () => {
     expect(parseFromEditor('"ready"')).toBeNull();
   });
 
+  it('carries flush requests to the editor and their answers back, with an integer id', () => {
+    expect(parseToEditor(JSON.stringify({ type: 'flush', id: 3 }))).toEqual({ type: 'flush', id: 3 });
+    expect(parseFromEditor(JSON.stringify({ type: 'flushed', id: 3 }))).toEqual({ type: 'flushed', id: 3 });
+    expect(parseToEditor(JSON.stringify({ type: 'flush' }))).toBeNull();
+    expect(parseFromEditor(JSON.stringify({ type: 'flushed', id: '3' }))).toBeNull();
+    expect(parseFromEditor(JSON.stringify({ type: 'flush', id: 3 }))).toBeNull();
+  });
+
   it('accepts setFont only with a known font and a boolean ligatures flag', () => {
     const msg = { type: 'setFont', font: 'fira-code', ligatures: true };
     expect(parseToEditor(JSON.stringify(msg))).toEqual(msg);

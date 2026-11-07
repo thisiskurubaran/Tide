@@ -47,22 +47,28 @@ export default function RootLayout() {
   useEffect(() => {
     // Keep the splash up until saved tabs and the project list are loaded,
     // so a restart lands on the right screen without flashing an empty one.
-    Promise.all([
-      hydrated(tabsStore),
-      hydrated(runnerStore),
-      hydrated(settingsStore),
-      hydrated(extensionsStore),
-      hydrated(breakpointsStore),
-      hydrated(keyBarStore),
-      hydrated(linkedStore),
-      hydrated(supportStore),
-      // The agent's unreviewed changes, so Review and Undo work after a relaunch.
-      hydrated(changesStore),
-      projectsStore.getState().refresh(),
-      remoteSettingsStore.getState().load().catch(() => undefined),
-      gitSettingsStore.getState().load().catch(() => undefined),
-      accountsStore.getState().load().catch(() => undefined),
-    ]).finally(() => {
+    // Each waits on its own and swallows its own failure, so one that fails
+    // (the project list can't be read) doesn't lift the splash before the rest
+    // have loaded.
+    const settle = (p: Promise<unknown>) => p.catch((e) => console.warn('Start-up loading failed', e));
+    Promise.all(
+      [
+        hydrated(tabsStore),
+        hydrated(runnerStore),
+        hydrated(settingsStore),
+        hydrated(extensionsStore),
+        hydrated(breakpointsStore),
+        hydrated(keyBarStore),
+        hydrated(linkedStore),
+        hydrated(supportStore),
+        // The agent's unreviewed changes, so Review and Undo work after a relaunch.
+        hydrated(changesStore),
+        projectsStore.getState().refresh(),
+        remoteSettingsStore.getState().load(),
+        gitSettingsStore.getState().load(),
+        accountsStore.getState().load(),
+      ].map(settle),
+    ).finally(() => {
       startCrashReports(settingsStore);
       startQuickActions();
       startWidgets();

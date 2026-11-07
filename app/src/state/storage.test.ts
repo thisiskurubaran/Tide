@@ -49,6 +49,73 @@ describe('createFsStorage', () => {
     expect(await fs.readFile('.tide/a.json')).toBe('{"x":3}');
   });
 
+  it('prefers a complete .tmp over the older main file', async () => {
+    // The app died after writing the .tmp but before replacing name.json.
+    const fs = createMemoryFs();
+    await fs.writeFile('.tide/a.json', '{"x":1}');
+    await fs.writeFile('.tide/a.json.tmp', '{"x":2}');
+    const storage = createFsStorage(fs);
+    expect(await storage.getItem('a')).toBe('{"x":2}');
+    expect(await fs.readFile('.tide/a.json')).toBe('{"x":2}');
+    expect(await fs.stat('.tide/a.json.tmp')).toBeNull();
+  });
+
+  it('keeps the main file when the .tmp was cut short', async () => {
+    const fs = createMemoryFs();
+    await fs.writeFile('.tide/a.json', '{"x":1}');
+    await fs.writeFile('.tide/a.json.tmp', '{"x":');
+    expect(await createFsStorage(fs).getItem('a')).toBe('{"x":1}');
+  });
+
+  it('leaves a file it could not read in place and never writes over it', async () => {
+    const fs = createMemoryFs();
+    await fs.writeFile('.tide/a.json', '{"x":1}');
+    const readFile = fs.readFile.bind(fs);
+    const spy = jest.spyOn(fs, 'readFile').mockRejectedValueOnce(new Error('EIO'));
+    const storage = createFsStorage(fs);
+    expect(await storage.getItem('a')).toBeNull();
+    expect(await fs.stat('.tide/a.json.corrupt')).toBeNull();
+    await storage.setItem('a', '{"x":"defaults"}');
+    spy.mockRestore();
+    expect(await readFile('.tide/a.json')).toBe('{"x":1}');
+    // A later successful read (rehydrate) allows saving again.
+    expect(await storage.getItem('a')).toBe('{"x":1}');
+    await storage.setItem('a', '{"x":2}');
+    expect(await fs.readFile('.tide/a.json')).toBe('{"x":2}');
+  });
+
+  it('gives up on a read that hangs, without writing over the file', async () => {
+    const fs = createMemoryFs();
+    await fs.writeFile('.tide/a.json', '{"x":1}');
+    const spy = jest.spyOn(fs, 'readFile').mockReturnValueOnce(new Promise(() => undefined));
+    const storage = createFsStorage(fs, { readTimeoutMs: 10 });
+    expect(await storage.getItem('a')).toBeNull();
+    spy.mockRestore();
+    await storage.setItem('a', '{}');
+    expect(await fs.readFile('.tide/a.json')).toBe('{"x":1}');
+  });
+
+  it('does not let a store save its defaults before its saved state has loaded', async () => {
+    const fs = createMemoryFs();
+    await fs.writeFile('.tide/tabs.json', JSON.stringify({ state: { byProject: { p: { open: ['saved.js'], active: 'saved.js' } }, lastProject: 'p', recent: ['p'] }, version: 1 }));
+    // A slow disk: the read takes a while.
+    const readFile = fs.readFile.bind(fs);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    jest.spyOn(fs, 'readFile').mockImplementation(async (p: string) => {
+      await gate;
+      return readFile(p);
+    });
+    const tabs = createTabsStore(createFsStorage(fs));
+    // Something changes state before hydration finishes.
+    tabs.getState().setLastProject('other');
+    await flush();
+    release();
+    await hydrated(tabs, 1000);
+    expect(tabs.getState().byProject.p.open).toEqual(['saved.js']);
+    expect(JSON.parse(await readFile('.tide/tabs.json')).state.byProject.p.open).toEqual(['saved.js']);
+  });
+
   it('ignores a damaged .tmp', async () => {
     const fs = createMemoryFs();
     await fs.writeFile('.tide/a.json.tmp', '{"x"');
@@ -87,6 +154,29 @@ describe('hydrated', () => {
     await flush();
     expect(store.persist.hasHydrated()).toBe(false);
     await expect(hydrated(store, 10)).resolves.toBeUndefined();
+    warn.mockRestore();
+  });
+
+  it('stops a store that did not load from saving its defaults over the file', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const fs = createMemoryFs();
+    const saved = JSON.stringify({ state: { n: 5 }, version: 0 });
+    await fs.writeFile('.tide/m.json', saved);
+    const store = createStore<{ n: number }>()(
+      persist(() => ({ n: 0 }), {
+        name: 'm',
+        version: 1,
+        storage: createJSONStorage(() => createFsStorage(fs)),
+        migrate: () => {
+          throw new Error('bad migration');
+        },
+      }),
+    );
+    await hydrated(store, 10);
+    expect(store.persist.hasHydrated()).toBe(false);
+    store.setState({ n: 1 });
+    await flush();
+    expect(await fs.readFile('.tide/m.json')).toBe(saved);
     warn.mockRestore();
   });
 

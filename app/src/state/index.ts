@@ -3,7 +3,7 @@ import { useStore } from 'zustand';
 import { createSnapshots } from '../features/backup/snapshots';
 import { createExpoFs } from '../features/files/expoFs';
 import { createWorkspace } from '../features/files/workspace';
-import { BuffersState, createBuffersStore } from './buffers';
+import { AUTOSAVE_MS, BuffersState, createBuffersStore } from './buffers';
 import { createProjectsStore, ProjectHooks, ProjectsState } from './projects';
 import { recentsStore } from './recents';
 import { createRunnerStore, RunnerState } from './runner';
@@ -22,7 +22,9 @@ export { recentsStore, useRecents } from './recents';
 export const tabsStore = createTabsStore(storage, { opened: (project, path) => recentsStore.getState().touchFile(project, path) });
 export const runnerStore = createRunnerStore(storage);
 export const settingsStore = createSettingsStore(storage);
-export const buffersStore = createBuffersStore(workspace);
+// A file deleted on disk (git, a snapshot restore, rm) closes its tab, as a
+// delete in the file tree does, unless it has unsaved edits.
+export const buffersStore = createBuffersStore(workspace, AUTOSAVE_MS, { gone: (project, path) => tabsStore.getState().removePath(project, path) });
 export const snapshots = createSnapshots(appFs, workspace);
 // Features that keep per-project data elsewhere follow renames and deletes here.
 const projectHooks: ProjectHooks[] = [

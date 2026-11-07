@@ -273,6 +273,9 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
   }
 
   async function closeFile(path: string) {
+    // The editors send typing on a short debounce, and the tab's X is native:
+    // get their last keystrokes into the buffer before saving it.
+    await Promise.all([leftEditor.current?.flush(), rightEditor.current?.flush()]);
     await buffersStore.getState().save(project, path);
     const rest = tabs.open.filter((p) => p !== path);
     // The right pane moves to a neighbour too.

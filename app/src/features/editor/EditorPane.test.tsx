@@ -1,6 +1,7 @@
 // Large and binary files, with the WebView replaced by a recorder of the
 // messages the pane sends it.
-import { act, render, screen } from '@testing-library/react-native';
+import { createRef } from 'react';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 
 jest.mock('@expo/vector-icons/Feather', () => 'Feather');
 let mockScreenReader = false;
@@ -51,9 +52,10 @@ jest.mock('../../state', () => {
   };
 });
 
-import { settingsStore, workspace } from '../../state';
+import { buffersStore, settingsStore, workspace } from '../../state';
+import { bufferKey } from '../../state/buffers';
 import { ALL_GESTURES, NO_FEATURES, NO_GESTURES } from './bridge';
-import { EditorPane } from './EditorPane';
+import { EditorHandle, EditorPane, FLUSH_TIMEOUT_MS } from './EditorPane';
 import { LARGE_CHARS } from './largeFiles';
 
 const host = { request: async () => null, definition: () => undefined, cursor: () => undefined, save: () => undefined };
@@ -157,4 +159,63 @@ it('moves between problems from the accessibility actions', async () => {
   expect(container.props.accessibilityActions.map((a: { label: string }) => a.label)).toEqual(['Next problem', 'Previous problem']);
   await act(async () => container.props.onAccessibilityAction({ nativeEvent: { actionName: 'previousProblem' } }));
   expect(mockSent.pop()).toEqual({ type: 'gotoProblem', direction: -1 });
+});
+
+describe('flush', () => {
+  const message = (msg: object) => act(async () => mockOnMessage({ nativeEvent: { data: JSON.stringify(msg) } }));
+
+  async function openWithRef(path: string) {
+    const ref = createRef<EditorHandle>();
+    mockSent = [];
+    await render(
+      <EditorPane ref={ref} project="p" path={path} features={features} host={host} onBrowse={() => undefined} onShortcut={() => undefined} onFocusChange={() => undefined} />,
+    );
+    await message({ type: 'ready' });
+    return ref;
+  }
+
+  it('waits for the editor to send its pending typing before resolving', async () => {
+    await workspace.createFile('p', '', 'flush.ts', 'start');
+    const ref = await openWithRef('flush.ts');
+    let done = false;
+    const flushed = ref.current!.flush().then(() => (done = true));
+    const request = mockSent.filter((m) => m.type === 'flush').pop() as unknown as { id: number };
+    expect(request).toBeDefined();
+    await act(async () => undefined);
+    expect(done).toBe(false);
+    // The editor answers in order: its last change, then flushed.
+    await message({ type: 'change', path: 'flush.ts', content: 'start typed' });
+    await message({ type: 'flushed', id: request.id });
+    await flushed;
+    expect(buffersStore.getState().buffers[bufferKey('p', 'flush.ts')].content).toBe('start typed');
+  });
+
+  it("doesn't wait forever for an editor that doesn't answer", async () => {
+    const ref = await openWithRef('small.ts');
+    jest.useFakeTimers();
+    try {
+      const flushed = ref.current!.flush();
+      jest.advanceTimersByTime(FLUSH_TIMEOUT_MS);
+      await expect(flushed).resolves.toBeUndefined();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});
+
+it('says when the open file was deleted on disk with unsaved edits, and can save it again', async () => {
+  await workspace.createFile('p', '', 'doomed.ts', 'one');
+  await openFile('doomed.ts');
+  await act(async () => {
+    buffersStore.getState().edit('p', 'doomed.ts', 'two');
+    await workspace.deleteEntry('p', 'doomed.ts');
+    await buffersStore.getState().reload('p', 'doomed.ts');
+  });
+  expect(screen.getByTestId('editor-deleted')).toBeTruthy();
+  await act(async () => {
+    fireEvent.press(screen.getByText('Save as new file'));
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  expect(await workspace.readFile('p', 'doomed.ts')).toBe('two');
+  expect(screen.queryByTestId('editor-deleted')).toBeNull();
 });

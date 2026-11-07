@@ -36,6 +36,8 @@ describe('extensions store', () => {
   it('remembers turned-down suggestions per project', async () => {
     const storage = createFsStorage(createMemoryFs());
     const store = createExtensionsStore(storage);
+    // Changes made before the saved state loads aren't saved.
+    await flush();
     store.getState().dismiss('demo', 'git-pro');
     store.getState().dismiss('demo', 'git-pro');
     store.getState().dismiss('other', 'intellisense');

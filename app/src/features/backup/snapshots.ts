@@ -4,7 +4,9 @@
 import { FsAdapter, joinPath } from '../files/fs';
 import type { Workspace } from '../files/workspace';
 import { STATE_DIR } from '../../state/storage';
-import { BackupError, fromBase64, SNAPSHOT_FILE_LIMIT, toBase64, writeEntries, zipEntries, zipProject } from './zip';
+import { strFromU8 } from 'fflate';
+
+import { BackupError, fromBase64, SNAPSHOT_FILE_LIMIT, SNAPSHOT_MANIFEST, SnapshotManifest, toBase64, writeEntries, zipEntries, zipProject } from './zip';
 
 export type SnapshotReason = 'auto' | 'manual' | 'before-restore' | 'before-pull';
 
@@ -17,6 +19,16 @@ export interface Snapshot {
 
 export const AUTO_INTERVAL_MS = 60 * 60 * 1000;
 export const KEEP = 10;
+
+function readManifest(bytes: Uint8Array | undefined): SnapshotManifest | null {
+  if (!bytes) return null;
+  try {
+    const parsed = JSON.parse(strFromU8(bytes));
+    return parsed && Array.isArray(parsed.skipped) ? { version: 1, skipped: parsed.skipped.filter((p: unknown) => typeof p === 'string') } : null;
+  } catch {
+    return null;
+  }
+}
 
 const dirFor = (project: string) => joinPath(STATE_DIR, 'snapshots', project);
 
@@ -38,7 +50,8 @@ export function createSnapshots(fs: FsAdapter, workspace: Workspace, now: () => 
   }
 
   async function take(project: string, reason: SnapshotReason): Promise<Snapshot> {
-    const { zip } = await zipProject(workspace, project, { maxFileBytes: SNAPSHOT_FILE_LIMIT });
+    // The manifest records what was left out, so restoring leaves those files alone.
+    const { zip } = await zipProject(workspace, project, { maxFileBytes: SNAPSHOT_FILE_LIMIT, manifest: true });
     const time = now();
     const id = `${time}-${reason}.zip`;
     await fs.writeBase64(joinPath(dirFor(project), id), toBase64(zip));
@@ -61,15 +74,21 @@ export function createSnapshots(fs: FsAdapter, workspace: Workspace, now: () => 
       return take(project, 'auto');
     },
     // Puts the project back as it was. node_modules, .git and the like are
-    // left alone; they weren't in the snapshot.
+    // left alone; they weren't in the snapshot. Neither are files too big for
+    // snapshots: they were never captured, so deleting them would lose them.
     async restore(project: string, id: string): Promise<void> {
       const path = joinPath(dirFor(project), id);
       if ((await fs.stat(path)) !== 'file') throw new BackupError('That snapshot is gone');
-      const entries = zipEntries(fromBase64(await fs.readBase64(path)));
+      const all = zipEntries(fromBase64(await fs.readBase64(path)));
+      const entries = all.filter((e) => e.path !== SNAPSHOT_MANIFEST);
+      const skipped = new Set(readManifest(all.find((e) => e.path === SNAPSHOT_MANIFEST)?.bytes)?.skipped ?? []);
       await take(project, 'before-restore');
       const keep = new Set(entries.map((e) => e.path));
       for (const file of await workspace.listFiles(project)) {
-        if (!keep.has(file)) await workspace.removeIfPresent(project, file);
+        if (keep.has(file) || skipped.has(file)) continue;
+        // Older snapshots have no manifest; a big file may simply have been left out.
+        if ((await workspace.fileSize(project, file).catch(() => Infinity)) > SNAPSHOT_FILE_LIMIT) continue;
+        await workspace.removeIfPresent(project, file);
       }
       await writeEntries(workspace, project, entries);
     },
