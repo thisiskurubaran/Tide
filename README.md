@@ -2,7 +2,7 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="app/assets/brand/tide-logo-dark.svg">
-  <img src="app/assets/brand/tide-logo.svg" alt="Tide" width="240">
+  <img src="app/assets/brand/tide-logo.svg" alt="Tide" width="140">
 </picture>
 
 **A full mobile IDE for iPhone, iPad and Android.**<br>
