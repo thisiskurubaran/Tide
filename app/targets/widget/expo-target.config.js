@@ -9,7 +9,8 @@ module.exports = (config) => ({
   name: 'TideWidget',
   bundleIdentifier: '.widget',
   displayName: 'Tide',
-  deploymentTarget: '16.4',
+  // Matches the app's ios.deploymentTarget in app.json.
+  deploymentTarget: '17.0',
   frameworks: ['SwiftUI', 'WidgetKit', 'ActivityKit', 'AppIntents'],
   colors: {
     $accent: '#2dd4bf',
