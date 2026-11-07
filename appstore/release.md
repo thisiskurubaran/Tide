@@ -1,16 +1,7 @@
 # Releasing Tide on the App Store
 
 How to set Tide up in App Store Connect and get it through review. Tide is
-free. The only in-app purchases are three optional tips, which unlock nothing.
-
-| Product | Type | Product ID | Price (US) |
-|---|---|---|---|
-| Small tip | Consumable | `com.thisiskurubaran.tide.tip.small` | $1.99 |
-| Medium tip | Consumable | `com.thisiskurubaran.tide.tip.medium` | $4.99 |
-| Large tip | Consumable | `com.thisiskurubaran.tide.tip.large` | $9.99 |
-
-The IDs and fallback prices live in `app/src/features/tips/tips.ts`;
-`app/storekit/Tide.storekit` mirrors them and a test keeps the two in step.
+free and has no in-app purchases.
 
 ## App Store Connect
 
@@ -27,17 +18,8 @@ The IDs and fallback prices live in `app/src/features/tips/tips.ts`;
    page), from the pages published below:
    `https://thisiskurubaran.github.io/tide/privacy/` and
    `https://thisiskurubaran.github.io/tide/support/`.
-4. **Agreements, Tax, and Banking**: tips are paid in-app purchases, so the
-   Paid Apps agreement must be active, with tax forms and a bank account.
-   Enrol in the **Small Business Program** so Apple takes 15%.
-5. **In-App Purchases > Create** the three tips above as **Consumable**,
-   with a display name and description each (e.g. "A small tip toward
-   Tide's development. It doesn't unlock anything."). Family Sharing
-   doesn't apply to consumables. Each needs a **review screenshot** (the
-   Support Tide screen) and is added to the app version under **In-App
-   Purchases and Subscriptions** before submitting; the first ones have to
-   be submitted together with an app version.
-6. Purchases are handled by Apple and aren't declared on the privacy label.
+4. **Agreements, Tax, and Banking**: Tide is free with no in-app
+   purchases, so only the Free Apps agreement is needed.
 
 ## Publishing the privacy policy and support pages
 
@@ -121,25 +103,12 @@ ID (no secret goes in the app):
 The app asks for the `repo`, `workflow` and `read:org` scopes. The token is
 the same one Settings → Git uses, so signing in also makes push work.
 
-## Testing tips
-
-- **In Xcode with the StoreKit file** (no App Store Connect needed): after
-  `npx expo prebuild`, open the workspace, Product > Scheme > Edit Scheme
-  > Run > Options > StoreKit Configuration > `app/storekit/Tide.storekit`.
-- **Sandbox**: a Sandbox Apple Account (Users and Access > Sandbox) on a
-  development or TestFlight build.
-
-Worth checking each release: each tip opens the purchase sheet with the
-store price, completes with the thank-you, can be given again, and
-cancelling says nothing.
-
 ## Review notes
 
 Paste into App Review Information > Notes (adjust as needed):
 
-> Tide is a free code editor with a terminal. Every feature is free. The
-> only in-app purchases are three optional tips (Settings > Support Tide),
-> consumables that unlock nothing and are presented as tips.
+> Tide is a free code editor with a terminal. Every feature is free and
+> there are no in-app purchases.
 >
 > Extensions (Settings > Extensions) are free. Their code ships inside the
 > app binary and installing one only switches it on; nothing executable is

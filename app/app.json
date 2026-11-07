@@ -180,7 +180,6 @@
           "faceIDPermission": false
         }
       ],
-      "expo-iap",
       "./plugins/withLocalPreview.js",
       [
         "expo-alternate-app-icons",

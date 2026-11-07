@@ -168,7 +168,7 @@ The iOS privacy manifest is set in `app.json` (`ios.privacyManifests`) and decla
 
 Tide is free: every feature and every extension, with no subscription or sign-up. Limits that remain are there for performance: up to 6 terminals per project and 10 snapshots per project.
 
-The only purchases are optional tips (Settings, Support Tide; `src/features/tips`): three consumable in-app purchases, `com.thisiskurubaran.tide.tip.small`, `.medium` and `.large` ($1.99, $4.99, $9.99). They unlock nothing. They go through expo-iap (its config plugin is in `app.json`); `app/storekit/Tide.storekit` lists them for testing in Xcode, and a test keeps the two in step.
+Tide has no in-app purchases.
 
 [appstore/release.md](appstore/release.md) covers the App Store Connect setup, the privacy label and the review notes. The privacy policy ([appstore/site/tide/privacy.md](appstore/site/tide/privacy.md)) and support page ([appstore/site/tide/support.md](appstore/site/tide/support.md)) are published with GitHub Pages at `https://thisiskurubaran.github.io/tide/privacy/` and `/tide/support/`. `appstore/site/` is the whole site, one directory per app, with a template for adding other apps; appstore/release.md has the steps.
 

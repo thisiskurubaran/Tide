@@ -10,7 +10,6 @@ export const CHANGELOG: Release[] = [
     version: '2.0.0',
     items: [
       'Everything in Tide is free: every feature and every extension, with no subscription',
-      'Support Tide with an optional tip, in Settings; tips unlock nothing',
       'Highlighting, folding and Outline for Go, Rust, Java, C, C++, C#, Kotlin, Swift, Dart, YAML, TOML, Dockerfile, shell, PowerShell, Makefile, XML and config files; preview SVG files',
       'Run TypeScript directly: node index.ts, npx tsx and Run work without a build step (types aren\'t checked)',
       'Ruff for Python in Format & Lint: fast lint as you type and formatting, offline',
