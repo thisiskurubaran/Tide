@@ -26,12 +26,56 @@ beforeEach(() => jest.useFakeTimers());
 afterEach(() => jest.useRealTimers());
 
 describe('buffers store', () => {
-  it('loads from disk once and keeps the buffer', async () => {
-    const { buffers, workspace } = await setup();
+  it('keeps the buffer while the disk is unchanged', async () => {
+    const { buffers } = await setup();
     const first = await buffers.getState().load('p', 'index.js');
     expect(first.content).toContain('Hello');
-    await workspace.writeFile('p', 'index.js', 'changed on disk');
     await expect(buffers.getState().load('p', 'index.js')).resolves.toBe(first);
+  });
+
+  it('rereads a clean buffer that changed on disk when loaded again', async () => {
+    const { buffers, workspace } = await setup();
+    await buffers.getState().load('p', 'index.js');
+    await workspace.writeFile('p', 'index.js', 'changed on disk');
+    expect((await buffers.getState().load('p', 'index.js')).content).toBe('changed on disk');
+  });
+
+  it('keeps unsaved edits over the disk when loaded again', async () => {
+    const { buffers, workspace } = await setup();
+    await buffers.getState().load('p', 'index.js');
+    buffers.getState().edit('p', 'index.js', 'mine');
+    await workspace.writeFile('p', 'index.js', 'theirs');
+    expect((await buffers.getState().load('p', 'index.js')).content).toBe('mine');
+  });
+
+  it('reloadProject rereads every clean buffer of the project, and only that project', async () => {
+    const { buffers, workspace } = await setup();
+    await workspace.createProject('q', 'node-hello');
+    await buffers.getState().load('p', 'index.js');
+    await buffers.getState().load('p', 'tide.json');
+    await buffers.getState().load('q', 'index.js');
+    buffers.getState().edit('p', 'tide.json', 'unsaved');
+    await workspace.writeFile('p', 'index.js', 'pulled');
+    await workspace.writeFile('p', 'tide.json', 'pulled');
+    await workspace.writeFile('q', 'index.js', 'other');
+    await buffers.getState().reloadProject('p');
+    expect(buf(buffers, 'index.js')).toEqual({ content: 'pulled', saved: 'pulled' });
+    expect(buf(buffers, 'tide.json').content).toBe('unsaved');
+    expect(buf(buffers, 'index.js', 'q').content).toContain('Hello');
+    // The next autosave no longer writes the old text back.
+    await buffers.getState().flushProject('p');
+    expect(await workspace.readFile('p', 'index.js')).toBe('pulled');
+  });
+
+  it('drop forgets clean buffers but keeps dirty ones', async () => {
+    const { buffers } = await setup();
+    await buffers.getState().load('p', 'index.js');
+    await buffers.getState().load('p', 'tide.json');
+    buffers.getState().edit('p', 'tide.json', 'unsaved');
+    buffers.getState().drop('p', 'index.js');
+    buffers.getState().drop('p', 'tide.json');
+    expect(buf(buffers, 'index.js')).toBeUndefined();
+    expect(buf(buffers, 'tide.json').content).toBe('unsaved');
   });
 
   it('marks edits dirty and autosaves after the debounce', async () => {

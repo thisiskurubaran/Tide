@@ -11,9 +11,8 @@ import { Segmented } from '../../components/Segmented';
 import { Text } from '../../components/Text';
 import { runGit } from '../../features/git/runGit';
 import { localRunner } from '../../runtime';
-import { buffersStore, projectsStore, tabsStore, workspace } from '../../state';
+import { buffersStore, projectsStore, workspace } from '../../state';
 import { bufferKey } from '../../state/buffers';
-import { projectTabs } from '../../state/tabs';
 import { makeStyles, useColors } from '../../theme/theme';
 import { borderWidth, fonts, fontSizes, radius, spacing } from '../../theme/tokens';
 import type { PanelProps } from '../types';
@@ -91,7 +90,8 @@ export function GitProPanel({ ctx, visible, onClose }: PanelProps) {
       } finally {
         if (touchesFiles) {
           await projectsStore.getState().loadTree(project);
-          for (const path of projectTabs(tabsStore.getState(), project).open) await buffersStore.getState().reload(project, path);
+          // Every clean buffer, not only open tabs: a stale one would be autosaved back over the change.
+          await buffersStore.getState().reloadProject(project);
         }
         setBusy(false);
         await refresh();

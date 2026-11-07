@@ -371,6 +371,26 @@ describe('shell', () => {
     await run('echo overwritten > index.js');
     expect(buffers.getState().buffers['demo\u0000index.js']).toEqual({ content: 'overwritten\n', saved: 'overwritten\n' });
   });
+
+  it('saves pending edits before a program starts and rereads clean buffers when it exits', async () => {
+    const { run, buffers, workspace, runner } = await setup();
+    await buffers.getState().load('demo', 'index.js');
+    await buffers.getState().load('demo', 'tide.json');
+    buffers.getState().edit('demo', 'index.js', 'console.log(1)');
+    await run('node index.js');
+    // The program sees the unsaved text.
+    expect(runner.requests).toHaveLength(1);
+    expect(await workspace.readFile('demo', 'index.js')).toBe('console.log(1)');
+    // The program rewrites files on disk (like git pull or npm install).
+    await workspace.writeFile('demo', 'index.js', 'from program');
+    await workspace.writeFile('demo', 'tide.json', '{}');
+    runner.listener?.({ type: 'exit', id: 'r1', code: 0 });
+    await tick();
+    expect(buffers.getState().buffers['demo\u0000index.js']).toEqual({ content: 'from program', saved: 'from program' });
+    expect(buffers.getState().buffers['demo\u0000tide.json'].content).toBe('{}');
+    await buffers.getState().flushProject('demo');
+    expect(await workspace.readFile('demo', 'index.js')).toBe('from program');
+  });
 });
 
 describe('npm run in the Local terminal', () => {

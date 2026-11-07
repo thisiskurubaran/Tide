@@ -47,7 +47,7 @@ jest.mock('../../state', () => {
     useSettings: (selector: (s: unknown) => unknown) => useStore(settings, selector),
     settingsStore: settings,
     storage: { getItem: async () => null, setItem: async () => undefined, removeItem: async () => undefined },
-    buffersStore: createStore(() => ({ buffers: {}, flushProject: async () => undefined, reload: async () => undefined, replace: async () => undefined })),
+    buffersStore: createStore(() => ({ buffers: {}, flushProject: async () => undefined, reload: async () => undefined, reloadProject: async () => undefined, replace: async () => undefined })),
     projectsStore: createStore(() => ({ loadTree: async () => undefined })),
     tabsStore: createStore(() => ({ byProject: {} })),
     workspace: { readFile: async () => { throw new Error('none'); }, writeFile: async () => undefined },

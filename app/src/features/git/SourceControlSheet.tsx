@@ -5,9 +5,8 @@ import { Button } from '../../components/Button';
 import { Sheet } from '../../components/Sheet';
 import { Text } from '../../components/Text';
 import { localRunner } from '../../runtime';
-import { buffersStore, projectsStore, tabsStore } from '../../state';
+import { buffersStore, projectsStore } from '../../state';
 import { autoDeployer } from '../deploy';
-import { projectTabs } from '../../state/tabs';
 import { makeStyles, useColors } from '../../theme/theme';
 import { borderWidth, fonts, fontSizes, radius, spacing } from '../../theme/tokens';
 import { lastLines, runGit } from './runGit';
@@ -77,6 +76,8 @@ export function SourceControlSheet({ visible, project, onClose }: { visible: boo
   // Runs git steps in order, stopping at the first failure, and shows what git printed.
   async function act(label: string, steps: string[][]) {
     setBusy(label);
+    // Git reads the disk: unsaved editor text goes there first.
+    await buffersStore.getState().flushProject(project);
     let text = '';
     let failed = false;
     for (const args of steps) {
@@ -91,7 +92,8 @@ export function SourceControlSheet({ visible, project, onClose }: { visible: boo
     setBusy(null);
     // Pulls and checkouts change files under the editor.
     await projectsStore.getState().loadTree(project);
-    for (const path of projectTabs(tabsStore.getState(), project).open) await buffersStore.getState().reload(project, path);
+    // Every clean buffer, not only open tabs: a stale one would be autosaved back over the change.
+    await buffersStore.getState().reloadProject(project);
     await refresh();
     return !failed;
   }

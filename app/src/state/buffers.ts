@@ -20,6 +20,12 @@ export interface BuffersState {
   replace(project: string, path: string, content: string): Promise<void>;
   // Rereads a file that changed on disk behind the editor's back. Unsaved edits win.
   reload(project: string, path: string): Promise<void>;
+  // reload() for every buffer of a project, after a program, git, a package
+  // install or a snapshot restore changed files on disk. Unsaved edits win.
+  reloadProject(project: string): Promise<void>;
+  // Forgets a buffer with no unsaved edits, e.g. when its tab closes, so the
+  // next open reads the file fresh. Dirty buffers are kept.
+  drop(project: string, path: string): void;
   // Saves everything pending, e.g. before the app goes to the background.
   flushAll(): Promise<void>;
   flushProject(project: string): Promise<void>;
@@ -89,7 +95,12 @@ export function createBuffersStore(workspace: Workspace, autosaveMs = AUTOSAVE_M
       async load(project, path) {
         const key = bufferKey(project, path);
         const existing = get().buffers[key];
-        if (existing) return existing;
+        if (existing) {
+          // Something other than the editor may have changed the file since
+          // (a program, git); a buffer with no unsaved edits follows the disk.
+          if (!isDirty(existing)) await get().reload(project, path);
+          return get().buffers[key] ?? existing;
+        }
         const content = await workspace.readFile(project, path);
         const buffer = { content, saved: content };
         set((s) => ({ buffers: { ...s.buffers, [key]: s.buffers[key] ?? buffer } }));
@@ -125,8 +136,25 @@ export function createBuffersStore(workspace: Workspace, autosaveMs = AUTOSAVE_M
         if (content === null) return;
         set((s) => {
           const current = s.buffers[key];
-          if (!current || isDirty(current)) return s;
+          if (!current || isDirty(current) || current.content === content) return s;
           return { buffers: { ...s.buffers, [key]: { content, saved: content } } };
+        });
+      },
+      async reloadProject(project) {
+        const paths = Object.keys(get().buffers)
+          .map(splitKey)
+          .filter(([p]) => p === project)
+          .map(([, path]) => path);
+        await Promise.all(paths.map((path) => get().reload(project, path)));
+      },
+      drop(project, path) {
+        const key = bufferKey(project, path);
+        const buffer = get().buffers[key];
+        if (!buffer || isDirty(buffer)) return;
+        cancel(key);
+        set((s) => {
+          const { [key]: _dropped, ...rest } = s.buffers;
+          return { buffers: rest };
         });
       },
       flushAll: () => flushWhere(() => true),

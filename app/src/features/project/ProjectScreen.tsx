@@ -278,6 +278,8 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     // The right pane moves to a neighbour too.
     if (split?.path === path) setSplit({ path: rest[Math.min(tabs.open.indexOf(path), rest.length - 1)] ?? null });
     tabsStore.getState().closeTab(project, path);
+    // Reopening reads the file fresh, so changes made on disk meanwhile show up.
+    buffersStore.getState().drop(project, path);
   }
 
   function toggleSplit() {

@@ -659,6 +659,8 @@ export class Shell {
   }
 
   private async startRun(runtime: Runtime, entry: string, args: string[], cwd: string, toolEnv?: Record<string, string>) {
+    // Programs read the disk: pending autosaves go there first.
+    await this.opts.fs.flush().catch((e) => console.warn('Could not save files before running', e));
     const projectEnv = (await this.opts.projectEnv?.().catch(() => null))?.values ?? {};
     const merged = { ...projectEnv, ...this.stepEnv, ...toolEnv };
     const env = Object.keys(merged).length ? merged : undefined;

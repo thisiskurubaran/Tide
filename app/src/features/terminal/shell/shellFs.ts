@@ -17,8 +17,11 @@ export interface ShellFs {
   move(from: string, to: string): Promise<void>;
   copy(from: string, to: string): Promise<void>;
   readRunConfig(): Promise<RunConfig | null>;
-  // Reloads the file tree after something outside the shell changed files.
+  // Reloads the file tree, and editors with no unsaved edits, after something
+  // outside the shell (a program) changed files.
   refresh(): Promise<void>;
+  // Saves unsaved editor text, so a program about to start reads it.
+  flush(): Promise<void>;
 }
 
 export function createShellFs(
@@ -55,6 +58,10 @@ export function createShellFs(
       await store().copyEntry(project, from, to);
     },
     readRunConfig: () => workspace.readRunConfig(project),
-    refresh: () => store().loadTree(project),
+    async refresh() {
+      await buffers.getState().reloadProject(project);
+      await store().loadTree(project);
+    },
+    flush: () => buffers.getState().flushProject(project),
   };
 }

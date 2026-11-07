@@ -8,6 +8,7 @@ import { createJSONStorage, persist, StateStorage } from 'zustand/middleware';
 import { storage } from '../../state';
 import { DEFAULT_JOBS, PROVIDER_ORDER, PROVIDERS } from './providers/catalog';
 import type { AiJob, ModelRef, ProviderId } from './providers/types';
+import { hydrated } from '../../state/hydrated';
 
 // One Keychain entry per provider. The Anthropic one keeps the name Tide
 // used when it only had Anthropic, so existing keys carry over as they are.
@@ -138,7 +139,7 @@ export function refreshKeys(force = false): Promise<void> {
   if (checking && !force) return checking;
   checking = (async () => {
     // The custom server's address comes from the persisted settings.
-    if (!aiSettings.persist.hasHydrated()) await new Promise<void>((done) => aiSettings.persist.onFinishHydration(() => done()));
+    await hydrated(aiSettings);
     const found = await Promise.all(PROVIDER_ORDER.map(async (p) => [p, !!(await getKey(p))] as const));
     const connected: Partial<Record<ProviderId, boolean>> = {};
     for (const [p, has] of found) if (p === 'custom' ? !!aiSettings.getState().baseUrls.custom : has) connected[p] = true;

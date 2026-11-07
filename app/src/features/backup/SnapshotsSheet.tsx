@@ -5,8 +5,7 @@ import { Alert, ScrollView, View } from 'react-native';
 import { Button, IconButton } from '../../components/Button';
 import { Sheet } from '../../components/Sheet';
 import { Text } from '../../components/Text';
-import { buffersStore, projectsStore, snapshots, tabsStore } from '../../state';
-import { projectTabs } from '../../state/tabs';
+import { buffersStore, projectsStore, snapshots } from '../../state';
 import { makeStyles, useColors } from '../../theme/theme';
 import { spacing } from '../../theme/tokens';
 import type { Snapshot } from './snapshots';
@@ -65,7 +64,7 @@ export function SnapshotsSheet({ project, onClose }: { project: string | null; o
             await snapshots.restore(project, s.id);
             haptic('success');
             await projectsStore.getState().loadTree(project);
-            for (const path of projectTabs(tabsStore.getState(), project).open) await buffersStore.getState().reload(project, path);
+            await buffersStore.getState().reloadProject(project);
           }),
       },
     ]);

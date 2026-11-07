@@ -28,6 +28,7 @@ jest.mock('../../state', () => {
     workspace,
     runnerStore,
     projectsStore: createStore(() => ({ loadTree: async () => undefined })),
+    buffersStore: createStore(() => ({ flushProject: async () => undefined, reloadProject: async () => undefined })),
     useRunner: (sel: (s: unknown) => unknown) => useStore(runnerStore, sel),
   };
 });
