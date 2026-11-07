@@ -78,7 +78,9 @@ function createSupervisor({ send, builtins = {} }) {
 
     // Runs overlap (terminal, Git Pro, the format/IntelliSense services, ssh...)
     // and share one process, so the process cwd is never changed here: the
-    // worker gets its own cwd from workerData (see runcwd.js).
+    // worker gets its own cwd from workerData (see runcwd.js), which also
+    // makes fs calls and child processes started without a cwd use it rather
+    // than the real process cwd ('/' on Android).
     try {
       if (!fs.statSync(cwd).isDirectory()) throw new Error('not a directory');
     } catch (e) {

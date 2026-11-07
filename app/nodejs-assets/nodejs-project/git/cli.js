@@ -16,7 +16,7 @@ delete globalThis.DecompressionStream;
 
 const { git, http } = require('./isogit');
 const { porcelainCode } = require('./status');
-const { conflicts: unresolved, readGitFile } = require('./state');
+const { conflicts: unresolved, readGitFile, setConflicts, assertNoOperation } = require('./state');
 const { lineStat } = require('./diffstat');
 const { createUi } = require('./ui');
 const { createTree, readWork } = require('./tree');
@@ -85,6 +85,32 @@ function repoPath(dir, p) {
   const rel = path.relative(dir, path.resolve(process.cwd(), p)).split(path.sep).join('/');
   if (rel.startsWith('..')) throw new GitError(`${p} is outside the repository`);
   return rel === '' ? '.' : rel;
+}
+
+/**
+ * A git pathspec glob, already relative to the repo root (repoPath), as a
+ * RegExp over repo paths. As in git (without :(glob)), * and ? match any
+ * characters, / included, and [...] is a character class.
+ * @param {string} p
+ */
+function pathspecRegExp(p) {
+  let out = '';
+  for (let i = 0; i < p.length; i++) {
+    const ch = p[i];
+    if (ch === '*') out += '.*';
+    else if (ch === '?') out += '.';
+    else if (ch === '[') {
+      const close = p.indexOf(']', i + 2);
+      if (close === -1) out += '\\[';
+      else {
+        let body = p.slice(i + 1, close);
+        if (body.startsWith('!')) body = `^${body.slice(1)}`;
+        out += `[${body.replace(/\\/g, '\\\\')}]`;
+        i = close;
+      }
+    } else out += ch.replace(/[.+^${}()|\\\]]/g, '\\$&');
+  }
+  return new RegExp(`^${out}$`);
 }
 
 /** @param {string[]} args */
@@ -240,38 +266,59 @@ const commands = {
     // Like real git: only files in the index are removed (untracked files and
     // .git are never touched), folders need -r, and a file whose staged or
     // working copy isn't committed needs -f, so rm can't lose work.
+    const usage = 'usage: git rm [-r] [-f] [-n] [-q] [--cached] [--] <pathspec>...';
     let cached = false;
     let force = false;
     let recursive = false;
     let quiet = false;
+    let dryRun = false;
+    let ignoreUnmatch = false;
     const specs = [];
+    let onlyPaths = false;
     for (const a of args) {
-      if (a === '--cached') cached = true;
+      if (onlyPaths) specs.push(a);
+      else if (a === '--') onlyPaths = true;
+      else if (a === '--cached') cached = true;
       else if (a === '--force') force = true;
       else if (a === '--quiet') quiet = true;
-      else if (/^-[rRfq]+$/.test(a)) {
+      else if (a === '--recursive') recursive = true;
+      else if (a === '--dry-run') dryRun = true;
+      else if (a === '--ignore-unmatch') ignoreUnmatch = true;
+      else if (/^-[rRfqn]+$/.test(a)) {
         if (/[rR]/.test(a)) recursive = true;
         if (a.includes('f')) force = true;
         if (a.includes('q')) quiet = true;
-      } else if (a.startsWith('-')) throw new GitError(`unknown option ${a} (usage: git rm [-r] [-f] [--cached] <path>...)`);
+        if (a.includes('n')) dryRun = true;
+      } else if (a.startsWith('-')) throw new GitError(`unknown option ${a} (${usage})`);
       else specs.push(a);
     }
-    if (!specs.length) throw new GitError('usage: git rm [-r] [-f] [--cached] <path>...');
+    if (!specs.length) throw new GitError(usage);
     const indexed = [...(await tree.indexFiles(dir)).keys()];
     const targets = new Set();
     for (const p of specs) {
+      // A glob matches tracked paths as git's pathspecs do: * and ? also match
+      // a /, so '*.log' finds logs in every folder below the current one.
       const filepath = repoPath(dir, p);
+      const glob = /[*?[]/.test(p) ? pathspecRegExp(filepath) : null;
       const exact = indexed.includes(filepath);
+      const matched = glob ? indexed.filter((f) => glob.test(f)) : [];
       const inside = indexed.filter((f) => filepath === '.' || f.startsWith(`${filepath}/`));
-      if (!exact && !inside.length) throw new GitError(`pathspec '${p}' did not match any files`);
-      if (!exact && !recursive) throw new GitError(`not removing '${p}' recursively without -r`);
+      if (!exact && !inside.length && !matched.length) {
+        if (ignoreUnmatch) continue;
+        throw new GitError(`pathspec '${p}' did not match any files`);
+      }
+      if (!exact && !matched.length && !recursive) throw new GitError(`not removing '${p}' recursively without -r`);
       if (exact) targets.add(filepath);
-      for (const f of inside) targets.add(f);
+      for (const f of matched) targets.add(f);
+      if (recursive || !matched.length) for (const f of inside) targets.add(f);
     }
     const list = [...targets].sort();
+    // A file with a merge conflict goes without -f, as in real git: deleting
+    // it is how a conflict is resolved by deletion.
+    const unmerged = new Set(unresolved(dir));
     if (!force) {
-      const wanted = new Set(list);
-      const rows = (await changes(dir, list)).filter((c) => wanted.has(c.path));
+      const wanted = new Set(list.filter((p) => !unmerged.has(p)));
+      const rows = wanted.size ? (await changes(dir, [...wanted])).filter((c) => wanted.has(c.path)) : [];
       // A deleted working copy loses nothing, so it doesn't count as an edit.
       const staged = rows.filter((c) => c.code[0] !== ' ').map((c) => c.path);
       const edited = rows.filter((c) => c.code[1] === 'M').map((c) => c.path);
@@ -285,6 +332,8 @@ const commands = {
       if (!cached && edited.length) refuse(edited, 'local modifications', 'use --cached to keep the file, or -f to force removal');
     }
     for (const filepath of list) {
+      if (!quiet) console.log(`rm '${filepath}'`);
+      if (dryRun) continue;
       await git.remove({ fs, dir, filepath });
       if (!cached) {
         let st = null;
@@ -295,7 +344,12 @@ const commands = {
         }
         if (st && !st.isDirectory()) tree.removeFile(dir, filepath);
       }
-      if (!quiet) console.log(`rm '${filepath}'`);
+    }
+    // Removing a conflicted file resolves its conflict (staged as deleted),
+    // like git add does for an edited one; Git Pro stops showing it as UU.
+    if (!dryRun && list.some((p) => unmerged.has(p))) {
+      const removed = new Set(list);
+      setConflicts(dir, [...unmerged].filter((p) => !removed.has(p)));
     }
     return 0;
   },
@@ -420,6 +474,7 @@ const commands = {
     if (!ref) throw new GitError('usage: git checkout [-b] <branch>');
     if (create) await git.branch({ fs, dir, ref, checkout: true });
     else {
+      assertNoOperation(dir, 'checkout', GitError);
       // A branch only on origin becomes a local one tracking it (isomorphic-git does that part).
       const to = (await tree.resolveCommit(dir, ref).catch(() => null)) ?? (await tree.resolveCommit(dir, `refs/remotes/origin/${ref}`).catch(() => null));
       if (!to) throw new GitError(`pathspec '${ref}' did not match any branch`);
@@ -446,7 +501,7 @@ const commands = {
 
   async push(args) {
     const dir = await findRoot();
-    takeFlag(args, '-u', '--set-upstream');
+    const setUpstream = takeFlag(args, '-u', '--set-upstream');
     const tags = takeFlag(args, '--tags');
     if (tags) return extra.pushTags(dir, args.find((a) => !a.startsWith('-')) ?? 'origin');
     const [remote = 'origin', ref = (await git.currentBranch({ fs, dir })) ?? undefined] = args.filter((a) => !a.startsWith('-'));
@@ -465,16 +520,45 @@ const commands = {
       console.log(r.ok ? `${name}: pushed to ${remote}` : `${name}: rejected (${r.error})`);
       if (!r.ok) rejected = true;
     }
+    // -u: later pulls (and pushes) of this branch go to the same place.
+    const branch = await git.currentBranch({ fs, dir });
+    if (setUpstream && !rejected && branch && ref && ref.replace(/^refs\/heads\//, '') === branch) {
+      await git.setConfig({ fs, dir, path: `branch.${branch}.remote`, value: remote });
+      await git.setConfig({ fs, dir, path: `branch.${branch}.merge`, value: `refs/heads/${branch}` });
+      console.log(`branch '${branch}' set up to track '${remote}/${branch}'.`);
+    }
     return rejected ? 1 : 0;
   },
 
   async pull(args) {
     const dir = await findRoot();
-    const [remote = 'origin', ref] = args.filter((a) => !a.startsWith('-'));
+    const [remoteArg, ref] = args.filter((a) => !a.startsWith('-'));
     const branch = await git.currentBranch({ fs, dir });
     if (!branch) throw new GitError('check out a branch before pulling');
-    const upstream = await git.getConfig({ fs, dir, path: `branch.${branch}.merge` }).catch(() => undefined);
-    const remoteRef = ref ?? (typeof upstream === 'string' ? upstream.replace(/^refs\/heads\//, '') : branch);
+    assertNoOperation(dir, 'pull', GitError);
+    const config = async (/** @type {string} */ key) => {
+      const v = await git.getConfig({ fs, dir, path: key }).catch(() => undefined);
+      return typeof v === 'string' && v ? v : undefined;
+    };
+    // Like real git: the branch's upstream (branch.<name>.remote and .merge)
+    // says where to pull from when the command line doesn't.
+    const upstream = await config(`branch.${branch}.merge`);
+    const upstreamRemote = await config(`branch.${branch}.remote`);
+    const remote = remoteArg ?? upstreamRemote ?? 'origin';
+    let remoteRef = ref ?? (upstream && (!remoteArg || remoteArg === (upstreamRemote ?? 'origin')) ? upstream.replace(/^refs\/heads\//, '') : undefined);
+    if (!remoteRef) {
+      const unborn = !(await git.resolveRef({ fs, dir, ref: 'HEAD' }).catch(() => null));
+      if (unborn) remoteRef = await remoteDefaultBranch(dir, remote, branch);
+      else if (remoteArg) {
+        throw new GitError(
+          `You asked to pull from the remote '${remoteArg}', but did not specify a branch. Because this is not the default configured remote for your current branch, you must specify a branch on the command line.`,
+        );
+      } else {
+        throw new GitError(
+          `There is no tracking information for the current branch.\nPlease specify which branch you want to merge with.\n\n    git pull <remote> <branch>\n\nTo pull from the same place from now on, push this branch with -u once:\n\n    git push -u ${remote} ${branch}`,
+        );
+      }
+    }
     // Fetch first; nothing local changes until the result is known to be safe
     // to check out (isomorphic-git's pull moves the branch, then checks out,
     // and a checkout that fails leaves the branch on the new commit with the
@@ -532,6 +616,23 @@ const commands = {
     return 0;
   },
 };
+
+/**
+ * What to pull into an unborn branch with no upstream: the remote's branch of
+ * the same name, which must be its default branch. When the remote's default
+ * is named differently (master and main), says so instead of failing to find
+ * a branch the remote doesn't have.
+ */
+async function remoteDefaultBranch(dir, remote, branch) {
+  const url = await git.getConfig({ fs, dir, path: `remote.${remote}.url` }).catch(() => undefined);
+  if (!url) throw new GitError(`'${remote}' does not appear to be a git repository (add it with git remote add ${remote} <url>)`);
+  const info = await git.getRemoteInfo({ http, url, onAuth: canAuth() ? onAuth : undefined, onAuthFailure });
+  const head = typeof info.HEAD === 'string' ? info.HEAD.replace(/^refs\/heads\//, '') : null;
+  if (!head || head === branch) return branch;
+  throw new GitError(
+    `your branch '${branch}' has no commits yet, and ${remote}'s default branch is '${head}', not '${branch}'.\nRun git pull ${remote} ${head} to start ${branch} from it.`,
+  );
+}
 
 // The index stores blob ids; readBlob needs one to read a staged version.
 async function indexOid(dir, filepath) {

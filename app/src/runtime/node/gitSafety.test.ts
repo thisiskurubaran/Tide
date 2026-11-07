@@ -218,6 +218,65 @@ withGit('pull', () => {
     expect(read(local, 'h.txt')).toBe('h\n');
     expect(real(local, 'status', '--porcelain')).toBe('');
   });
+
+  it('pulls across a file that became a folder, and back', async () => {
+    const { local, pushFrom } = setup('typechange');
+    real(pushFrom, 'rm', '-q', 'g.txt');
+    write(pushFrom, 'g.txt/inner.txt', 'inner\n');
+    real(pushFrom, 'add', '-A');
+    real(pushFrom, 'commit', '-qm', 'folder');
+    real(pushFrom, 'push', '-q', 'origin', 'main');
+    const r = await git(local, ['pull']);
+    expect(r.out).toMatch(/Fast-forward/);
+    expect(read(local, 'g.txt/inner.txt')).toBe('inner\n');
+    expect(real(local, 'status', '--porcelain')).toBe('');
+
+    real(pushFrom, 'rm', '-rq', 'g.txt');
+    write(pushFrom, 'g.txt', 'file again\n');
+    real(pushFrom, 'add', '-A');
+    real(pushFrom, 'commit', '-qm', 'file');
+    real(pushFrom, 'push', '-q', 'origin', 'main');
+    expect((await git(local, ['pull'])).code).toBe(0);
+    expect(read(local, 'g.txt')).toBe('file again\n');
+    expect(real(local, 'status', '--porcelain')).toBe('');
+  });
+
+  it("pulls from the branch's configured remote, not always origin", async () => {
+    const { local, pushFrom } = setup('upremote');
+    real(local, 'remote', 'rename', 'origin', 'up');
+    real(local, 'remote', 'add', 'origin', `${server.url}/nothing-here.git`);
+    expect(real(local, 'config', 'branch.main.remote')).toBe('up\n');
+    write(pushFrom, 'f.txt', 'two\n');
+    real(pushFrom, 'commit', '-qam', 'two');
+    real(pushFrom, 'push', '-q', 'origin', 'main');
+    const r = await git(local, ['pull']);
+    expect(r.code).toBe(0);
+    expect(real(local, 'rev-parse', 'HEAD')).toBe(real(pushFrom, 'rev-parse', 'HEAD'));
+  });
+
+  it('explains a branch with no upstream, and an unborn branch whose remote default is named differently', async () => {
+    const { local } = setup('noupstream');
+    real(local, 'checkout', '-qb', 'topic');
+    const r = await git(local, ['pull']);
+    expect(r.code).toBe(128);
+    expect(r.out).toMatch(/There is no tracking information for the current branch\.\nPlease specify which branch you want to merge with\./);
+    // push -u sets the upstream, after which pull knows where to pull from.
+    real(path.join(root, 'noupstream.git'), 'config', 'http.receivepack', 'true');
+    expect((await git(local, ['push', '-u', 'origin', 'topic'])).out).toMatch(/branch 'topic' set up to track 'origin\/topic'/);
+    expect(real(local, 'config', 'branch.topic.merge')).toBe('refs/heads/topic\n');
+    expect((await git(local, ['pull'])).out).toMatch(/Already up to date/);
+
+    const empty = tmp();
+    real(empty, 'init', '-q', '-b', 'master');
+    real(empty, 'remote', 'add', 'origin', `${server.url}/noupstream.git`);
+    const unborn = await git(empty, ['pull']);
+    expect(unborn.code).toBe(128);
+    expect(unborn.out).toMatch(/your branch 'master' has no commits yet, and origin's default branch is 'main', not 'master'/);
+    expect(unborn.out).toMatch(/git pull origin main/);
+    expect((await git(empty, ['pull', 'origin', 'main'])).code).toBe(0);
+    expect(read(empty, 'f.txt')).toBe('one\n');
+    expect(real(empty, 'status', '--porcelain')).toBe('');
+  });
 });
 
 withGit('rm', () => {
@@ -453,6 +512,221 @@ withGit('tracked symlinks', () => {
     expect(read(dir, 'lib-link/x.txt')).toBe('x\n');
     expect(fs.readlinkSync(path.join(dir, 't-link'))).toBe('t.txt');
     expect(real(dir, 'status', '--porcelain')).toBe('');
+  });
+});
+
+withGit('switching across a file that became a folder', () => {
+  /** main has x as a file; other has x/y instead. */
+  async function typeChange() {
+    const dir = tmp();
+    await git(dir, ['init']);
+    write(dir, 'x', 'file\n');
+    write(dir, 'keep', 'k\n');
+    await git(dir, ['add', '-A']);
+    await git(dir, ['commit', '-m', 'base']);
+    await git(dir, ['branch', 'other']);
+    await git(dir, ['checkout', 'other']);
+    await git(dir, ['rm', '-q', 'x']);
+    write(dir, 'x/y', 'inside\n');
+    await git(dir, ['add', '-A']);
+    await git(dir, ['commit', '-m', 'folder']);
+    return dir;
+  }
+
+  it('checks out both ways', async () => {
+    const dir = await typeChange();
+    expect((await git(dir, ['checkout', 'main'])).code).toBe(0);
+    expect(read(dir, 'x')).toBe('file\n');
+    expect(real(dir, 'status', '--porcelain')).toBe('');
+    const r = await git(dir, ['checkout', 'other']);
+    expect(r.out).not.toMatch(/ENOTDIR/);
+    expect(r.code).toBe(0);
+    expect(read(dir, 'x/y')).toBe('inside\n');
+    expect(real(dir, 'status', '--porcelain')).toBe('');
+    expect(real(dir, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('other\n');
+  });
+
+  it('still refuses when what is in the way has local changes or untracked files', async () => {
+    const dir = await typeChange();
+    write(dir, 'x/y', 'my edit\n');
+    expect((await git(dir, ['checkout', 'main'])).out).toMatch(/local changes to the following files would be overwritten by checkout:\n\tx\/y/);
+    expect(read(dir, 'x/y')).toBe('my edit\n');
+    real(dir, 'checkout', '--', 'x/y');
+    write(dir, 'x/notes', 'untracked\n');
+    expect((await git(dir, ['checkout', 'main'])).out).toMatch(/untracked working tree files would be overwritten by checkout:\n\tx\/notes/);
+    expect(read(dir, 'x/notes')).toBe('untracked\n');
+    expect(real(dir, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('other\n');
+  });
+});
+
+withGit('changes that already match the target', () => {
+  it('checkout allows a staged deletion the target branch also has', async () => {
+    const dir = await twoBranches();
+    await git(dir, ['checkout', 'other']);
+    await git(dir, ['rm', '-q', 'same.txt']);
+    await git(dir, ['commit', '-m', 'drop same']);
+    await git(dir, ['checkout', 'main']);
+    await git(dir, ['rm', '-q', 'same.txt']);
+    const r = await git(dir, ['checkout', 'other']);
+    expect(r.code).toBe(0);
+    expect(real(dir, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('other\n');
+    expect(real(dir, 'status', '--porcelain')).toBe('');
+  });
+
+  it('checkout allows a staged edit equal to the target, and still refuses a different one', async () => {
+    const dir = await twoBranches();
+    write(dir, 'f.txt', 'base\n');
+    await git(dir, ['add', 'f.txt']);
+    expect((await git(dir, ['checkout', 'other'])).code).toBe(0);
+    expect(real(dir, 'status', '--porcelain')).toBe('');
+    await git(dir, ['checkout', 'main']);
+    write(dir, 'f.txt', 'base\n');
+    await git(dir, ['add', 'f.txt']);
+    write(dir, 'f.txt', 'unstaged on top\n');
+    expect((await git(dir, ['checkout', 'other'])).out).toMatch(/would be overwritten by checkout:\n\tf\.txt/);
+  });
+
+  it("Git Pro merge isn't blocked by an untracked file at a path the merge doesn't touch", async () => {
+    const dir = tmp();
+    await git(dir, ['init']);
+    write(dir, 'a', 'a\n');
+    write(dir, 'old', 'old\n');
+    await git(dir, ['add', '-A']);
+    await git(dir, ['commit', '-m', 'base']);
+    await git(dir, ['branch', 'feat']);
+    // main deletes old; feat leaves it alone and changes a.
+    await git(dir, ['rm', '-q', 'old']);
+    await git(dir, ['commit', '-m', 'drop old']);
+    await git(dir, ['checkout', 'feat']);
+    write(dir, 'a', 'feat\n');
+    await git(dir, ['commit', '-am', 'feat']);
+    await git(dir, ['checkout', 'main']);
+    write(dir, 'old', 'my untracked notes\n');
+    const r = await git(dir, ['__tide', 'merge', 'feat']);
+    expect(r.code).toBe(0);
+    expect(JSON.parse(r.out).conflicts).toEqual([]);
+    expect(read(dir, 'old')).toBe('my untracked notes\n');
+    expect(read(dir, 'a')).toBe('feat\n');
+    expect(real(dir, 'status', '--porcelain')).toBe('?? old\n');
+  });
+});
+
+withGit('pull and checkout during a merge, rebase or cherry-pick', () => {
+  /** A Git Pro merge of feat into main that stopped with a.txt conflicted. */
+  async function merging() {
+    const dir = tmp();
+    await git(dir, ['init']);
+    write(dir, 'a.txt', 'a\n');
+    await git(dir, ['add', '-A']);
+    await git(dir, ['commit', '-m', 'base']);
+    await git(dir, ['branch', 'feat']);
+    await git(dir, ['checkout', 'feat']);
+    write(dir, 'a.txt', 'feat\n');
+    await git(dir, ['commit', '-am', 'feat']);
+    await git(dir, ['checkout', 'main']);
+    write(dir, 'a.txt', 'main\n');
+    await git(dir, ['commit', '-am', 'main']);
+    await git(dir, ['branch', 'side']);
+    expect(JSON.parse((await git(dir, ['__tide', 'merge', 'feat'])).out).conflicts).toEqual(['a.txt']);
+    return dir;
+  }
+
+  it('refuses with unmerged files, then while MERGE_HEAD exists', async () => {
+    const dir = await merging();
+    const pull = await git(dir, ['pull', 'origin', 'main']);
+    expect(pull.code).toBe(128);
+    expect(pull.out).toMatch(/Pulling is not possible because you have unmerged files:\n\ta\.txt/);
+    expect((await git(dir, ['checkout', 'side'])).out).toMatch(/you need to resolve your current index first\na\.txt: needs merge/);
+    expect((await git(dir, ['__tide', 'checkout', 'side'])).out).toMatch(/needs merge/);
+
+    write(dir, 'a.txt', 'resolved\n');
+    await git(dir, ['add', 'a.txt']);
+    expect((await git(dir, ['pull', 'origin', 'main'])).out).toMatch(/You have not concluded your merge \(MERGE_HEAD exists\)\./);
+    expect((await git(dir, ['checkout', 'side'])).out).toMatch(/cannot switch branch while merging/);
+    expect(real(dir, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('main\n');
+    expect(read(dir, 'a.txt')).toBe('resolved\n');
+    expect(fs.existsSync(path.join(dir, '.git', 'MERGE_HEAD'))).toBe(true);
+  });
+
+  it('refuses during a cherry-pick or rebase', async () => {
+    const dir = await twoBranches();
+    fs.writeFileSync(path.join(dir, '.git', 'CHERRY_PICK_HEAD'), `${real(dir, 'rev-parse', 'other')}`);
+    expect((await git(dir, ['pull', 'origin', 'main'])).out).toMatch(/You have not concluded your cherry-pick \(CHERRY_PICK_HEAD exists\)/);
+    expect((await git(dir, ['checkout', 'other'])).out).toMatch(/cannot switch branch while cherry-picking/);
+    fs.rmSync(path.join(dir, '.git', 'CHERRY_PICK_HEAD'));
+    fs.mkdirSync(path.join(dir, '.git', 'rebase-merge'));
+    fs.writeFileSync(path.join(dir, '.git', 'rebase-merge', 'head-name'), 'refs/heads/main\n');
+    expect((await git(dir, ['checkout', 'other'])).out).toMatch(/cannot switch branch while rebasing/);
+    expect((await git(dir, ['pull', 'origin', 'main'])).out).toMatch(/rebase is in progress/);
+    expect(real(dir, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('main\n');
+  });
+});
+
+withGit('rm options', () => {
+  async function repo() {
+    const dir = tmp();
+    await git(dir, ['init']);
+    write(dir, 'a.log', 'a\n');
+    write(dir, 'keep.txt', 'k\n');
+    write(dir, 'src/b.log', 'b\n');
+    write(dir, 'src/deep/c.log', 'c\n');
+    write(dir, 'src/d.js', 'd\n');
+    write(dir, '-weird', 'w\n');
+    await git(dir, ['add', '-A']);
+    await git(dir, ['commit', '-m', 'base']);
+    write(dir, 'u.log', 'untracked\n');
+    return dir;
+  }
+
+  it("removes tracked files matching a glob, in every folder, as git's pathspec does", async () => {
+    const dir = await repo();
+    const r = await git(dir, ['rm', '-q', '*.log']);
+    expect(r.code).toBe(0);
+    expect(r.out).toBe('');
+    expect(real(dir, 'status', '--porcelain')).toBe('D  a.log\nD  src/b.log\nD  src/deep/c.log\n?? u.log\n');
+    expect(read(dir, 'u.log')).toBe('untracked\n');
+  });
+
+  it('globs from a subfolder match below it only', async () => {
+    const dir = await repo();
+    expect((await git(path.join(dir, 'src'), ['rm', 'deep/*.log'])).out).toBe("rm 'src/deep/c.log'\n");
+    expect((await git(path.join(dir, 'src'), ['rm', '--cached', '[bd].*'])).out).toBe("rm 'src/b.log'\nrm 'src/d.js'\n");
+    expect(real(dir, 'status', '--porcelain', '-uall')).toBe('D  src/b.log\nD  src/d.js\nD  src/deep/c.log\n?? src/b.log\n?? src/d.js\n?? u.log\n');
+  });
+
+  it('-n and --dry-run only list, -- ends the options, and --recursive is -r', async () => {
+    const dir = await repo();
+    expect((await git(dir, ['rm', '-n', '*.log'])).out).toBe("rm 'a.log'\nrm 'src/b.log'\nrm 'src/deep/c.log'\n");
+    expect((await git(dir, ['rm', '--dry-run', '-r', 'src'])).code).toBe(0);
+    expect(real(dir, 'status', '--porcelain')).toBe('?? u.log\n');
+    expect((await git(dir, ['rm', '--', '-weird'])).out).toBe("rm '-weird'\n");
+    expect((await git(dir, ['rm', '--recursive', '-q', 'src'])).code).toBe(0);
+    expect(real(dir, 'status', '--porcelain')).toBe('D  -weird\nD  src/b.log\nD  src/d.js\nD  src/deep/c.log\n?? u.log\n');
+    expect((await git(dir, ['rm', 'nope*'])).out).toMatch(/pathspec 'nope\*' did not match any files/);
+  });
+
+  it('resolves a merge conflict by deletion', async () => {
+    const dir = tmp();
+    await git(dir, ['init']);
+    write(dir, 'a.txt', 'a\n');
+    write(dir, 'b.txt', 'b\n');
+    await git(dir, ['add', '-A']);
+    await git(dir, ['commit', '-m', 'base']);
+    await git(dir, ['branch', 'feat']);
+    await git(dir, ['checkout', 'feat']);
+    write(dir, 'a.txt', 'feat\n');
+    await git(dir, ['commit', '-am', 'feat']);
+    await git(dir, ['checkout', 'main']);
+    write(dir, 'a.txt', 'main\n');
+    await git(dir, ['commit', '-am', 'main']);
+    expect(JSON.parse((await git(dir, ['__tide', 'merge', 'feat'])).out).conflicts).toEqual(['a.txt']);
+    expect((await git(dir, ['rm', 'a.txt'])).code).toBe(0);
+    expect(fs.existsSync(path.join(dir, '.git', 'TIDE_CONFLICTS'))).toBe(false);
+    const status = JSON.parse((await git(dir, ['__tide', 'status'])).out);
+    expect(status.changes).toEqual([{ path: 'a.txt', code: 'D ' }]);
+    expect((await git(dir, ['commit', '-m', 'merge'])).code).toBe(0);
+    expect(real(dir, 'ls-tree', '--name-only', 'HEAD')).toBe('b.txt\n');
+    expect(real(dir, 'log', '-1', '--format=%p').trim().split(' ')).toHaveLength(2);
   });
 });
 

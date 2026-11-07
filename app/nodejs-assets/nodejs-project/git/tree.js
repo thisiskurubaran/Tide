@@ -235,45 +235,90 @@ function createTree({ git, changes, GitError }) {
     rebase: 'rebase',
   };
 
+  /** The entry a working tree file would get if staged, or null when nothing is there. @returns {Promise<Entry | null>} */
+  async function workEntry(dir, filepath) {
+    const st = lstatWork(dir, filepath);
+    if (!st || st.isDirectory()) return null;
+    const content = readWork(dir, filepath);
+    if (!content) return null;
+    const { oid } = await git.hashBlob({ object: content });
+    const mode = st.isSymbolicLink() ? 0o120000 : st.mode & 0o111 ? 0o100755 : 0o100644;
+    return { oid, mode };
+  }
+
+  /** Folders a set of files needs. @param {Map<string, Entry>} entries */
+  function foldersOf(entries) {
+    const folders = new Set();
+    for (const p of entries.keys()) for (let d = path.posix.dirname(p); d !== '.'; d = path.posix.dirname(d)) folders.add(d);
+    return folders;
+  }
+
+  /** Whether a folder above `p` is a file in `entries`. @param {Map<string, Entry>} entries */
+  function fileAbove(entries, /** @type {string} */ p) {
+    for (let d = path.posix.dirname(p); d !== '.'; d = path.posix.dirname(d)) if (entries.has(d)) return true;
+    return false;
+  }
+
   /**
    * What would be lost by moving the working tree and index from commit
    * `from` (HEAD, or null before the first commit) to `to`, as real git checks
    * before it switches: tracked files the switch changes that have staged or
-   * unstaged edits, and untracked files at paths `to` tracks (or that a file
-   * in `to` needs as a folder, or the other way round).
+   * unstaged edits (unless the index and working tree already hold what `to`
+   * has there), staged files in a folder `to` has as a file, and untracked
+   * files at paths `to` tracks (or that a file in `to` needs as a folder, or
+   * the other way round). With `base`, only the paths that differ between
+   * `base` and `to` count: a merge of `to` leaves the others as they are.
    * @param {string} dir
    * @param {string | null} from
    * @param {string} to
-   * @returns {Promise<{ differ: string[], local: string[], untracked: string[] }>}
+   * @param {{ base?: string | null }} [opts]
+   * @returns {Promise<{ differ: string[], local: string[], untracked: string[], before: Map<string, Entry>, after: Map<string, Entry> }>}
    */
-  async function switchBlockers(dir, from, to) {
+  async function switchBlockers(dir, from, to, opts = {}) {
     const before = from ? await files(dir, from) : new Map();
-    const after = await files(dir, to);
-    const differ = [...new Set([...before.keys(), ...after.keys()])].filter((p) => !sameEntry(before.get(p) ?? null, after.get(p) ?? null)).sort();
+    let after = await files(dir, to);
+    let all = [...new Set([...before.keys(), ...after.keys()])];
+    if (opts.base !== undefined) {
+      const base = opts.base ? await files(dir, opts.base) : new Map();
+      const theirs = after;
+      all = [...new Set([...base.keys(), ...theirs.keys()])].filter((p) => !sameEntry(base.get(p) ?? null, theirs.get(p) ?? null));
+      const touched = new Set(all);
+      after = new Map([...theirs].filter(([p]) => touched.has(p)));
+    }
+    const target = after;
+    const differ = all.filter((p) => !sameEntry(before.get(p) ?? null, target.get(p) ?? null)).sort();
     const changing = new Set(differ);
-    const folders = new Set();
-    for (const p of after.keys()) for (let d = path.posix.dirname(p); d !== '.'; d = path.posix.dirname(d)) folders.add(d);
-    const tracksAbove = (/** @type {string} */ p) => {
-      for (let d = path.posix.dirname(p); d !== '.'; d = path.posix.dirname(d)) if (after.has(d)) return true;
-      return false;
-    };
+    const folders = foldersOf(after);
     const local = [];
     const untracked = [];
+    /** @type {Map<string, Entry> | null} */
+    let index = null;
     for (const c of await changes(dir)) {
       if (c.code === '??') {
-        if (after.has(c.path) || folders.has(c.path) || tracksAbove(c.path)) untracked.push(c.path);
-      } else if (changing.has(c.path)) local.push(c.path);
+        if (after.has(c.path) || folders.has(c.path) || fileAbove(after, c.path)) untracked.push(c.path);
+      } else if (changing.has(c.path)) {
+        // Already what the switch would make it (e.g. `git rm x` when `to` deletes x too).
+        index = index ?? (await indexFiles(dir));
+        const want = target.get(c.path) ?? null;
+        if (sameEntry(index.get(c.path) ?? null, want) && sameEntry(await workEntry(dir, c.path), want)) continue;
+        local.push(c.path);
+      } else if (!before.has(c.path) && (folders.has(c.path) || fileAbove(after, c.path))) {
+        // Staged but not committed, where `to` needs a folder or has a file.
+        local.push(c.path);
+      }
     }
-    return { differ, local: local.sort(), untracked: untracked.sort() };
+    return { differ, local: local.sort(), untracked: untracked.sort(), before, after };
   }
 
   /**
    * Throws, with real git's message, when switching from `from` to `to` would
    * overwrite local changes or untracked files. Returns the paths that differ.
    * @param {'checkout' | 'merge' | 'pull' | 'rebase'} what
+   * @param {{ base?: string | null }} [opts] see switchBlockers
    */
-  async function assertCanSwitch(dir, from, to, what = 'checkout') {
-    const { differ, local, untracked } = await switchBlockers(dir, from, to);
+  async function assertCanSwitch(dir, from, to, what = 'checkout', opts = {}) {
+    const blockers = await switchBlockers(dir, from, to, opts);
+    const { local, untracked } = blockers;
     const by = what === 'pull' ? 'merge' : what;
     const list = (/** @type {string[]} */ paths) => paths.map((p) => `\t${p}`).join('\n');
     if (local.length) {
@@ -286,7 +331,24 @@ function createTree({ git, changes, GitError }) {
         `The following untracked working tree files would be overwritten by ${by}:\n${list(untracked)}\nPlease move or remove them before you ${ADVICE[what]}.`,
       );
     }
-    return differ;
+    return blockers;
+  }
+
+  /**
+   * Where a file becomes a folder or a folder a file between `before` and
+   * `after`, removes what is in the way from the working tree and index, so
+   * the checkout can write the new one. (isomorphic-git plans these as
+   * update-blob-to-tree and the like but fails with ENOTDIR doing them.) Only
+   * called once assertCanSwitch has found no local changes there.
+   * @param {Map<string, Entry>} before @param {Map<string, Entry>} after
+   */
+  async function clearTypeChanges(dir, before, after) {
+    const folders = foldersOf(after);
+    for (const p of before.keys()) {
+      if (after.has(p) || !(folders.has(p) || fileAbove(after, p))) continue;
+      removeFile(dir, p);
+      await git.remove({ fs, dir, filepath: p }).catch(() => undefined);
+    }
   }
 
   /**
@@ -303,10 +365,11 @@ function createTree({ git, changes, GitError }) {
    */
   async function checkoutSafely(dir, { ref, to, what = 'checkout', move }) {
     const from = await git.resolveRef({ fs, dir, ref: 'HEAD' }).catch(() => null);
-    const differ = await assertCanSwitch(dir, from, to, what);
+    const { differ, before, after } = await assertCanSwitch(dir, from, to, what);
     const old = move ? await git.resolveRef({ fs, dir, ref: move }).catch(() => null) : null;
     if (move) await git.writeRef({ fs, dir, ref: move, value: to, force: true });
     try {
+      await clearTypeChanges(dir, before, after);
       await git.checkout({ fs, dir, ref, filepaths: differ });
     } catch (e) {
       if (move && old) await git.writeRef({ fs, dir, ref: move, value: old, force: true });

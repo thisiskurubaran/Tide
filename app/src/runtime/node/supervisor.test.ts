@@ -95,6 +95,50 @@ describe('supervisor', () => {
     expect(process.cwd()).toBe(before);
   });
 
+  it('starts child processes in the run folder, and resolves Buffer paths there', async () => {
+    const t = setup();
+    t.file('proj/sub/marker.txt', 'm');
+    // Each child prints the folder it started in.
+    const pwd = `${JSON.stringify(process.execPath)} -e "console.log(require('path').basename(process.cwd()))"`;
+    t.file('proj/kid.js', 'console.log(require("path").basename(process.cwd()))');
+    t.file('proj/cp.js', [
+      'const cp = require("child_process"), fs = require("fs");',
+      `const pwd = ${JSON.stringify(pwd)};`,
+      'const node = process.execPath, code = "console.log(require(\'path\').basename(process.cwd()))";',
+      'process.chdir("sub");',
+      'const out = [];',
+      'out.push(cp.execSync(pwd, { encoding: "utf8" }).trim());',
+      'out.push(cp.execFileSync(node, ["-e", code], { encoding: "utf8" }).trim());',
+      'out.push(cp.spawnSync(node, ["-e", code], { encoding: "utf8" }).stdout.trim());',
+      'out.push(cp.execSync(pwd, { encoding: "utf8", cwd: ".." }).trim());',
+      'out.push(fs.readFileSync(Buffer.from("marker.txt"), "utf8"));',
+      'cp.exec(pwd, (e, a) => {',
+      '  out.push(a.trim());',
+      '  cp.execFile(node, ["-e", code], (e2, b) => {',
+      '    out.push(b.trim());',
+      '    let c = "";',
+      '    const kid = cp.spawn(node, ["-e", code]);',
+      '    kid.stdout.on("data", (d) => (c += d));',
+      '    kid.on("close", () => {',
+      '      out.push(c.trim());',
+      '      const f = cp.fork("../kid.js", [], { silent: true });',
+      '      let d = "";',
+      '      f.stdout.on("data", (x) => (d += x));',
+      '      f.on("close", async () => {',
+      '        out.push(d.trim());',
+      '        out.push((await require("util").promisify(cp.exec)(pwd)).stdout.trim());',
+      '        console.log(out.join(","));',
+      '      });',
+      '    });',
+      '  });',
+      '});',
+    ].join('\n'));
+    t.run('r1', 'cp.js');
+    expect(await t.exited('r1', 15000)).toEqual({ type: 'exit', id: 'r1', code: 0 });
+    expect(t.output('r1', 'stderr')).toBe('');
+    expect(t.output('r1')).toBe('sub,sub,sub,proj,m,sub,sub,sub,sub,sub\n');
+  });
+
   it('fails a run whose cwd is missing', async () => {
     const t = setup();
     t.file('proj/index.js', '');

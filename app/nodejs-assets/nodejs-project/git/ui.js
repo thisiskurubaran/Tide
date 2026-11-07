@@ -7,7 +7,7 @@
 const fs = require('fs');
 const { blame } = require('./blame');
 const path = require('path');
-const { CONFLICTS, conflicts, gitFile, readGitFile, setConflicts } = require('./state');
+const { CONFLICTS, assertNoOperation, conflicts, gitFile, readGitFile, setConflicts } = require('./state');
 const { lstatWork, readWork, sameEntry } = require('./tree');
 
 // Merge state isomorphic-git doesn't keep: the commit being merged (as real
@@ -194,6 +194,7 @@ function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure,
     },
 
     async checkout(dir, [ref]) {
+      assertNoOperation(dir, 'checkout', GitError);
       const local = await git.listBranches({ fs, dir });
       // origin/feature becomes a local feature branch tracking it.
       if (!local.includes(ref) && ref.includes('/')) {
@@ -224,11 +225,14 @@ function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure,
       if (!ours) throw new GitError('check out a branch before merging');
       if ((await changes(dir)).some((c) => c.code !== '??')) throw new GitError('commit or discard your changes before merging');
       const theirsOid = await git.resolveRef({ fs, dir, ref: theirs });
-      // The forced checkout below would overwrite untracked files at paths the
-      // merged branch tracks; refuse first, as real git does.
-      await tree.assertCanSwitch(dir, await headOid(dir), await tree.resolveCommit(dir, theirsOid), 'merge');
-      const message = `Merge branch '${theirs}' into ${ours}`;
       const oursOid = await git.resolveRef({ fs, dir, ref: ours });
+      // The forced checkout below would overwrite untracked files at paths the
+      // merge brings in; refuse first, as real git does. Only paths their side
+      // changed since the merge base count: the merge keeps ours everywhere else.
+      const theirsCommit = await tree.resolveCommit(dir, theirsOid);
+      const [base] = await git.findMergeBase({ fs, dir, oids: [oursOid, theirsCommit] });
+      await tree.assertCanSwitch(dir, oursOid, theirsCommit, 'merge', { base: base ?? null });
+      const message = `Merge branch '${theirs}' into ${ours}`;
       try {
         const result = await git.merge({ fs, dir, ours, theirs, author: author(), message, abortOnConflict: false });
         // merge moves the branch; the working tree has to follow it.

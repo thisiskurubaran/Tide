@@ -42,4 +42,34 @@ function setConflicts(dir, list) {
   else removeGitFile(dir, CONFLICTS);
 }
 
-module.exports = { CONFLICTS, gitFile, readGitFile, writeGitFile, removeGitFile, conflicts, setConflicts };
+/**
+ * Throws, as real git does, when a merge, rebase or cherry-pick hasn't been
+ * finished: pulling or switching branches then would mix its half-done
+ * result into something else.
+ * @param {string} dir
+ * @param {'pull' | 'checkout'} what
+ * @param {new (message: string) => Error} GitError
+ */
+function assertNoOperation(dir, what, GitError) {
+  const unmerged = conflicts(dir);
+  const rebasing = fs.existsSync(gitFile(dir, 'rebase-merge')) || fs.existsSync(gitFile(dir, 'rebase-apply'));
+  const picking = readGitFile(dir, 'CHERRY_PICK_HEAD') !== null;
+  const merging = readGitFile(dir, 'MERGE_HEAD') !== null;
+  if (what === 'pull') {
+    if (unmerged.length) {
+      throw new GitError(
+        `Pulling is not possible because you have unmerged files:\n${unmerged.map((p) => `\t${p}`).join('\n')}\nFix them up in the work tree, and then use 'git add/rm <file>' as appropriate to mark resolution and make a commit.`,
+      );
+    }
+    if (merging) throw new GitError('You have not concluded your merge (MERGE_HEAD exists).\nPlease, commit your changes before you merge.');
+    if (picking) throw new GitError('You have not concluded your cherry-pick (CHERRY_PICK_HEAD exists).\nPlease, commit your changes before you merge.');
+    if (rebasing) throw new GitError('A rebase is in progress (rebase-merge exists).\nFinish it with git rebase --continue, or --abort, before you pull.');
+    return;
+  }
+  if (unmerged.length) throw new GitError(`you need to resolve your current index first\n${unmerged.map((p) => `${p}: needs merge`).join('\n')}`);
+  if (merging) throw new GitError('cannot switch branch while merging\nCommit the merge, or abort it in Git Pro, first.');
+  if (rebasing) throw new GitError('cannot switch branch while rebasing\nFinish it with git rebase --continue, or --abort, first.');
+  if (picking) throw new GitError('cannot switch branch while cherry-picking\nFinish it with git cherry-pick --continue, or --abort, first.');
+}
+
+module.exports = { CONFLICTS, gitFile, readGitFile, writeGitFile, removeGitFile, conflicts, setConflicts, assertNoOperation };
