@@ -31,6 +31,7 @@ jest.mock('../../state', () => {
     useProjects: (sel: (s: unknown) => unknown) => useStore(projectsStore, sel),
     useSettings: (sel: (s: unknown) => unknown) => useStore(settings, sel),
     useRunner: (sel: (s: unknown) => unknown) => useStore(runnerStore, sel),
+    onProjectChange: () => undefined,
   };
 });
 jest.mock('../../extensions/host', () => ({
@@ -78,19 +79,21 @@ jest.mock('../search/CommandPalette', () => ({
     return null;
   },
 }));
+// What a pane's flush() does: by default nothing, like an editor with no typing pending.
+let mockFlush: () => Promise<void> = async () => undefined;
 // Each editor pane shows its file and can report focus, like the WebView does.
 jest.mock('../editor/EditorPane', () => {
   const React = jest.requireActual('react');
   const { Pressable, Text } = jest.requireActual('react-native');
   return {
     EditorPane: React.forwardRef(function Fake(props: { path: string | null; onFocusChange(f: boolean): void }, ref: React.Ref<unknown>) {
-      React.useImperativeHandle(ref, () => ({ send: () => undefined, reveal: () => undefined }));
+      React.useImperativeHandle(ref, () => ({ send: () => undefined, reveal: () => undefined, flush: () => mockFlush() }));
       return React.createElement(Pressable, { onPress: () => props.onFocusChange(true), testID: 'pane' }, React.createElement(Text, null, `file:${props.path}`));
     }),
   };
 });
 
-import { tabsStore } from '../../state';
+import { buffersStore, tabsStore, workspace } from '../../state';
 import { ProjectScreen } from './ProjectScreen';
 
 it('splits the editor and sends opened files to the focused pane', async () => {
@@ -170,4 +173,21 @@ it('offers the merge editor for files with conflicts', async () => {
   expect(ids).not.toContain('compare.saved');
   await act(async () => mockCommands.find((c) => c.id === 'compare.merge')!.run());
   expect(mockCompare).toEqual({ path: 'a.txt', with: 'merge' });
+});
+
+it('saves the keystrokes the editor still held back when a tab closes', async () => {
+  await workspace.createEmptyProject('closing');
+  await workspace.createFile('closing', '', 'x.js', 'old');
+  await buffersStore.getState().load('closing', 'x.js');
+  tabsStore.getState().openTab('closing', 'x.js');
+  // The editor's debounced change arrives in answer to the flush.
+  mockFlush = async () => buffersStore.getState().edit('closing', 'x.js', 'typed just now');
+  try {
+    await render(<ProjectScreen project="closing" />);
+    await act(async () => mockCommands.find((c) => c.id === 'close-tab')!.run());
+  } finally {
+    mockFlush = async () => undefined;
+  }
+  expect(await workspace.readFile('closing', 'x.js')).toBe('typed just now');
+  expect(tabsStore.getState().byProject.closing.open).toEqual([]);
 });

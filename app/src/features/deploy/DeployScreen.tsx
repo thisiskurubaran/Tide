@@ -2,7 +2,7 @@ import * as Clipboard from 'expo-clipboard';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
-import { ActivityIndicator, Linking, Pressable, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Pressable, TextInput, View } from 'react-native';
 
 import { Button } from '../../components/Button';
 import { haptic } from '../../components/haptics';
@@ -12,6 +12,7 @@ import { workspace } from '../../state';
 import { makeStyles, useColors } from '../../theme/theme';
 import { borderWidth, fonts, fontSizes, radius, spacing } from '../../theme/tokens';
 import { parseRemote, timeAgo } from '../github/api';
+import { deployConfirmation } from '../launch/links';
 import type { DeployRecord, DeployStatus } from './auto';
 import { deployStore } from './index';
 import { currentBranch, deploy, getToken, guessFolder, PREVIEWS, PROVIDERS, readConfig, saveConfig, setToken } from './deploy';
@@ -34,7 +35,7 @@ async function githubRemote(project: string) {
 // Publish a folder of the project to GitHub Pages, Netlify, Vercel, Cloudflare
 // Pages, or trigger a Render deploy. Free for everyone.
 export function DeployScreen() {
-  // go=1 comes from the Deploy Project action in Shortcuts: deploy on opening.
+  // go=1 comes from the Deploy Project action in Shortcuts: deploy on opening, once confirmed.
   const { project, go } = useLocalSearchParams<{ project: string; go?: string }>();
   const styles = useStyles();
   const colors = useColors();
@@ -78,8 +79,13 @@ export function DeployScreen() {
   useEffect(() => {
     if (go !== '1' || !config || autoRan.current) return;
     autoRan.current = true;
-    runRef.current?.();
-  }, [go, config]);
+    // Any app or page can open the link, so it asks first.
+    const ask = deployConfirmation(project);
+    Alert.alert(ask.title, ask.message, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: ask.action, onPress: () => runRef.current?.() },
+    ]);
+  }, [go, config, project]);
 
   if (!config) return <Screen title="Deploy" subtitle={project}><ActivityIndicator color={colors.mutedForeground} /></Screen>;
   const provider = PROVIDERS.find((p) => p.id === config.provider)!;

@@ -15,13 +15,19 @@ import { hydrated } from '../../state/hydrated';
 export const keyName = (provider: ProviderId) => `tide.ai.${provider}-key`;
 
 export const DEFAULT_LIMIT_USD = 10;
+// Tide only knows Claude prices, so the dollar limit can't count other
+// models; they have a monthly token limit instead.
+export const DEFAULT_UNPRICED_TOKEN_LIMIT = 2_000_000;
 
 export interface AiSettings {
   jobs: Record<AiJob, ModelRef>;
   // Inline completions while typing, once a provider is set up.
   completions: boolean;
-  // Estimated dollars per calendar month; null for no limit.
+  // Estimated dollars per calendar month; null for no limit. Counts only
+  // models Tide has a price for.
   monthlyLimitUsd: number | null;
+  // Tokens per calendar month for models Tide has no price for; null for no limit.
+  unpricedTokenLimit: number | null;
   // Base URL overrides; required for 'custom'.
   baseUrls: Partial<Record<ProviderId, string>>;
   // Models the provider listed when its key was last tested.
@@ -34,16 +40,18 @@ export interface AiSettings {
   setJob(job: AiJob, ref: ModelRef): void;
   setCompletions(on: boolean): void;
   setMonthlyLimit(usd: number | null): void;
+  setUnpricedTokenLimit(tokens: number | null): void;
   setBaseUrl(provider: ProviderId, url: string | null): void;
   setKnownModels(provider: ProviderId, models: string[]): void;
 }
 
-type Persisted = Pick<AiSettings, 'jobs' | 'completions' | 'monthlyLimitUsd' | 'baseUrls' | 'knownModels' | 'connected'>;
+type Persisted = Pick<AiSettings, 'jobs' | 'completions' | 'monthlyLimitUsd' | 'unpricedTokenLimit' | 'baseUrls' | 'knownModels' | 'connected'>;
 
 export const DEFAULTS: Persisted = {
   jobs: DEFAULT_JOBS,
   completions: true,
   monthlyLimitUsd: DEFAULT_LIMIT_USD,
+  unpricedTokenLimit: DEFAULT_UNPRICED_TOKEN_LIMIT,
   baseUrls: {},
   knownModels: {},
   connected: {},
@@ -69,6 +77,7 @@ export function createAiSettingsStore(store: StateStorage<Promise<void>> | State
         setJob: (job, ref) => set((s) => ({ jobs: { ...s.jobs, [job]: { provider: ref.provider, model: ref.model.trim() } } })),
         setCompletions: (completions) => set({ completions }),
         setMonthlyLimit: (usd) => set({ monthlyLimitUsd: usd === null || !Number.isFinite(usd) || usd < 0 ? null : Math.round(usd * 100) / 100 }),
+        setUnpricedTokenLimit: (tokens) => set({ unpricedTokenLimit: tokens === null || !Number.isFinite(tokens) || tokens < 0 ? null : Math.round(tokens) }),
         setBaseUrl: (provider, url) =>
           set((s) => {
             const baseUrls = { ...s.baseUrls };
@@ -83,7 +92,7 @@ export function createAiSettingsStore(store: StateStorage<Promise<void>> | State
         version: 2,
         storage: createJSONStorage(() => store),
         migrate: migrateAiSettings,
-        partialize: ({ jobs, completions, monthlyLimitUsd, baseUrls, knownModels, connected }) => ({ jobs, completions, monthlyLimitUsd, baseUrls, knownModels, connected }),
+        partialize: ({ jobs, completions, monthlyLimitUsd, unpricedTokenLimit, baseUrls, knownModels, connected }) => ({ jobs, completions, monthlyLimitUsd, unpricedTokenLimit, baseUrls, knownModels, connected }),
         merge: (persisted, current) => {
           const p = (persisted ?? {}) as Partial<Persisted>;
           const merged = { ...current, ...p, jobs: { ...DEFAULT_JOBS, ...p.jobs } };

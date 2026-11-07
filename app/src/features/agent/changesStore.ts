@@ -1,12 +1,16 @@
 // The agent's pending changes as the app keeps them: wired to the real
 // workspace and editors, and saved in app state (.tide) so changes applied to
 // disk by run_command can still be reviewed or undone after a relaunch.
+import { AppState } from 'react-native';
 import { useStore } from 'zustand';
 
 import { fileHistory } from '../history';
-import { buffersStore, projectsStore, storage, workspace } from '../../state';
+import { buffersStore, onProjectChange, projectsStore, storage, workspace } from '../../state';
 import { bufferKey } from '../../state/buffers';
+import { hydrated } from '../../state/hydrated';
+import { commandApprovals } from './approvalsStore';
 import { ChangeIo, createChangesStore } from './changes';
+import { folderIdentity } from './projectIdentity';
 
 // Files: what the user has, open editor text included.
 
@@ -49,10 +53,39 @@ const changeIo: ChangeIo = {
 };
 
 // Saved in app state so unreviewed changes survive the app being killed.
-export const changesStore = createChangesStore(changeIo, storage);
+export const changesStore = createChangesStore(changeIo, storage, { identify: folderIdentity });
 export const useChanges = <T>(selector: (s: ReturnType<typeof changesStore.getState>) => T) => useStore(changesStore, selector);
 
+// Pending changes and command approvals follow a rename and go with a delete
+// made in Tide.
+onProjectChange({
+  renamed: async (from, to) => {
+    changesStore.getState().renameProject(from, to);
+    await commandApprovals.renameProject(from, to);
+  },
+  deleted: async (project) => {
+    changesStore.getState().forget(project);
+    await commandApprovals.forget(project);
+  },
+});
+
+// Once loaded, saved changes are checked against the projects and their files:
+// a project deleted in the Files app (and maybe made again under the same
+// name) doesn't get them back, and `disk` is taken from the files themselves.
+hydrated(changesStore)
+  .then(() => changesStore.getState().reconcileAll())
+  .catch(() => undefined);
+
+// A project showing up (made again, or put back by the Files app) is checked too.
+// One disappearing isn't: a rename makes the old name disappear for a moment.
 projectsStore.subscribe((s, prev) => {
-  // Deleted projects take their pending changes with them.
-  for (const p of prev.projects) if (prev.loaded && s.loaded && !s.projects.includes(p)) changesStore.getState().forget(p);
+  if (!s.loaded || s.projects === prev.projects) return;
+  for (const p of s.projects) {
+    if (!prev.projects.includes(p) && changesStore.getState().byProject[p]) changesStore.getState().reconcile(p).catch(() => undefined);
+  }
+});
+
+// Saves are coalesced; one waiting is written before the app may be suspended.
+AppState.addEventListener('change', (state) => {
+  if (state !== 'active') changesStore.getState().flush().catch(() => undefined);
 });

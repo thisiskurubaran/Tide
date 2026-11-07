@@ -40,7 +40,7 @@ struct DeployLiveActivity: Widget {
         Text(context.attributes.provider).font(.caption2).foregroundStyle(.secondary)
       }
       .padding()
-      .widgetURL(URL(string: "tide://deploy?project=\(context.attributes.project.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"))
+      .widgetURL(URL(string: "tide://deploy?project=\(context.attributes.project.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&=+?#"))) ?? "")"))
     } dynamicIsland: { context in
       DynamicIsland {
         DynamicIslandExpandedRegion(.leading) {

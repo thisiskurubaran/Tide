@@ -33,7 +33,7 @@ import {
 } from './http';
 import { parseCurl, toCurl, toHttpText } from './curl';
 import { projectEnv } from '../env/store';
-import { takeSend } from './pending';
+import { onSendRequested, takeSend } from './pending';
 import { HistoryEntry, historyKey, restoreHeaders } from './history';
 import { HistorySheet } from './HistorySheet';
 import { WsSheet } from './WsSheet';
@@ -143,13 +143,16 @@ export function HttpPane({ project, path }: { project: string; path: string }) {
     setPasting(/^\s*(\$\s+)?curl\s/.test(text) ? text : '');
   };
 
-  // A link (the Send HTTP Request action in Shortcuts) asked to send one.
+  // A link (the Send HTTP Request action in Shortcuts) asked to send one,
+  // before the pane opened or, once confirmed, while it's open.
+  const [sendAsked, setSendAsked] = useState(0);
+  useEffect(() => onSendRequested((p, f) => p === project && f === path && setSendAsked((n) => n + 1)), [project, path]);
   useEffect(() => {
     const i = takeSend(project, path, parsed.requests.map((r) => r.name));
     if (i !== null) sendAt(i);
     // sendAt is rebuilt every render; this runs when the requests are read.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project, path, parsed.requests]);
+  }, [project, path, parsed.requests, sendAsked]);
 
   const savingResult = saving === null ? undefined : results[saving];
   const savingResponse = savingResult && savingResult !== 'sending' && 'response' in savingResult ? savingResult.response : null;

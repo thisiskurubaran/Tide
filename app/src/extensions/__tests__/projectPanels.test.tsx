@@ -51,6 +51,7 @@ jest.mock('../../state', () => {
     projectsStore: createStore(() => ({ loadTree: async () => undefined })),
     tabsStore: createStore(() => ({ byProject: {} })),
     workspace: { readFile: async () => { throw new Error('none'); }, writeFile: async () => undefined },
+    onProjectChange: () => undefined,
   };
 });
 jest.mock('../../state/tabs', () => ({ projectTabs: () => ({ open: [], active: null }) }));

@@ -1,6 +1,11 @@
 // What the AI features used this calendar month: tokens per provider and
 // model, and an estimated cost where Tide knows the price. Kept on the
 // device only; the provider's own console has the real bill.
+//
+// Tide knows only Claude prices (the provider catalog has none), so the
+// dollar limit counts Claude models, and every other model counts toward a
+// monthly token limit. Requests that were stopped or failed partway count
+// too, estimated when the provider didn't report what they used.
 import { createStore, StoreApi, useStore } from 'zustand';
 import { createJSONStorage, persist, StateStorage } from 'zustand/middleware';
 
@@ -44,6 +49,8 @@ export interface UsageTotals {
   costUsd: number;
   // Whether some of the month's use is at a price Tide doesn't know.
   unknownPrice: boolean;
+  // Tokens used by models at a price Tide doesn't know.
+  unpricedTokens: number;
 }
 
 export interface UsageState {
@@ -105,8 +112,9 @@ export function totalsOf(entries: ModelUsage[]): UsageTotals {
       outputTokens: t.outputTokens + e.outputTokens,
       costUsd: t.costUsd + (e.costUsd ?? 0),
       unknownPrice: t.unknownPrice || e.costUsd === null,
+      unpricedTokens: t.unpricedTokens + (e.costUsd === null ? e.inputTokens + e.outputTokens : 0),
     }),
-    { inputTokens: 0, outputTokens: 0, costUsd: 0, unknownPrice: false },
+    { inputTokens: 0, outputTokens: 0, costUsd: 0, unknownPrice: false, unpricedTokens: 0 },
   );
 }
 
@@ -118,6 +126,23 @@ export const useUsage = <T>(selector: (s: UsageState) => T) => useStore(usageSto
 export function overLimit(limitUsd: number | null, now = new Date()): boolean {
   return limitUsd !== null && usageStore.getState().totals(now).costUsd >= limitUsd;
 }
+
+export interface Limits {
+  monthlyLimitUsd: number | null;
+  unpricedTokenLimit: number | null;
+}
+
+// Which limit stops a request to this model, if any: the dollar limit stops
+// everything once reached; a model without a known price also stops at the
+// token limit.
+export function limitReached(limits: Limits, provider: ProviderId, model: string, totals: UsageTotals): 'spend' | 'tokens' | null {
+  if (limits.monthlyLimitUsd !== null && totals.costUsd >= limits.monthlyLimitUsd) return 'spend';
+  if (!priceOf(provider, model) && limits.unpricedTokenLimit !== null && totals.unpricedTokens >= limits.unpricedTokenLimit) return 'tokens';
+  return null;
+}
+
+// A rough token count for text, when the provider didn't say (about 4 characters a token).
+export const estimateTokens = (text: string) => Math.ceil(text.length / 4);
 
 export const formatUsd = (n: number) => (n === 0 ? '$0' : n < 0.01 ? '<$0.01' : `$${n.toFixed(2)}`);
 

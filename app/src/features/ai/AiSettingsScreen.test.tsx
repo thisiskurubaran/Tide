@@ -62,3 +62,33 @@ it('sets up a provider on first use and says when it is ready', async () => {
   expect(onClose).toHaveBeenCalled();
   expect(aiSettings.getState().jobs.chat).toEqual({ provider: 'openai', model: 'gpt-5-mini' });
 });
+
+it('says what the limits count, and sets the token limit for models without a price', async () => {
+  aiSettings.setState({ ...DEFAULTS, hasKey: false });
+  usageStore.getState().record('openai', 'gpt-5', { inputTokens: 400_000, outputTokens: 100_000 });
+  await render(<AiSettingsScreen />);
+  const counts = screen.getByTestId('ai-limit-counts');
+  expect(counts).toHaveTextContent(/dollar limit counts Claude models/);
+  expect(counts).toHaveTextContent(/500k tokens this month of 2\.0M/);
+  await act(async () => fireEvent.press(screen.getByTestId('ai-token-limit-10000000')));
+  expect(aiSettings.getState().unpricedTokenLimit).toBe(10_000_000);
+  await act(async () => fireEvent.press(screen.getByTestId('ai-token-limit-none')));
+  expect(aiSettings.getState().unpricedTokenLimit).toBeNull();
+});
+
+it('resets the agent’s command approvals', async () => {
+  const { Alert } = require('react-native');
+  const { commandApprovals } = require('../agent/approvalsStore');
+  await commandApprovals.setAllowed('web', 'npm', true);
+  const alert = jest.spyOn(Alert, 'alert').mockImplementation((...args: unknown[]) => {
+    const buttons = args[2] as { text: string; onPress?: () => void }[];
+    buttons.find((b) => b.text === 'Reset')?.onPress?.();
+  });
+  await render(<AiSettingsScreen />);
+  expect(await screen.findByText('1 always allowed')).toBeTruthy();
+  await act(async () => fireEvent.press(screen.getByTestId('ai-reset-approvals')));
+  expect(alert).toHaveBeenCalled();
+  expect(await commandApprovals.isAllowed('web', 'npm')).toBe(false);
+  expect(screen.getByText('No commands are always allowed')).toBeTruthy();
+  alert.mockRestore();
+});

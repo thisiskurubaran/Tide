@@ -34,7 +34,7 @@ import { TodosPanel } from '../todos/TodosPanel';
 import { OutlinePanel } from '../outline/OutlinePanel';
 import { NotebookBar } from '../notebook/NotebookBar';
 import { AiMode, AiSheet } from '../ai/AiSheet';
-import { projectLink, ProjectLinkOptions } from '../launch/links';
+import { launchConfirmation, projectLink, ProjectLinkOptions } from '../launch/links';
 import { configLine, DEFAULT_CONFIG, NamedConfig, taskLine, Task } from './tasks';
 import { useProjectTasks } from './useProjectTasks';
 import type { Shortcut } from './shortcuts';
@@ -397,18 +397,32 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
   useEffect(() => {
     if (!launch) return;
     if (launch.file) {
-      // Sending a request from a link is a Shortcuts action.
-      if (launch.send) requestSend(project, launch.file, launch.send);
       if (launch.line) openAt(launch.file, launch.line);
       else openFile(launch.file);
     }
-    // From the Live Activity's Stop and the Control Center's Run tests.
+    // From the Live Activity's Stop.
     if (launch.stop) terminal.current?.input('\x03');
-    if (launch.tests) setTests({});
-    if (!launch.run) return;
-    // Through a ref: by then tide.json has been read, which this render hadn't.
-    const timer = setTimeout(() => latestRun.current().catch((e) => console.warn('Run failed', e)), LAUNCH_RUN_DELAY_MS);
-    return () => clearTimeout(timer);
+    // Sending, running and testing come from Shortcuts and widgets, but any
+    // app or page can open the link: they wait for a yes.
+    const ask = launchConfirmation(project, launch);
+    if (!ask) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let alive = true;
+    const go = () => {
+      if (!alive) return;
+      if (launch.file && launch.send) requestSend(project, launch.file, launch.send);
+      if (launch.tests) setTests({});
+      // Through a ref: by then tide.json has been read, which this render hadn't.
+      if (launch.run) timer = setTimeout(() => latestRun.current().catch((e) => console.warn('Run failed', e)), LAUNCH_RUN_DELAY_MS);
+    };
+    Alert.alert(ask.title, ask.message, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: ask.action, onPress: go },
+    ]);
+    return () => {
+      alive = false;
+      if (timer) clearTimeout(timer);
+    };
     // Once per opening; the screen is keyed by project.
   }, []);
 

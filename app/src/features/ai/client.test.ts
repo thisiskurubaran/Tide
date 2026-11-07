@@ -11,7 +11,7 @@ import { DEFAULT_JOBS } from './providers/catalog';
 import { AiError } from './providers/types';
 import { aiSettings, DEFAULTS, migrateAiSettings, refreshKeys, setKey } from './settings';
 import { connectProvider } from './setup';
-import { fakeFetch, json } from './testMocks';
+import { fakeFetch, json, sse } from './testMocks';
 import { costOf, createUsageStore, monthOf, usageStore } from './usage';
 
 const items = (SecureStore as unknown as { __items: Map<string, string> }).__items;
@@ -84,7 +84,7 @@ describe('usage and the spend limit', () => {
     store.getState().record('anthropic', 'claude-sonnet-5-5', { inputTokens: 1_000_000, outputTokens: 0 }, nov);
     store.getState().record('anthropic', 'claude-sonnet-5-5', { inputTokens: 0, outputTokens: 100_000 }, nov);
     store.getState().record('custom', 'llama3', { inputTokens: 50, outputTokens: 5 }, nov);
-    expect(store.getState().totals(nov)).toEqual({ inputTokens: 1_000_050, outputTokens: 100_005, costUsd: 3, unknownPrice: true });
+    expect(store.getState().totals(nov)).toEqual({ inputTokens: 1_000_050, outputTokens: 100_005, costUsd: 3, unknownPrice: true, unpricedTokens: 55 });
     const sonnet = store.getState().current(nov).find((e) => e.model === 'claude-sonnet-5-5');
     expect(sonnet).toMatchObject({ requests: 2, costUsd: 3 });
     const dec = new Date(2026, 11, 1);
@@ -117,6 +117,49 @@ describe('usage and the spend limit', () => {
     aiSettings.getState().setMonthlyLimit(null);
     await chat({ job: 'chat', system: 's', messages: [{ role: 'user', content: 'u' }] });
     expect(f.calls).toHaveLength(1);
+  });
+
+  it('stops models without a price at the token limit, not the dollar limit', async () => {
+    await setKey('openai', 'sk-openai');
+    aiSettings.getState().setJob('chat', { provider: 'openai', model: 'gpt-5' });
+    const f = fakeFetch(() => json({ choices: [{ message: { content: 'hi' }, finish_reason: 'stop' }], usage: { prompt_tokens: 10, completion_tokens: 2 } }));
+    global.fetch = f.fetch;
+    // Far past $10 worth of tokens at any real price, but $0 to the dollar limit.
+    usageStore.getState().record('openai', 'gpt-5', { inputTokens: 1_500_000, outputTokens: 499_990 });
+    await chat({ job: 'chat', system: 's', messages: [{ role: 'user', content: 'u' }] });
+    expect(usageStore.getState().totals().unpricedTokens).toBe(2_000_002);
+    const err = await chat({ job: 'chat', system: 's', messages: [{ role: 'user', content: 'u' }] }).catch((e) => e);
+    expect(err).toMatchObject({ kind: 'limit' });
+    expect(err.message).toContain('2.0M tokens');
+    expect(f.calls).toHaveLength(1);
+    aiSettings.getState().setUnpricedTokenLimit(null);
+    await chat({ job: 'chat', system: 's', messages: [{ role: 'user', content: 'u' }] });
+    expect(f.calls).toHaveLength(2);
+  });
+
+  it('counts a stream that failed partway, and a request that was stopped', async () => {
+    await setKey('openai', 'sk-openai');
+    aiSettings.getState().setJob('agent', { provider: 'openai', model: 'gpt-5' });
+    global.fetch = fakeFetch(() => sse([{ data: { choices: [{ delta: { content: 'x'.repeat(400) } }] } }, { data: { error: { code: 500, message: 'overloaded' } } }])).fetch;
+    const history = [{ role: 'user' as const, text: 'u'.repeat(4000) }];
+    await expect(agentStep({ system: 's', history, tools: [] })).rejects.toBeInstanceOf(AiError);
+    const after = usageStore.getState().current().find((e) => e.model === 'gpt-5')!;
+    expect(after.outputTokens).toBe(100);
+    expect(after.inputTokens).toBeGreaterThan(1000);
+
+    // Stopped before anything came back: what was sent still counts.
+    const controller = new AbortController();
+    controller.abort();
+    global.fetch = (async () => {
+      throw Object.assign(new Error('aborted'), { name: 'AbortError' });
+    }) as unknown as typeof fetch;
+    await expect(agentStep({ system: 's', history, tools: [], signal: controller.signal })).rejects.toBeDefined();
+    expect(usageStore.getState().current().find((e) => e.model === 'gpt-5')!.requests).toBe(2);
+
+    // A request turned away before any reply (a bad key) isn't counted.
+    global.fetch = fakeFetch(() => json({ error: { message: 'bad key' } }, 401)).fetch;
+    await expect(agentStep({ system: 's', history, tools: [] })).rejects.toBeInstanceOf(AiError);
+    expect(usageStore.getState().current().find((e) => e.model === 'gpt-5')!.requests).toBe(2);
   });
 
   it('says what to set up when there is no key', async () => {

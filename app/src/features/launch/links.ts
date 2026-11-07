@@ -54,6 +54,45 @@ export function launchParams(params: { file?: string; line?: string; run?: strin
   return out.file || out.run || out.tests || out.stop ? out : null;
 }
 
+// Any app or web page can open these links, so one that runs code, sends a
+// request or deploys asks first, naming the project and what it will do.
+// (Tide's own Shortcuts actions and widgets open the same links; they ask too,
+// as there is no way here to tell them apart from anyone else's.)
+export interface LinkConfirmation {
+  title: string;
+  message: string;
+  // The button that goes ahead.
+  action: string;
+}
+
+const quoted = (s: string) => `“${s}”`;
+
+// What a project link would do that needs a yes first, or null for links that
+// only open things (or stop what's running).
+export function launchConfirmation(project: string, launch: ProjectLinkOptions | null): LinkConfirmation | null {
+  if (!launch) return null;
+  const actions: string[] = [];
+  if (launch.file && launch.send) actions.push(`send ${launch.send === '1' ? 'the first request' : `the request ${quoted(launch.send)}`} in ${quoted(launch.file)}`);
+  if (launch.tests) actions.push('run its tests');
+  if (launch.run) actions.push('run it');
+  if (!actions.length) return null;
+  const what = actions.length > 1 ? `${actions.slice(0, -1).join(', ')} and ${actions[actions.length - 1]}` : actions[0];
+  return {
+    title: launch.run ? `Run ${quoted(project)}?` : launch.tests ? `Run tests in ${quoted(project)}?` : 'Send request?',
+    message: `A link asked Tide to open ${quoted(project)} and ${what}. Only continue if you started this.`,
+    action: launch.run || launch.tests ? 'Run' : 'Send',
+  };
+}
+
+// tide://deploy?project=X&go=1
+export function deployConfirmation(project: string): LinkConfirmation {
+  return {
+    title: `Deploy ${quoted(project)}?`,
+    message: `A link asked Tide to deploy ${quoted(project)} now. Only continue if you started this.`,
+    action: 'Deploy',
+  };
+}
+
 export interface QuickAction {
   id: string;
   title: string;

@@ -1,6 +1,6 @@
 import Feather from '@expo/vector-icons/Feather';
-import { ReactNode, useMemo, useState } from 'react';
-import { Pressable, Switch, TextInput, View } from 'react-native';
+import { ReactNode, useEffect, useMemo, useState } from 'react';
+import { Alert, Pressable, Switch, TextInput, View } from 'react-native';
 
 import { Button } from '../../components/Button';
 import { haptic } from '../../components/haptics';
@@ -8,6 +8,7 @@ import { Screen } from '../../components/Screen';
 import { Segmented } from '../../components/Segmented';
 import { Sheet } from '../../components/Sheet';
 import { Text } from '../../components/Text';
+import { commandApprovals } from '../agent/approvalsStore';
 import { makeStyles, useColors } from '../../theme/theme';
 import { borderWidth, fonts, fontSizes, radius, spacing } from '../../theme/tokens';
 import { AiKeySheet, ProviderBadge } from './AiKeySheet';
@@ -18,6 +19,7 @@ import { formatTokens, formatUsd, totalsOf, useUsage } from './usage';
 
 const JOBS: AiJob[] = ['agent', 'chat', 'complete'];
 const LIMITS: (number | null)[] = [5, 10, 25, 50, null];
+const TOKEN_LIMITS: (number | null)[] = [1_000_000, 2_000_000, 10_000_000, 50_000_000, null];
 
 // Providers and keys, the model for each job, inline completions, and
 // what this month cost against the spend limit.
@@ -94,6 +96,8 @@ export function AiSettingsScreen() {
 
       <MonthCard />
 
+      <AgentApprovals />
+
       <AiKeySheet provider={keySheet} onClose={() => setKeySheet(null)} />
       <ModelPicker job={picker} onClose={() => setPicker(null)} onAddProvider={(p) => (setPicker(null), setKeySheet(p))} />
     </Screen>
@@ -112,10 +116,48 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
+// "Always allow" answers the agent was given for commands, per project.
+function AgentApprovals() {
+  const styles = useStyles();
+  const colors = useColors();
+  const [count, setCount] = useState<number | null>(null);
+  useEffect(() => {
+    commandApprovals.count().then(setCount, () => setCount(0));
+  }, []);
+  const reset = () =>
+    Alert.alert('Reset command approvals?', 'The agent will ask again before running commands you had allowed always, in every project.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Reset',
+        style: 'destructive',
+        onPress: async () => {
+          await commandApprovals.clearAll();
+          setCount(0);
+          haptic('success');
+        },
+      },
+    ]);
+  return (
+    <Section title="AGENT">
+      <Pressable onPress={reset} disabled={!count} accessibilityRole="button" style={({ pressed }) => [styles.row, pressed && styles.pressed]} testID="ai-reset-approvals">
+        <View style={styles.rowText}>
+          <Text variant="label" style={{ color: count ? colors.destructive : colors.mutedForeground }}>
+            Reset command approvals
+          </Text>
+          <Text variant="muted" style={styles.detail} testID="ai-approvals-count">
+            {count === null ? ' ' : count === 0 ? 'No commands are always allowed' : `${count} always allowed`}
+          </Text>
+        </View>
+      </Pressable>
+    </Section>
+  );
+}
+
 function MonthCard() {
   const styles = useStyles();
   const colors = useColors();
   const limit = useAiSettings((s) => s.monthlyLimitUsd);
+  const tokenLimit = useAiSettings((s) => s.unpricedTokenLimit);
   const month = useUsage((s) => s.month);
   const byModel = useUsage((s) => s.byModel);
   const [other, setOther] = useState('');
@@ -156,7 +198,13 @@ function MonthCard() {
             : reached
               ? `Limit of ${formatUsd(limit)} reached. AI features pause until next month or a higher limit.`
               : `${formatUsd(Math.max(0, limit - totals.costUsd))} left of your ${formatUsd(limit)} limit.`}
-          {totals.unknownPrice ? ' Some use is at a price Tide doesn’t know, so it isn’t counted.' : ''}
+        </Text>
+        <Text variant="muted" style={styles.small} testID="ai-limit-counts">
+          The dollar limit counts Claude models, the only ones Tide knows prices for. Other models (OpenAI, Gemini, OpenRouter, your own server) count toward the token
+          limit below instead.
+          {totals.unknownPrice
+            ? ` They used ${formatTokens(totals.unpricedTokens)} tokens this month${tokenLimit === null ? ', with no token limit.' : ` of ${formatTokens(tokenLimit)}.`}`
+            : ''}
         </Text>
         <Text variant="label">Monthly limit</Text>
         <View style={styles.chips}>
@@ -195,6 +243,21 @@ function MonthCard() {
             testID="ai-limit-set"
           />
         </View>
+        <Text variant="label">Token limit for models without a price</Text>
+        <View style={styles.chips}>
+          {TOKEN_LIMITS.map((l) => (
+            <Pressable
+              key={String(l)}
+              onPress={() => (haptic('select'), aiSettings.getState().setUnpricedTokenLimit(l))}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: tokenLimit === l }}
+              style={[styles.chip, tokenLimit === l && styles.chipOn]}
+              testID={`ai-token-limit-${l ?? 'none'}`}
+            >
+              <Text variant="label">{l === null ? 'None' : formatTokens(l)}</Text>
+            </Pressable>
+          ))}
+        </View>
         {current.length > 0 && (
           <View style={styles.breakdown}>
             {current.map((e) => (
@@ -210,7 +273,7 @@ function MonthCard() {
           </View>
         )}
         <Text variant="muted" style={styles.small}>
-          Estimated on this device from the tokens each answer used. Your provider’s console has the actual bill.
+          Estimated on this device from the tokens each answer used, including answers that were stopped or failed partway. Your provider’s console has the actual bill.
         </Text>
       </View>
     </Section>

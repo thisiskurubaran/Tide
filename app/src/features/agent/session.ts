@@ -13,8 +13,9 @@ import { gitEnv } from '../git/settings';
 import { Shell } from '../terminal/shell/shell';
 import { createShellFs } from '../terminal/shell/shellFs';
 import { localRunner } from '../../runtime';
-import { buffersStore, projectsStore, storage, workspace } from '../../state';
+import { buffersStore, projectsStore, workspace } from '../../state';
 import { ApprovalRequest, buildSystemPrompt, Decision, runAgent, StepStatus } from './agent';
+import { commandApprovals } from './approvalsStore';
 import { changesStore, readCurrent } from './changesStore';
 import { createShellCommandRunner } from './shellRunner';
 import { AGENT_TOOLS, AgentFiles, CommandRunner, StepView, TestRun } from './tools';
@@ -68,34 +69,10 @@ const filesOf = (project: string): AgentFiles => ({
 });
 
 // ---------------------------------------------------------------------------
-// "Always for npm", per project, kept across launches
+// "Always for npm", per project, kept across launches (approvals.ts)
 
-const ALLOW_KEY = 'agent-allow';
-let allowCache: Record<string, string[]> | null = null;
-
-async function allowList(): Promise<Record<string, string[]>> {
-  if (allowCache) return allowCache;
-  try {
-    const raw = await storage.getItem(ALLOW_KEY);
-    allowCache = raw ? (JSON.parse(raw) as Record<string, string[]>) : {};
-  } catch {
-    allowCache = {};
-  }
-  return allowCache;
-}
-
-export async function isAlwaysAllowed(project: string, key: string) {
-  return (await allowList())[project]?.includes(key) ?? false;
-}
-
-export async function setAlwaysAllowed(project: string, key: string, allowed: boolean) {
-  const list = await allowList();
-  const current = new Set(list[project] ?? []);
-  if (allowed) current.add(key);
-  else current.delete(key);
-  allowCache = { ...list, [project]: [...current] };
-  await storage.setItem(ALLOW_KEY, JSON.stringify(allowCache)).catch(() => undefined);
-}
+export const isAlwaysAllowed = (project: string, key: string) => commandApprovals.isAllowed(project, key);
+export const setAlwaysAllowed = (project: string, key: string, allowed: boolean) => commandApprovals.setAllowed(project, key, allowed);
 
 // ---------------------------------------------------------------------------
 // The chat as the screen shows it

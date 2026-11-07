@@ -1,6 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
 
-import { workspace } from '../../state';
+import { projectsStore, workspace } from '../../state';
+import { createProjectKeychain, hexName } from '../env/secretKeys';
 import { RUN_CONFIG_FILE } from '../files/templates';
 import { runTool } from '../../runtime/tool';
 import {
@@ -40,17 +41,25 @@ export const PROVIDERS: { id: ProviderId; label: string; token: string | null; h
 export const MAX_SITE_BYTES = 50 * 1024 * 1024;
 
 const tokenKey = (provider: ProviderId) => `tide.deploy.${provider}`;
-const hookKey = (project: string) => `tide.deploy.render.${project.replace(/[^\w.-]/g, '_')}`;
+// A Render deploy hook is per project; the old key mangled the name and could
+// be shared by two projects (see ../env/secretKeys.ts).
+export const hookKeys = {
+  key: (project: string) => `tide.secrets.render.${hexName(project)}`,
+  legacy: (project: string) => `tide.deploy.render.${project.replace(/[^\w.-]/g, '_')}`,
+};
+// Follows project renames and deletes (registered in ./index.ts).
+export const deployHooks = createProjectKeychain(SecureStore, hookKeys, () => projectsStore.getState().projects);
 
 export async function getToken(provider: ProviderId, project: string): Promise<string> {
   if (provider === 'github') return gitSettingsStore.getState().settings.token;
-  return (await SecureStore.getItemAsync(provider === 'render' ? hookKey(project) : tokenKey(provider))) ?? '';
+  if (provider === 'render') return (await deployHooks.read(project)) ?? '';
+  return (await SecureStore.getItemAsync(tokenKey(provider))) ?? '';
 }
 
 export async function setToken(provider: ProviderId, project: string, value: string): Promise<void> {
-  const key = provider === 'render' ? hookKey(project) : tokenKey(provider);
-  if (value.trim()) await SecureStore.setItemAsync(key, value.trim());
-  else await SecureStore.deleteItemAsync(key);
+  if (provider === 'render') return deployHooks.write(project, value.trim() || null);
+  if (value.trim()) await SecureStore.setItemAsync(tokenKey(provider), value.trim());
+  else await SecureStore.deleteItemAsync(tokenKey(provider));
 }
 
 // The folder to publish, guessed from what's there: build output first.

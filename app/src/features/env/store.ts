@@ -6,15 +6,22 @@ import * as SecureStore from 'expo-secure-store';
 import { buffersStore, projectsStore, workspace } from '../../state';
 import { bufferKey } from '../../state/buffers';
 import { parseDotenv, removeDotenv, setDotenv } from './dotenv';
+import { createProjectKeychain, hexName } from './secretKeys';
 
 export const ENV_FILE = '.env';
 
-// Keychain keys allow letters, digits, ".", "-" and "_".
-const secretsKey = (project: string) => `tide.env.${encodeURIComponent(project).replace(/[^A-Za-z0-9.-]/g, '_')}`;
+// One Keychain entry per project (see secretKeys.ts). The old key mangled
+// the name and could be shared by two projects.
+export const secretsKeys = {
+  key: (project: string) => `tide.secrets.env.${hexName(project)}`,
+  legacy: (project: string) => `tide.env.${encodeURIComponent(project).replace(/[^A-Za-z0-9.-]/g, '_')}`,
+};
+// Follows project renames and deletes (registered in ../deploy/index.ts, which loads at start-up).
+export const projectSecrets = createProjectKeychain(SecureStore, secretsKeys, () => projectsStore.getState().projects);
 
 export async function readSecrets(project: string): Promise<Record<string, string>> {
   try {
-    const v = await SecureStore.getItemAsync(secretsKey(project));
+    const v = await projectSecrets.read(project);
     return v ? (JSON.parse(v) as Record<string, string>) : {};
   } catch {
     return {};
@@ -22,8 +29,7 @@ export async function readSecrets(project: string): Promise<Record<string, strin
 }
 
 export async function writeSecrets(project: string, secrets: Record<string, string>): Promise<void> {
-  if (Object.keys(secrets).length) await SecureStore.setItemAsync(secretsKey(project), JSON.stringify(secrets));
-  else await SecureStore.deleteItemAsync(secretsKey(project));
+  await projectSecrets.write(project, Object.keys(secrets).length ? JSON.stringify(secrets) : null);
 }
 
 // What a run sees.

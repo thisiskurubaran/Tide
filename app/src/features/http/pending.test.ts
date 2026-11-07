@@ -1,4 +1,4 @@
-import { requestSend, takeSend } from './pending';
+import { onSendRequested, requestSend, takeSend } from './pending';
 
 describe('requests sent from links', () => {
   it('finds the request by position or name, once', () => {
@@ -16,5 +16,17 @@ describe('requests sent from links', () => {
     requestSend('p', 'new.http', '1');
     expect(takeSend('p', 'new.http', [])).toBeNull();
     expect(takeSend('p', 'new.http', ['a'])).toBe(0);
+  });
+});
+
+describe('a send asked for while the pane is open', () => {
+  it('tells the open pane', () => {
+    const heard: string[] = [];
+    const off = onSendRequested((p, f) => heard.push(`${p}/${f}`));
+    requestSend('demo', 'later.http', '1');
+    off();
+    requestSend('demo', 'other.http', '1');
+    expect(heard).toEqual(['demo/later.http']);
+    expect(takeSend('demo', 'later.http', ['a'])).toBe(0);
   });
 });

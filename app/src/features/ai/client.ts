@@ -12,7 +12,7 @@ import { cleanCompletion, head, tail } from './providers/text';
 import { AiError } from './providers/types';
 import type { AgentStep, AgentStepRequest, AiJob, ChatRequest, ChatResult, CompletionRequest, ModelRef, ProviderId, Usage } from './providers/types';
 import { aiSettings, baseUrlFor, getKey, isConnected, refreshKeys } from './settings';
-import { formatUsd, overLimit, usageStore } from './usage';
+import { estimateTokens, formatTokens, formatUsd, limitReached, usageStore } from './usage';
 
 export { AiError } from './providers/types';
 export type * from './providers/types';
@@ -35,15 +35,30 @@ async function target(job: AiJob): Promise<Target> {
     throw new AiError(ref.provider === 'custom' ? 'Add your server’s address in Settings, AI assistant.' : `Add your ${info.name} API key in Settings, AI assistant.`, 'no-key');
   }
   if (!ref.model.trim()) throw new AiError('Pick a model in Settings, AI assistant.', 'no-key');
-  const limit = s.monthlyLimitUsd;
-  if (overLimit(limit)) {
-    throw new AiError(`This month’s AI spending has reached your limit of ${formatUsd(limit ?? 0)}. Raise it in Settings, AI assistant.`, 'limit');
+  const reached = limitReached(s, ref.provider, ref.model, usageStore.getState().totals());
+  if (reached === 'spend') {
+    throw new AiError(`This month’s AI spending has reached your limit of ${formatUsd(s.monthlyLimitUsd ?? 0)}. Raise it in Settings, AI assistant.`, 'limit');
+  }
+  if (reached === 'tokens') {
+    throw new AiError(
+      `Tide doesn’t know the price of ${ref.model}, so it counts tokens instead: this month’s use has reached your limit of ${formatTokens(s.unpricedTokenLimit ?? 0)} tokens for such models. Raise it in Settings, AI assistant.`,
+      'limit',
+    );
   }
   return { ref, apiKey, baseUrl };
 }
 
 function record(provider: ProviderId, model: string, usage: Usage) {
   if (usage.inputTokens || usage.outputTokens) usageStore.getState().record(provider, model, usage);
+}
+
+// A request that was stopped or failed partway may still be billed: once the
+// reply had started streaming, or the user stopped it, its use is estimated
+// from what was sent and what came back. (Errors before any reply, like a
+// bad key, aren't counted.)
+function recordPartial(provider: ProviderId, model: string, sent: unknown, streamed: string, signal?: AbortSignal) {
+  if (!streamed && !signal?.aborted) return;
+  record(provider, model, { inputTokens: estimateTokens(JSON.stringify(sent)), outputTokens: estimateTokens(streamed) });
 }
 
 async function chatWith(t: Target, req: ChatRequest): Promise<ChatResult> {
@@ -57,6 +72,7 @@ async function chatWith(t: Target, req: ChatRequest): Promise<ChatResult> {
     record(t.ref.provider, t.ref.model, result.usage);
     return result;
   } catch (e) {
+    recordPartial(t.ref.provider, t.ref.model, { system: req.system, messages: req.messages }, '', req.signal);
     throw toAiError(e);
   }
 }
@@ -65,8 +81,17 @@ export async function chat(req: ChatRequest): Promise<ChatResult> {
   return chatWith(await target(req.job), req);
 }
 
-export async function agentStep(req: AgentStepRequest): Promise<AgentStep> {
+export async function agentStep(request: AgentStepRequest): Promise<AgentStep> {
   const t = await target('agent');
+  // What has streamed in, to estimate a stopped or failed step's use.
+  let streamed = '';
+  const req: AgentStepRequest = {
+    ...request,
+    onText: (delta) => {
+      streamed += delta;
+      request.onText?.(delta);
+    },
+  };
   try {
     if (t.ref.provider === 'anthropic') {
       const { result, model } = await anthropicAgentStep({ apiKey: t.apiKey ?? '', model: t.ref.model }, req);
@@ -77,6 +102,7 @@ export async function agentStep(req: AgentStepRequest): Promise<AgentStep> {
     record(t.ref.provider, t.ref.model, result.usage);
     return result;
   } catch (e) {
+    recordPartial(t.ref.provider, t.ref.model, { system: req.system, history: req.history, tools: req.tools }, streamed, req.signal);
     throw toAiError(e);
   }
 }
