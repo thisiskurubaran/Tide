@@ -110,10 +110,12 @@ function createStash({ git, author, changes, GitError, tree }) {
       );
     const index = await tree.indexFiles(dir);
     const i = await make(`index on ${on}`, index, [head]);
-    // The working tree's version of every file in the index.
+    // The working tree's version of every tracked file. That includes one in
+    // HEAD but taken out of the index (`git rm --cached`) and still on disk:
+    // the restore below puts HEAD's copy back, so its edits must be saved
+    // here, as real git saves them.
     const work = new Map(index);
     for (const c of tracked) {
-      if (!index.has(c.path)) continue;
       if (fs.existsSync(path.join(dir, c.path))) work.set(c.path, await hashFile(dir, c.path));
       else work.delete(c.path);
     }

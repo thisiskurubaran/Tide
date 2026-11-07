@@ -170,6 +170,9 @@ function createSequencer({ git, author, changes, GitError, tree }) {
     const onto = await tree.resolveCommit(dir, upstream);
     const [base] = await git.findMergeBase({ fs, dir, oids: [ours, onto] });
     if (base === onto) return { status: 'up-to-date' };
+    // The forced checkouts below would overwrite untracked files at paths the
+    // upstream tracks; refuse before changing anything, as real git does.
+    await tree.assertCanSwitch(dir, ours, onto, 'checkout');
     const ref = `refs/heads/${branch}`;
     if (base === ours) {
       await git.writeRef({ fs, dir, ref, value: onto, force: true });

@@ -169,13 +169,15 @@ function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure,
       if (!local.includes(ref) && ref.includes('/')) {
         const [remote, ...rest] = ref.split('/');
         const name = rest.join('/');
-        if (!local.includes(name)) {
-          await git.branch({ fs, dir, ref: name, object: await git.resolveRef({ fs, dir, ref: `refs/remotes/${remote}/${name}` }) });
-        }
-        await git.checkout({ fs, dir, ref: name });
+        const to = await tree.resolveCommit(dir, local.includes(name) ? name : `refs/remotes/${remote}/${name}`);
+        // Checked before the branch is made, so a refused switch leaves nothing behind.
+        await tree.assertCanSwitch(dir, await headOid(dir), to);
+        if (!local.includes(name)) await git.branch({ fs, dir, ref: name, object: to });
+        await tree.checkoutSafely(dir, { ref: name, to });
         return null;
       }
-      await git.checkout({ fs, dir, ref });
+      // Refuses, like real git, when the switch would overwrite local changes.
+      await tree.checkoutSafely(dir, { ref, to: await tree.resolveCommit(dir, ref) });
       return null;
     },
 
@@ -192,6 +194,9 @@ function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure,
       if (!ours) throw new GitError('check out a branch before merging');
       if ((await changes(dir)).some((c) => c.code !== '??')) throw new GitError('commit or discard your changes before merging');
       const theirsOid = await git.resolveRef({ fs, dir, ref: theirs });
+      // The forced checkout below would overwrite untracked files at paths the
+      // merged branch tracks; refuse first, as real git does.
+      await tree.assertCanSwitch(dir, await headOid(dir), await tree.resolveCommit(dir, theirsOid), 'merge');
       const message = `Merge branch '${theirs}' into ${ours}`;
       try {
         const result = await git.merge({ fs, dir, ours, theirs, author: author(), message, abortOnConflict: false });

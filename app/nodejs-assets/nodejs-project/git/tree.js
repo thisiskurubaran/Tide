@@ -205,6 +205,93 @@ function createTree({ git, changes, GitError }) {
     setConflicts(dir, conflicts(dir).filter((p) => !paths.includes(p)));
   }
 
+  /** @type {Record<string, string>} */
+  const ADVICE = {
+    checkout: 'switch branches',
+    merge: 'merge',
+    pull: 'merge',
+    rebase: 'rebase',
+  };
+
+  /**
+   * What would be lost by moving the working tree and index from commit
+   * `from` (HEAD, or null before the first commit) to `to`, as real git checks
+   * before it switches: tracked files the switch changes that have staged or
+   * unstaged edits, and untracked files at paths `to` tracks (or that a file
+   * in `to` needs as a folder, or the other way round).
+   * @param {string} dir
+   * @param {string | null} from
+   * @param {string} to
+   * @returns {Promise<{ differ: string[], local: string[], untracked: string[] }>}
+   */
+  async function switchBlockers(dir, from, to) {
+    const before = from ? await files(dir, from) : new Map();
+    const after = await files(dir, to);
+    const differ = [...new Set([...before.keys(), ...after.keys()])].filter((p) => !sameEntry(before.get(p) ?? null, after.get(p) ?? null)).sort();
+    const changing = new Set(differ);
+    const folders = new Set();
+    for (const p of after.keys()) for (let d = path.posix.dirname(p); d !== '.'; d = path.posix.dirname(d)) folders.add(d);
+    const tracksAbove = (/** @type {string} */ p) => {
+      for (let d = path.posix.dirname(p); d !== '.'; d = path.posix.dirname(d)) if (after.has(d)) return true;
+      return false;
+    };
+    const local = [];
+    const untracked = [];
+    for (const c of await changes(dir)) {
+      if (c.code === '??') {
+        if (after.has(c.path) || folders.has(c.path) || tracksAbove(c.path)) untracked.push(c.path);
+      } else if (changing.has(c.path)) local.push(c.path);
+    }
+    return { differ, local: local.sort(), untracked: untracked.sort() };
+  }
+
+  /**
+   * Throws, with real git's message, when switching from `from` to `to` would
+   * overwrite local changes or untracked files. Returns the paths that differ.
+   * @param {'checkout' | 'merge' | 'pull' | 'rebase'} what
+   */
+  async function assertCanSwitch(dir, from, to, what = 'checkout') {
+    const { differ, local, untracked } = await switchBlockers(dir, from, to);
+    const by = what === 'pull' ? 'merge' : what;
+    const list = (/** @type {string[]} */ paths) => paths.map((p) => `\t${p}`).join('\n');
+    if (local.length) {
+      throw new GitError(
+        `Your local changes to the following files would be overwritten by ${by}:\n${list(local)}\nPlease commit your changes or stash them before you ${ADVICE[what]}.`,
+      );
+    }
+    if (untracked.length) {
+      throw new GitError(
+        `The following untracked working tree files would be overwritten by ${by}:\n${list(untracked)}\nPlease move or remove them before you ${ADVICE[what]}.`,
+      );
+    }
+    return differ;
+  }
+
+  /**
+   * `git checkout <ref>` that keeps local changes, as real git does: refuses
+   * when the switch would overwrite any, and otherwise rewrites only the files
+   * that differ between HEAD and the target, so staged and unstaged edits to
+   * the rest come along. (isomorphic-git's own checkout resets every file
+   * whose working copy matches the index, losing staged edits.) With `move`,
+   * that branch is first pointed at `to` (a pull or fast-forward); if the
+   * checkout fails it is put back, so HEAD never names a commit the files
+   * don't match.
+   * @param {string} dir
+   * @param {{ ref: string, to: string, what?: 'checkout' | 'merge' | 'pull' | 'rebase', move?: string }} opts
+   */
+  async function checkoutSafely(dir, { ref, to, what = 'checkout', move }) {
+    const from = await git.resolveRef({ fs, dir, ref: 'HEAD' }).catch(() => null);
+    const differ = await assertCanSwitch(dir, from, to, what);
+    const old = move ? await git.resolveRef({ fs, dir, ref: move }).catch(() => null) : null;
+    if (move) await git.writeRef({ fs, dir, ref: move, value: to, force: true });
+    try {
+      await git.checkout({ fs, dir, ref, filepaths: differ });
+    } catch (e) {
+      if (move && old) await git.writeRef({ fs, dir, ref: move, value: old, force: true });
+      throw e;
+    }
+  }
+
   /** The tree a commit points to. */
   async function treeOf(dir, oid) {
     return (await git.readCommit({ fs, dir, oid })).commit.tree;
@@ -236,7 +323,23 @@ function createTree({ git, changes, GitError }) {
     return /** @type {string} */ (oid);
   }
 
-  return { blob, files, indexFiles, writeTree, writeFile, removeFile, setFile, applyChange, restore, treeOf, resolveCommit, isBinary };
+  return {
+    blob,
+    files,
+    indexFiles,
+    writeTree,
+    writeFile,
+    removeFile,
+    setFile,
+    applyChange,
+    restore,
+    treeOf,
+    resolveCommit,
+    isBinary,
+    switchBlockers,
+    assertCanSwitch,
+    checkoutSafely,
+  };
 }
 
 module.exports = { createTree };

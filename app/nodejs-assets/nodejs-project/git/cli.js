@@ -22,6 +22,7 @@ const { createTree } = require('./tree');
 const { createStash } = require('./stash');
 const { createSequencer } = require('./sequencer');
 const { createCommands } = require('./commands');
+const { createAuth } = require('./auth');
 
 const USAGE = `usage: git <command>
 
@@ -49,35 +50,9 @@ function author() {
   return { name: env.TIDE_GIT_NAME, email: env.TIDE_GIT_EMAIL };
 }
 
-// Signed-in GitLab and Bitbucket accounts, as JSON {host: {username, password}}.
-const hostCredentials = (() => {
-  try {
-    return JSON.parse(env.TIDE_GIT_HOSTS || '{}');
-  } catch {
-    return {};
-  }
-})();
-
-/** @param {string} url */
-function hostOf(url) {
-  try {
-    return new URL(url).host;
-  } catch {
-    return '';
-  }
-}
-
-const canAuth = () => !!env.TIDE_GIT_TOKEN || Object.keys(hostCredentials).length > 0;
-
-// An account for the remote's host when there is one; otherwise the token from
-// Settings, which GitHub, GitLab and Gitea all accept as the password.
-/** @param {string} url */
-function onAuth(url) {
-  const account = hostCredentials[hostOf(url)];
-  if (account) return { username: account.username, password: account.password };
-  if (!env.TIDE_GIT_TOKEN) throw new GitError('this remote needs a token: add one in Settings, Git');
-  return { username: 'x-access-token', password: env.TIDE_GIT_TOKEN };
-}
+// The GitHub token from Settings goes to github.com only, and accounts saved
+// for other hosts only to that host; nothing is sent over plain http (auth.js).
+const { canAuth, onAuth } = createAuth({ env, GitError });
 
 function onAuthFailure() {
   throw new GitError('the remote rejected the token (check it has access to this repository)');
@@ -258,12 +233,65 @@ const commands = {
 
   async rm(args) {
     const dir = await findRoot();
-    const cached = takeFlag(args, '--cached');
-    for (const p of args.filter((a) => !a.startsWith('-'))) {
+    // Like real git: only files in the index are removed (untracked files and
+    // .git are never touched), folders need -r, and a file whose staged or
+    // working copy isn't committed needs -f, so rm can't lose work.
+    let cached = false;
+    let force = false;
+    let recursive = false;
+    let quiet = false;
+    const specs = [];
+    for (const a of args) {
+      if (a === '--cached') cached = true;
+      else if (a === '--force') force = true;
+      else if (a === '--quiet') quiet = true;
+      else if (/^-[rRfq]+$/.test(a)) {
+        if (/[rR]/.test(a)) recursive = true;
+        if (a.includes('f')) force = true;
+        if (a.includes('q')) quiet = true;
+      } else if (a.startsWith('-')) throw new GitError(`unknown option ${a} (usage: git rm [-r] [-f] [--cached] <path>...)`);
+      else specs.push(a);
+    }
+    if (!specs.length) throw new GitError('usage: git rm [-r] [-f] [--cached] <path>...');
+    const indexed = [...(await tree.indexFiles(dir)).keys()];
+    const targets = new Set();
+    for (const p of specs) {
       const filepath = repoPath(dir, p);
+      const exact = indexed.includes(filepath);
+      const inside = indexed.filter((f) => filepath === '.' || f.startsWith(`${filepath}/`));
+      if (!exact && !inside.length) throw new GitError(`pathspec '${p}' did not match any files`);
+      if (!exact && !recursive) throw new GitError(`not removing '${p}' recursively without -r`);
+      if (exact) targets.add(filepath);
+      for (const f of inside) targets.add(f);
+    }
+    const list = [...targets].sort();
+    if (!force) {
+      const wanted = new Set(list);
+      const rows = (await changes(dir, list)).filter((c) => wanted.has(c.path));
+      // A deleted working copy loses nothing, so it doesn't count as an edit.
+      const staged = rows.filter((c) => c.code[0] !== ' ').map((c) => c.path);
+      const edited = rows.filter((c) => c.code[1] === 'M').map((c) => c.path);
+      const both = staged.filter((p) => edited.includes(p));
+      const refuse = (/** @type {string[]} */ paths, /** @type {string} */ what, /** @type {string} */ hint) => {
+        const one = paths.length === 1;
+        throw new GitError(`the following file${one ? ' has' : 's have'} ${what}:\n${paths.map((p) => `    ${p}`).join('\n')}\n(${hint})`);
+      };
+      if (both.length) refuse(both, 'staged content different from both the file and the HEAD', 'use -f to force removal');
+      if (!cached && staged.length) refuse(staged, 'changes staged in the index', 'use --cached to keep the file, or -f to force removal');
+      if (!cached && edited.length) refuse(edited, 'local modifications', 'use --cached to keep the file, or -f to force removal');
+    }
+    for (const filepath of list) {
       await git.remove({ fs, dir, filepath });
-      if (!cached) fs.rmSync(path.join(dir, filepath), { force: true, recursive: true });
-      console.log(`rm '${filepath}'`);
+      if (!cached) {
+        let st = null;
+        try {
+          st = fs.lstatSync(path.join(dir, filepath));
+        } catch {
+          // Already gone from the working tree.
+        }
+        if (st && !st.isDirectory()) tree.removeFile(dir, filepath);
+      }
+      if (!quiet) console.log(`rm '${filepath}'`);
     }
     return 0;
   },
@@ -387,7 +415,12 @@ const commands = {
     const ref = args.find((a) => !a.startsWith('-'));
     if (!ref) throw new GitError('usage: git checkout [-b] <branch>');
     if (create) await git.branch({ fs, dir, ref, checkout: true });
-    else await git.checkout({ fs, dir, ref });
+    else {
+      // A branch only on origin becomes a local one tracking it (isomorphic-git does that part).
+      const to = (await tree.resolveCommit(dir, ref).catch(() => null)) ?? (await tree.resolveCommit(dir, `refs/remotes/origin/${ref}`).catch(() => null));
+      if (!to) throw new GitError(`pathspec '${ref}' did not match any branch`);
+      await tree.checkoutSafely(dir, { ref, to });
+    }
     console.log(`Switched to ${create ? 'a new ' : ''}branch '${ref}'`);
     return 0;
   },
@@ -434,20 +467,64 @@ const commands = {
   async pull(args) {
     const dir = await findRoot();
     const [remote = 'origin', ref] = args.filter((a) => !a.startsWith('-'));
-    await git.pull({
+    const branch = await git.currentBranch({ fs, dir });
+    if (!branch) throw new GitError('check out a branch before pulling');
+    const upstream = await git.getConfig({ fs, dir, path: `branch.${branch}.merge` }).catch(() => undefined);
+    const remoteRef = ref ?? (typeof upstream === 'string' ? upstream.replace(/^refs\/heads\//, '') : branch);
+    // Fetch first; nothing local changes until the result is known to be safe
+    // to check out (isomorphic-git's pull moves the branch, then checks out,
+    // and a checkout that fails leaves the branch on the new commit with the
+    // old files).
+    const fetched = await git.fetch({
       fs,
       http,
       dir,
       remote,
-      ref,
+      ref: remoteRef,
       singleBranch: true,
-      author: author(),
       onAuth: canAuth() ? onAuth : undefined,
       onAuthFailure,
       onProgress,
     });
     endProgress();
-    console.log('Already up to date or merged.');
+    const theirs = fetched.fetchHead;
+    if (!theirs) throw new GitError(`couldn't find remote ref ${remoteRef}`);
+    const ours = await git.resolveRef({ fs, dir, ref: 'HEAD' }).catch(() => null);
+    let to = theirs;
+    let how = 'Fast-forward';
+    if (ours) {
+      const [base] = await git.findMergeBase({ fs, dir, oids: [ours, theirs] });
+      if (ours === theirs || base === theirs) {
+        console.log('Already up to date.');
+        return 0;
+      }
+      if (base !== ours) {
+        const url = (await git.getConfig({ fs, dir, path: `remote.${remote}.url` }).catch(() => undefined)) ?? remote;
+        try {
+          // Writes the merge commit but leaves the branch where it is.
+          const merged = await git.merge({
+            fs,
+            dir,
+            ours: branch,
+            theirs,
+            author: author(),
+            message: `Merge branch '${remoteRef}' of ${url} into ${branch}`,
+            noUpdateBranch: true,
+          });
+          to = merged.oid;
+        } catch (e) {
+          const err = /** @type {any} */ (e);
+          if (err && err.code === 'MergeConflictError') {
+            const files = (err.data && err.data.filepaths) || [];
+            throw new GitError(`merging ${remote}/${remoteRef} conflicts in ${files.join(', ') || 'some files'}; nothing was changed. Merge ${remote}/${remoteRef} from Git Pro to resolve the conflicts.`);
+          }
+          throw e;
+        }
+        how = 'Merge made';
+      }
+    }
+    await tree.checkoutSafely(dir, { ref: branch, to, what: 'pull', move: `refs/heads/${branch}` });
+    console.log(`${how}: ${branch} is now at ${to.slice(0, 7)}`);
     return 0;
   },
 };
