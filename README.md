@@ -1,62 +1,149 @@
-# Tide
+<div align="center">
 
-Tide is a mobile IDE for Android and iOS built with React Native. It has a code editor, a file manager and a terminal that runs Node.js and Python, both locally on the device and in a remote container.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="app/assets/brand/tide-logo-dark.svg">
+  <img src="app/assets/brand/tide-logo.svg" alt="Tide" width="240">
+</picture>
 
-## Repo layout
+**A full mobile IDE for iPhone, iPad and Android.**<br>
+Code editor, file manager and terminal, with Node.js, Python, Lua, Ruby and PHP running on the device, offline, and a real Linux shell in a container you host.
+
+![Version](https://img.shields.io/badge/version-2.0.0-3b5bdb)
+![Platforms](https://img.shields.io/badge/platforms-iOS%20%7C%20iPadOS%20%7C%20Android-0e1a4d)
+![Price](https://img.shields.io/badge/price-free-2f9e44)
+![Expo SDK](https://img.shields.io/badge/Expo%20SDK-58-000020?logo=expo&logoColor=white)
+![React Native](https://img.shields.io/badge/React%20Native-0.88-61dafb?logo=react&logoColor=black)
+![TypeScript](https://img.shields.io/badge/TypeScript-6.0-3178c6?logo=typescript&logoColor=white)
+![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A520-5fa04e?logo=nodedotjs&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-Jest%20%7C%20node%3Atest%20%7C%20unittest%20%7C%20Maestro-c21325?logo=jest&logoColor=white)
+
+[Features](#features) · [Getting started](#getting-started) · [Architecture](#architecture) · [Remote mode](#remote-mode) · [Testing](#testing) · [Releasing](#releasing)
+
+</div>
+
+---
+
+## Features
+
+| | |
+|---|---|
+| **Editor** | CodeMirror 6 with highlighting, folding and Outline for JS/TS, Python, Go, Rust, Java, C/C++, C#, Kotlin, Swift, Dart, PHP, Ruby, Lua, SQL, web and config languages, IntelliSense for JS/TS (TypeScript language service) and Python (Jedi), Vim and Emacs bindings, Emmet, snippets, breadcrumbs, peek definition, minimap and a split editor on iPad |
+| **Run on the device** | Node.js 18 (nodejs-mobile), CPython 3.15, Lua 5.3, Ruby 3.4 and PHP 8.3, offline. TypeScript runs directly. `npm`, `pip` and `git` built in |
+| **Remote mode** | A real bash shell in a Docker container on your own server, with two-way file sync and port previews |
+| **AI, with your own key** | Agent mode, inline completions, Fix with AI, explain errors and commit messages, using Anthropic, OpenAI, Gemini or OpenRouter, or your own Ollama or LM Studio server. Keys stay in the Keychain |
+| **Git and hosting** | Stash, tags, cherry-pick, rebase, blame and history on the device. GitHub, GitLab and Bitbucket: clone, pull requests, issues and Actions |
+| **Ship it** | Deploy to GitHub Pages, Firebase Hosting, Netlify, Vercel or Cloudflare Pages, or trigger a Render deploy, by hand or on save or commit |
+| **Built-in tools** | `.http` requests with environments, GraphQL and WebSockets; SQLite, PostgreSQL, MySQL, Redis and MongoDB clients; SSH and SFTP; a CSV/Parquet viewer; offline docs; Jupyter notebooks; developer utilities |
+| **Native integrations** | Live Activity and Dynamic Island while code runs, home screen widget, Siri and Shortcuts actions, Control Center buttons and `tide://` links |
+
+Every feature and every extension is free, with no subscription, sign-up or in-app purchases.
+
+## Contents
+
+- [Getting started](#getting-started)
+- [Architecture](#architecture)
+- [Project configuration](#project-configuration)
+- [Terminal and runtimes](#terminal-and-runtimes)
+- [Editor](#editor)
+- [Extensions](#extensions)
+- [Git](#git)
+- [AI](#ai)
+- [Remote mode](#remote-mode)
+- [Remote server](#remote-server)
+- [Native features](#native-features)
+- [Privacy, crash reports and feedback](#privacy-crash-reports-and-feedback)
+- [Generated bundles](#generated-bundles)
+- [Testing](#testing)
+- [Releasing](#releasing)
+
+## Getting started
+
+### Requirements
+
+| Tool | Version | For |
+|---|---|---|
+| Node.js | 20 or newer (24 or newer for the server) | Everything |
+| Xcode + CocoaPods | Current, selected with `xcode-select` | iOS builds |
+| Android Studio | JDK 17, SDK and NDK | Android builds |
+| Docker | Any recent daemon | Remote server only |
+
+Tide uses native modules, so **Expo Go can't run it**. Use a development build.
+
+### Install and run
+
+```bash
+cd app
+npm install
+npm run ios       # or: npm run android
+```
+
+`npm install` also prepares files that aren't committed:
+
+- **CPython for iOS** (macOS only): the iOS XCframework, about 86 MB, checksum-verified, into `app/modules/python-runtime/ios/Python.xcframework`.
+- **Extension services**: the Prettier, ESLint and TypeScript code the extensions run in the Node supervisor (about 5 MB, `scripts/build-services.js`). Run `npm run build:services` after upgrading any of them.
+- **Python tools**: pyflakes, autopep8, pycodestyle, jedi and parso as checksum-pinned wheels into `app/modules/python-runtime/python`.
+- **Ruby, PHP and Mermaid**: the `ruby.wasm` and `php.wasm` interpreters, and Mermaid, copied from `node_modules`.
+
+### Development builds in the cloud
+
+```bash
+cd app
+npx eas-cli@latest build --profile development --platform android
+```
+
+The Android profile produces an APK you can install directly. iOS cloud builds need an Apple Developer account to sign for a physical device.
+
+### From Xcode
+
+Generate the native project once, and again after changing `app.json`, a config plugin or a native dependency. Open the **workspace**, not `Tide.xcodeproj`: the project alone doesn't include the CocoaPods targets.
+
+```bash
+cd app
+npx expo prebuild --clean --platform ios
+open ios/Tide.xcworkspace
+```
+
+Signing uses the team in `app.json` (`ios.appleTeamId`). The Debug configuration is a development client: start Metro first with `npx expo start --dev-client`, then run. For a build with the JavaScript bundled in, set the scheme's Run action to Release.
+
+`app/ios` and `app/android` are generated by `npx expo prebuild` and aren't committed.
+
+## Architecture
 
 ```
-app/                             Expo app (dev client, prebuild, New Architecture)
-  src/app                        Expo Router routes (projects list, project, debug)
-  src/features/files             Workspace service, project templates, file tree
-  src/features/projects          Projects list screen
-  src/features/project           Project screen: tabs, file view, terminal panel
-  src/state                      Zustand stores (projects, tabs, runner mode, open-file buffers)
-  src/runtime                    Clients for the embedded Node and Python runtimes
-  src/theme                      Tokens from the FuseOps theme, theme hooks, editor and terminal themes
-  src/features/settings          Settings screen
-  src/features/search            Project search, quick open and command palette
-  assets/fonts                   Inter, Instrument Sans, JetBrains Mono (SIL OFL 1.1)
-  assets/brand                   Logo SVGs (mark, wordmark, logo; light, dark, mono)
-  assets/icons                   App icons and splash images, built from the mark
-  src/features/editor            Editor WebView, bridge types, generated editor HTML
-  src/features/terminal          Terminal WebView, mini-shell, generated terminal HTML
-  src/features/remote            Remote mode: server settings, file sync, remote shell, preview
-  web/editor                     CodeMirror 6 editor bundle (Vite, single HTML file); CSS/SCSS/LESS, HTML and JSON language services (web/editor/langservices) with bundled config-file schemas, built in and offline
-  web/terminal                   xterm.js terminal bundle (Vite, single HTML file)
-  nodejs-assets/nodejs-project   Supervisor inside nodejs-mobile: runs each script in a worker thread; npm, pip, git, ssh, sql and lua built-ins
-  src/features/git               Git settings, Source Control sheet, running git from the UI
-  src/features/github            GitHub sign-in (device flow), repositories, pull requests, issues, Actions
-  src/features/deploy            Publishing a folder to GitHub Pages, Firebase Hosting, Netlify, Vercel, Cloudflare Pages; Render deploy hooks
-  src/features/ssh               SSH servers and keys, the SSH terminal backend, SFTP browsing and editing
-  src/features/http              .http request files: parsing, sending, environments, cURL and GraphQL, WebSockets, the request/response viewer
-  src/features/database          Database viewer for SQLite files (expo-sqlite), PostgreSQL / MySQL servers (tide:sql) and Redis / MongoDB servers (tide:redis, tide:mongo), in remote/; schema view
-  src/features/tools             Developer tools: JSON, regex tester, YAML/CSV, Base64, URL, JWT, hashes, UUIDs, timestamps
-  src/features/openapi           OpenAPI / Swagger viewer: endpoints with example bodies, added to a .http file
-  src/features/history           Local history: earlier versions of each file, kept on save under .tide/history
-  src/features/data              CSV, TSV and Parquet viewer (hyparquet): sort, filter, column stats, charts
-  src/features/docs              Offline docs downloaded from DevDocs, searched and read without a network
-  src/features/todos             The TODO / FIXME list
-  src/features/outline           File outline and Go to Symbol (symbols read line by line, per language)
-  src/features/notebook          Running Jupyter notebook cells with the device's Python
-  src/features/ai                AI assistant: Claude through @anthropic-ai/sdk with the user's own key
-  src/features/env               Per-project environment variables: .env plus Keychain secrets, given to every run
-  src/features/hosts             GitLab and Bitbucket: accounts, repositories, merge/pull requests, issues
-  src/features/widgets           Shares data with the widget and Shortcuts actions; deploy Live Activities
-  modules/tide-widgets           Expo module: app group data for the widget, ActivityKit for the deploy Live Activity
-  targets/widget                 Widget extension (@bacons/apple-targets): Recent Projects widget, deploy Live Activity
-  native/ios                     Siri and Shortcuts actions (App Intents), added to the app target by plugins/withAppIntents.js
-  src/runtime/wasm               Ruby and PHP: a hidden web view running their WebAssembly builds (web/runtimes, assets/runtimes)
-  src/features/privacy           Opt-in crash reports (Sentry) and the scrubbing applied to them
-  .maestro                       End-to-end flows (Maestro)
-  modules/python-runtime         Expo module: Chaquopy on Android, CPython on iOS; python/tide_runner.py runs scripts
-  src/extensions                 Extensions: the extension API, the Extensions screen and each extension
-server/                          Remote mode server: one Docker container per project
-shared/protocol.ts               Runner message types, imported as @shared/protocol
+app/                              Expo app (dev client, prebuild, New Architecture)
+├─ src/app                        Expo Router routes
+├─ src/state                      Zustand stores: projects, tabs, buffers, settings, runner
+├─ src/runtime                    Clients for the embedded runtimes (node, python, wasm, lua)
+├─ src/features/                  One folder per feature, e.g.
+│  ├─ editor, terminal            WebView hosts, bridges and generated HTML
+│  ├─ files, project, projects    Workspace service, templates, file tree, project screen
+│  ├─ ai, agent                   Bring-your-own-key AI, agent mode and pending-change review
+│  ├─ git, github, hosts          Source Control, GitHub, GitLab and Bitbucket
+│  ├─ remote                      Remote mode: settings, file sync, remote shell, preview
+│  ├─ deploy, http, database      Deploys, .http requests, database clients
+│  └─ …                           ssh, docs, data, notebook, history, problems, search, tools, widgets…
+├─ src/extensions                 Extension API, Extensions screen and each extension
+├─ src/theme                      Design tokens, theme hooks, editor and terminal themes
+├─ web/                           WebView bundles built with Vite into single HTML files
+│  ├─ editor                      CodeMirror 6 plus CSS/SCSS/LESS, HTML and JSON language services
+│  ├─ terminal                    xterm.js
+│  └─ runtimes                    Ruby (ruby.wasm) and PHP (php-wasm)
+├─ nodejs-assets/nodejs-project   Supervisor inside nodejs-mobile: each script in a worker thread;
+│                                 npm, pip, git, ssh, sql, redis, mongo and lua built-ins
+├─ modules/python-runtime         Expo module: Chaquopy on Android, CPython on iOS
+├─ modules/tide-widgets           Expo module: app group data and ActivityKit
+├─ targets/widget                 Widget extension: Recent Projects, deploy Live Activity
+├─ native/ios                     Siri and Shortcuts actions (App Intents)
+└─ .maestro                       End-to-end flows
+server/                           Remote mode server: one Docker container per project
+shared/protocol.ts                Message types shared by app and server (@shared/protocol)
 ```
 
-`app/ios` and `app/android` are generated by `npx expo prebuild` and are not committed.
+On the device, projects live under `Documents/projects/<name>` and app state (open tabs, settings, history) under `Documents/.tide`.
 
-On the device, projects are stored under `Documents/projects/<name>`, and app state (open tabs, runner mode) under `Documents/.tide`. Each project has a `tide.json` with its run config (`runtime` and `entry`). It can also list named run configurations and tasks, which show up in the command palette:
+## Project configuration
+
+Each project has a `tide.json` with its run config. Named configurations and tasks show up in the command palette:
 
 ```json
 {
@@ -71,247 +158,225 @@ On the device, projects are stored under `Documents/projects/<name>`, and app st
 }
 ```
 
-⌘R runs the configuration picked last ("Run configuration: …" in the palette), or the default. Tasks type their command into the terminal; `local` and `remote` replace `command` for that terminal mode, and `newTerminal` opens a terminal tab for it. `package.json` scripts are listed as tasks too, in both modes. The Local terminal runs `npm run`, `npm test`, `npm start` and `npx` itself: scripts made of commands it has (node, python, the built-ins, and package binaries from `node_modules`, found through their `bin` field), joined with `&&` or `;`, with `FOO=bar` prefixes and pre/post scripts. Pipes, `||` and command substitution need the Remote terminal.
+- **⌘R** runs the configuration picked last ("Run configuration: …" in the palette), or the default.
+- **Tasks** type their command into the terminal. `local` and `remote` replace `command` for that terminal mode, and `newTerminal` opens a terminal tab for the task.
+- **`package.json` scripts** are listed as tasks too, in both modes.
 
-On macOS, `npm install` downloads the CPython iOS XCframework (about 86 MB) into `app/modules/python-runtime/ios/Python.xcframework`. It is checksum-verified and not committed.
+## Terminal and runtimes
 
-`npm install` also builds the code the extensions run in the Node supervisor (Prettier, ESLint and TypeScript, about 5 MB, by `scripts/build-services.js`) and fetches pyflakes, autopep8 and pycodestyle (checksum-pinned wheels) into `app/modules/python-runtime/python`. None of it is committed. Run `npm run build:services` after upgrading prettier, eslint or typescript.
+The terminal has two modes, switched in its header.
 
-## Requirements
+**Local** is a small built-in shell, because iOS can't start processes. It has `ls cd pwd cat echo touch mkdir rm mv cp clear help`, plus:
 
-- Node.js 20 or newer
-- iOS builds: Xcode (selected with `xcode-select`) and CocoaPods
-- Android builds: Android Studio with JDK 17, SDK and NDK
+- `node <file>`, `python <file>`, `lua <file>`, `ruby <file>`, `php <file>`
+- `run [name]`, which runs the entry, or a named configuration from `tide.json`
+- `npm`, `npx`, `pip`, `git` and `sqlite3`
 
-Native modules are used, so Expo Go cannot run the app. Use a development build, either locally or in the cloud with EAS Build:
+It also runs `npm run`, `npm test`, `npm start` and `npx` for scripts made of commands it has: node, python, the built-ins, and package binaries from `node_modules`. Those can be joined with `&&` or `;`, with `FOO=bar` prefixes and pre/post scripts. Pipes, `||` and command substitution need **Remote** mode.
 
-```bash
-cd app
-npx eas-cli@latest build --profile development --platform android
-```
+| Runtime | Engine | Notes |
+|---|---|---|
+| Node.js | nodejs-mobile (Node 18) | Each run is a worker thread with a 256 MB heap and its own working folder, so Ctrl-C stops a script without restarting Node. Built without `Intl`, so `Intl` and `\p{…}` regexes fail (Express 5 doesn't run; the template uses Express 4) |
+| Python | CPython 3.15 (Chaquopy on Android) | Each run is a thread with `input()` wired to the terminal; Ctrl-C raises `KeyboardInterrupt`. Project modules reload on every run. The iOS build drops `tkinter`, `turtledemo`, `ensurepip`, CPython's tests and `-O` bytecode (about 28 MB) |
+| Ruby, PHP | ruby.wasm (CRuby 3.4), php-wasm (8.3) | Run in a hidden web view, since Hermes and nodejs-mobile have no WebAssembly on iOS. The project is copied into the interpreter's virtual disk and changes are written back. No terminal input |
+| Lua | fengari (Lua 5.3 in JavaScript) | Run by the `tide:lua` built-in, which adds `io.read`, `io.lines` and `io.open` |
 
-The Android profile produces an APK you can install directly. iOS cloud builds need an Apple Developer account to sign for a physical device.
+### Packages
 
-Release builds use the `production` profile. Build numbers are kept by EAS (`appVersionSource: remote`) and go up by one with each build; the version shown to users is `expo.version` in `app.json`. `preview` is an internal build of the same app, for testers.
-
-```bash
-cd app
-npx eas-cli@latest build --profile production --platform ios
-npx eas-cli@latest submit --profile production --platform ios
-```
-
-## Running
-
-```bash
-cd app
-npm install
-npm run ios       # or: npm run android
-```
-
-### From Xcode
-
-Generate the native project once (and again after changing `app.json`, a config plugin or a native dependency), then open the workspace, not `Tide.xcodeproj`: the project alone does not include the CocoaPods targets.
-
-```bash
-cd app
-npx expo prebuild --clean --platform ios
-open ios/Tide.xcworkspace
-```
-
-Signing uses the team in `app.json` (`ios.appleTeamId`). The Debug configuration is a development client: start Metro first with `npx expo start --dev-client`, then run. For a build with the JavaScript bundled in, edit the scheme and set Run to the Release configuration.
-
-## Terminal
-
-The terminal has two modes, switched in its header. Local mode is a small built-in shell, not a real one (iOS can't start processes). It has `ls cd pwd cat echo touch mkdir rm mv cp clear help`, plus `node <file>`, `python <file>` and `run [name]`, which starts the entry (or a named configuration) in the project's `tide.json`, and the `npm`, `pip` and `git` described below. Anything else needs Remote mode.
-
-Node scripts run in nodejs-mobile (Node 18), each in its own worker thread, so Ctrl-C stops a script without restarting Node. Each run is capped at 256 MB of heap. Leaving a project stops whatever its terminal was running.
-
-nodejs-mobile's Node is built without Intl: there is no `Intl` object and regular expressions with Unicode property escapes (`\p{...}`) fail. Packages that rely on either, such as Express 5, don't run locally; the Express template uses Express 4 for this reason. Likewise the Python web API template uses Bottle rather than Flask: Flask needs MarkupSafe, which has no pure-Python wheel, so `pip install flask` only works in Remote mode. The React template loads React from esm.sh with an import map, because Vite and esbuild are native binaries that can't run on the device.
-
-Python scripts run in the embedded CPython 3.15 (Chaquopy on Android), each on its own thread with `input()` wired to the terminal. Ctrl-C raises `KeyboardInterrupt` in the script. Project modules are reloaded on every run, and tracebacks show paths from the project root. On iOS the app ships the standard library without `tkinter`, `turtledemo`, `ensurepip`, CPython's own test modules and the `-O` bytecode, which saves about 28 MB.
-
-`pip install <package>...` (also `pip install -r requirements.txt`, `pip uninstall`, `pip list` and `python -m pip`) installs pure-Python wheels from PyPI into the project's `.pylibs` folder, which is on `sys.path` for every run. It resolves dependencies, extras and environment markers for the device and checks each wheel's sha256. Packages that only ship compiled wheels need Remote mode. pip itself runs in the Node supervisor, next to npm. Python scripts can make HTTPS requests with the standard library or `requests`.
-
-`npm install [package...]` and `npm uninstall <package...>` work locally for pure-JS packages (uninstall also removes what only that package needed): it resolves versions from the registry, checks each tarball's integrity and extracts it into `node_modules`. Install scripts never run, and packages that need a native build print a warning; install those in Remote mode.
+- **`npm install [pkg…]` and `npm uninstall`** handle pure-JS packages. They resolve versions from the registry, check each tarball's integrity and extract it into `node_modules`; uninstall also removes what only that package needed. Install scripts never run; packages that need a native build print a warning and need Remote mode.
+- **`pip install <pkg…>`**, plus `-r requirements.txt`, `uninstall`, `list` and `python -m pip`, installs pure-Python wheels from PyPI into the project's `.pylibs` folder, which is on `sys.path` for every run. It resolves dependencies, extras and environment markers, and checks each wheel's sha256. pip runs in the Node supervisor, next to npm.
+- Flask needs MarkupSafe, which has no pure-Python wheel, so the Python web API template uses Bottle. The React template loads React from esm.sh with an import map, because Vite and esbuild are native binaries.
 
 ## Editor
 
-The search icon in a project searches every file (skipping `node_modules`, `.git`, `.pylibs` and binary files), and tapping a result opens the file at that line. The command icon opens the command palette: delete the `>` to switch to quick open, which matches file paths as you type. Go to line is in the palette.
+- **Search and navigation**
+  - **Search** covers every file, skipping `node_modules`, `.git`, `.pylibs` and binaries, and tapping a result opens the file at that line.
+  - **Command palette** (⇧⌘P) searches commands (`>`), files, symbols (`@`), lines (`:`) and text (`#`).
+- **Problems panel**, opened from the palette or the ⚠ count in the terminal bar, collects errors and warnings from three places:
+  - the editor's CSS/HTML/JSON services;
+  - the extensions (ESLint, pyflakes, TypeScript);
+  - program output, read by matchers in `src/features/problems/matchers.ts` for tsc, ESLint, pytest, Python tracebacks, Node errors and `path:line:col: error:` lines.
+- **Terminal links**: `file:line[:col]` references in terminal output are underlined and open the file at that line when tapped (`src/features/terminal/fileRefs.ts`).
+- **Breadcrumbs** show the file's folders and the symbols around the cursor (`src/features/outline/breadcrumbs.ts`).
+- **Extension suggestions** (`src/extensions/suggest`): when a project would benefit from an extension it doesn't have, a banner offers it. "Not now" is remembered per project.
+- **Keyboard shortcuts**: ⌘P quick open, ⇧⌘P palette, ⇧⌘F search, ⌘L go to line, ⌘J terminal, ⌘S save, and ⇧⌘? to list them all. In the iOS Simulator, turn on *I/O → Keyboard → Send Keyboard Shortcuts to Device*; the Simulator still keeps ⌘S and ⌘L for itself.
+- **iPad layout**: on screens 768 points or wider, the file tree stays open on the left and the app rotates to landscape.
 
-On an iPad, or any screen at least 768 points wide, the file tree stays open on the left, and the app rotates to landscape. With a hardware keyboard, the editor and terminal pass these shortcuts to the app: ⌘P quick open, ⇧⌘P command palette, ⇧⌘F search in project, ⌘L go to line, ⌘J show or hide the terminal, ⌘S save. They only work while the editor or the terminal has focus. In the iOS Simulator, turn on I/O, Keyboard, Send Keyboard Shortcuts to Device; even then the Simulator keeps ⌘S (save screenshot) and ⌘L (lock) for itself.
+## Extensions
 
-## Problems
+Extensions are free add-ons. Their code ships inside the app, and installing one only switches it on: nothing executable is downloaded.
 
-The Problems panel (palette: Show problems, or the ⚠ count in the terminal bar) lists errors and warnings from three places: the editor's own CSS/HTML/JSON services, the extensions (ESLint, pyflakes, TypeScript), and program output. Output goes through matchers (`src/features/problems/matchers.ts`) for tsc, ESLint (stylish and compact), pytest, Python tracebacks, Node errors and the `path:line:col: error:` form compilers print; each terminal replaces its own set when a new command starts. Paths are mapped to project files by `src/features/terminal/fileRefs.ts`, which also underlines `file:line[:col]` references in the terminal so a tap opens the file there. "Explain the last error with AI" sends the end of the terminal's output and the file it points at to the AI assistant.
+| Extension | What it adds |
+|---|---|
+| Themes & Icons Pack | Dracula, One Dark, Monokai, Nord, Solarized Dark and Light, and GitHub Light for the editor and terminal, plus file icons |
+| Format & Lint | Prettier for JS, TS, JSON, CSS, HTML, Markdown and YAML, and autopep8 and Ruff for Python, optionally on save. ESLint and pyflakes warnings as you type |
+| Git Tools | Staged and unstaged changes, hunk staging and discarding, branches, history with diffs, conflict resolution in the editor |
+| IntelliSense | Completions, hover, go to definition, find references and rename. TypeScript language service for JS/TS; Jedi for Python, including `.pylibs` |
+| Debugger | Breakpoints, stepping, variables, call stack and a console, for JavaScript and Python on the device |
 
-## Editor helpers
+How they run:
 
-- **Breadcrumbs** above the editor show the file's folders and the symbols the cursor is in (`src/features/outline/breadcrumbs.ts`: scopes come from indentation, since the outline has no end lines). Folders open the file tree; symbols jump to their line.
-- **Suggest message** in Source Control and Git Tools writes a commit message from the change (HEAD against the working tree or the index, as a compact diff capped at 12k characters) with the user's own Anthropic key (`src/features/ai/commitMessage.ts`).
-- **Extension suggestions** (`src/extensions/suggest`): when a project's files show an extension would help (ESLint or Prettier config, TypeScript, two or more Python files, a Git repository, `.vscode/launch.json`) and it isn't installed, a banner offers it. "Not now" is remembered per project.
+- **Prettier, ESLint and TypeScript** are long-lived workers in the Node supervisor that answer JSON on stdin (`nodejs-project/service.js`, `format/` and `intellisense/`).
+- **Python formatting and linting** run in the app's Python through `tide_runner.snippet`.
+- **The Node debugger** drives each run's worker over the inspector's NodeWorker domain (`nodejs-project/debugger.js`).
+- **The Python debugger** is `bdb` from the standard library (`python/tide_debugger.py`).
 
-## Settings
+The extension API is in `src/extensions/types.ts`. An extension can add:
 
-Settings (the gear on the projects list) has the theme (System, Light or Dark, all from the FuseOps tokens), the editor and terminal font sizes, Git, the Remote server and, in builds set up for it, crash reports.
+- palette commands and panels;
+- a bar under the tabs and editor features;
+- language providers;
+- a pre-save hook;
+- open-file listeners, which is how linting reports into the Problems panel.
 
-## Crash reports
+## Git
 
-Crash reports go to Sentry and are off until the user turns on Settings, Privacy, Send crash reports. A build only offers the setting when `EXPO_PUBLIC_SENTRY_DSN` is set at build time (for a dev client, when Metro starts):
+`git` in the Local terminal runs isomorphic-git in the Node supervisor.
 
-```sh
-EXPO_PUBLIC_SENTRY_DSN=https://<key>@<org>.ingest.sentry.io/<project> npx expo start --dev-client
-```
+| | |
+|---|---|
+| **Commands** | `clone` (HTTPS, shallow, single branch), `init`, `status [-s]`, `add`, `rm`, `commit [-a] -m`, `log [--oneline]`, `diff --stat`, `branch`, `checkout [-b]`, `remote`, `push [-u]`, `pull`, `stash`, `tag`, `cherry-pick` and `rebase` with `--continue/--skip/--abort` |
+| **Safety** | `checkout`, `pull`, `rm` and `stash` refuse to overwrite uncommitted work, and `pull` and `checkout` refuse during an unfinished merge, rebase or cherry-pick, as real git does (`git/tree.js`, `git/state.js`) |
+| **Merging** | A line-level three-way merge (`git/merge3.js`). Conflicts are left as markers in the files. Blame and file history come from `git/blame.js` |
+| **Not supported** | Interactive rebase, `--onto` and submodules. Use the real git in Remote mode |
 
-Without it, Sentry is never started. When it is on, reports carry no breadcrumbs, user data, request data, screenshots or view hierarchy, and any path under Documents (which would name a project or file) is replaced with `<documents>`. Native crash reports also include the random installation ID the Sentry SDK generates. Source maps are not uploaded, so JS stack traces from release builds are minified.
+Credentials:
 
-## Help and feedback
+- **Name, email and personal access token** are set under *Settings → Git*. They're kept in the Keychain and passed to each run as environment variables, never written into the project.
+- **The token is sent only to github.com**, and never over plain HTTP (`git/auth.js`).
+- **GitLab and Bitbucket** use their own signed-in accounts, each for its exact host.
 
-Settings, Help & feedback offers Report a problem, Suggest a feature, Rate Tide and What's new. Reports open a mail draft addressed to the support address (`EXPO_PUBLIC_SUPPORT_EMAIL` at build time overrides it), with device details and the session's recent warnings and errors attached as a text file. The user sees the whole draft before sending, and sandbox paths are shortened to `~`. Without mail on the device, the report goes to the share sheet instead.
+## AI
 
-The rating prompt is asked for at most once per version, after 5 runs and 3 days of use. Add each release's notes to `src/features/support/changelog.ts`; What's new shows them once after an update.
+AI features use the user's own key, with no Tide account in between:
 
-The iOS privacy manifest is set in `app.json` (`ios.privacyManifests`) and declares crash data and the required-reason APIs the app and its Node and Python runtimes use (user defaults, file timestamps, boot time and disk space). `ios.config.usesNonExemptEncryption` is false: the app only uses standard encryption.
+- **Providers**: Anthropic, OpenAI, Google Gemini or OpenRouter, or a self-hosted Ollama or LM Studio server.
+- **Where keys live**: in the Keychain.
+- **Where requests go**: straight from the device to the provider.
 
-## Pricing
+| Feature | Where |
+|---|---|
+| Agent mode | Reads, edits and runs tests, asking before each command. Changes are staged for review as diffs and survive the app closing (`src/features/agent`) |
+| Inline completions | Tab to accept, ⌥→ for one word (`src/features/editor/useInlineCompletions.ts`) |
+| Fix with AI, Explain error | Previewed as a diff across files before anything changes |
+| Suggest message | Commit messages from the staged change (`src/features/ai/commitMessage.ts`) |
 
-Tide is free: every feature and every extension, with no subscription or sign-up. Limits that remain are there for performance: up to 6 terminals per project and 10 snapshots per project.
-
-Tide has no in-app purchases.
-
-The privacy policy and support page are published at `https://thisiskurubaran.github.io/tide/privacy/` and `/tide/support/`.
+Each AI job can use its own model. *Settings → AI assistant* shows this month's usage and cost, and has a monthly dollar limit, plus a token cap for models without a known price.
 
 ## Remote mode
 
-Remote mode runs the project in a container on a Tide server you host (see below). Set the server URL and token under Settings, Remote server; both are kept in the Keychain (Keystore on Android).
+Remote mode runs the project in a container on a [Tide server](#remote-server) you host. Set the server URL and token under *Settings → Remote server*; both are kept in the Keychain (Keystore on Android).
 
-When a project's terminal switches to Remote, the app starts or reuses the project's container, uploads the project's files, and then opens a real bash shell in `/workspace`. After that, files sync both ways: saves, new files and deletes on the phone go to the container, and changes made in the container come back to the phone. Changes to a file with unsaved edits on the phone don't overwrite those edits.
+When a terminal switches to Remote, the app starts or reuses the project's container, uploads the project and opens a real bash shell in `/workspace`. Files then sync both ways.
 
-- **Reconnecting** merges both sides against the last version they agreed on: a file changed only on one side takes that side's version, and a file changed on both keeps the container's under its name with the phone's next to it as `<name>.phone-conflict`.
-- **Not synced:** dependency and build folders stay in the container (`node_modules`, `.git`, `.pylibs`, `__pycache__`, `.venv`, `.next`, `.gradle` and the like at any depth; `venv`, `.cache`, `coverage` and `target` at the project root; the full list is in `shared/protocol.ts`). Files over 2 MB and symlinks belong to the container: they aren't copied to the phone, and the phone never overwrites them.
-- **Server version:** the app and the server must speak the same sync protocol (`SyncProtocol` in `shared/protocol.ts`). The app refuses an older or newer server with a message saying which one to update. Tide 2.0.0 needs a server from the same release.
-- The server URL defaults to `https://`; Settings warns when a plain `http://` address is outside your local network.
+| | |
+|---|---|
+| **Reconnecting** | Both sides are merged against the last version they agreed on. A file changed on one side takes that side's version. A file changed on both keeps the container's under its name, with the phone's next to it as `<name>.phone-conflict` |
+| **Not synced** | `node_modules`, `.git`, `.pylibs`, `__pycache__`, `.venv`, `.next`, `.gradle` and similar folders at any depth; `venv`, `.cache`, `coverage` and `target` at the project root. Full list in `shared/protocol.ts` |
+| **Container-owned** | Files over 2 MB and symlinks stay in the container; the phone never overwrites them |
+| **Versioning** | App and server must speak the same `SyncProtocol` (`shared/protocol.ts`). The app refuses a mismatched server and says which side to update |
+| **Previews** | When something listens on a port, a `:3000` button in the terminal header opens it in an in-app browser |
+| **Transport** | URLs default to `https://`; Settings warns about plain `http://` outside your local network |
 
-When something in the container listens on a port, a button such as `:3000` appears in the terminal header and opens that port in an in-app browser.
-
-The simulator reaches a server on the same Mac at `localhost:8787`. On a phone, use the Mac's LAN address and start the server with `HOST=0.0.0.0`.
+The simulator reaches a server on the same Mac at `localhost:8787`. On a phone, use the Mac's LAN address.
 
 ## Remote server
 
-Remote mode runs a real bash shell in a Docker container on a machine you control. The server needs Node 24 or newer (it runs its TypeScript directly) and a Docker daemon.
+A small Node service that runs one Docker container per project. It needs Node 24 or newer, because it runs its TypeScript directly, and a Docker daemon.
 
 ```bash
 cd server
 npm install
-npm run image                    # builds tide-session:dev (Node 24, Python 3, git, build tools)
+npm run image                         # builds tide-session:dev (Node 24, Python 3, git, build tools)
 TIDE_TOKEN=<at least 16 characters> npm start
 ```
 
-Other settings: `HOST`, `PORT` (8787), `TIDE_IMAGE`, `TIDE_IDLE_MINUTES` (15), `TIDE_MEMORY_MB` (1024), `TIDE_CPUS` and `TIDE_PIDS`.
+| Variable | Default | Purpose |
+|---|---|---|
+| `TIDE_TOKEN` | required | Bearer token for every request |
+| `HOST`, `PORT` | `0.0.0.0`, `8787` | Listen address |
+| `TIDE_IMAGE` | `tide-session:dev` | Container image |
+| `TIDE_IDLE_MINUTES` | `15` | Remove a container this long after its last connection closes |
+| `TIDE_MEMORY_MB`, `TIDE_CPUS`, `TIDE_PIDS` | `1024`, `1`, `512` | Per-container limits |
 
-- Every request needs `Authorization: Bearer <token>`. `POST /sessions {"project"}` starts or reuses that project's container and reports the server's sync `protocol`; `DELETE /sessions/:id` removes it. `GET /health` needs no token.
-- `/sessions/:id/pty` is a WebSocket to bash. `/sessions/:id/sync` syncs files both ways and reports listening ports.
-- Containers run as a non-root user with no capabilities, no privileged mode, memory, CPU and process limits, and no published ports. A container with no open connections is removed after the idle timeout, and leftovers are removed when the server starts.
-- Previews are served at `/p/<previewKey>/<port>/`. The key is random and stands in for the token, because a WebView can't send headers. Pages that link to absolute paths like `/app.js` break under this prefix.
-
-`npm test` in `server/` runs integration tests against the local Docker daemon; build the image first.
-
-## Git
-
-`git` in the Local terminal runs isomorphic-git in the Node supervisor. It supports `clone` (HTTPS, shallow, single branch), `init`, `status [-s]`, `add`, `rm`, `commit [-a] -m`, `log [--oneline]`, `diff` (a `--stat` summary only), `branch`, `checkout [-b]`, `remote [-v|add]`, `push [remote] [branch|tag] [--tags]`, `pull`, `stash [push [-u] [-m msg] | list | show | apply | pop | drop | clear]`, `tag [-l] | [-a] <name> [-m msg] [commit] | -d <name>`, `cherry-pick <commit> | --continue | --abort` and `rebase <upstream> | --continue | --skip | --abort` (`git/stash.js`, `git/sequencer.js`, with a line-level three-way merge in `git/merge3.js`). Conflicts are left as markers in the files. Interactive rebase, `--onto`, submodules and other commands need the real git in Remote mode.
-
-Set a name, email and personal access token under Settings, Git. They are kept in the Keychain and passed to each git run as environment variables, never written into the project. The token is sent as the HTTPS password to github.com only, and never over plain HTTP. Other hosts need an account of their own: signed-in GitLab and Bitbucket accounts add their token for their exact host, in `TIDE_GIT_HOSTS`. `git __tide blame` and `file-log` give the blame and file history; isomorphic-git has no blame, so `git/blame.js` works it out from the file's versions.
-
-The branch icon in a project opens Source Control, which shows the changed files and can commit everything, push and pull. New project, Clone from Git clones a repository into a new project.
-
-isomorphic-git is bundled into `app/nodejs-assets/nodejs-project/git/isogit.js`, which is committed. After upgrading it, rebuild the bundle:
-
-```bash
-cd app
-npm run build:git
-```
-
-ssh2 is bundled the same way into `app/nodejs-assets/nodejs-project/ssh/ssh2.js`. nodejs-mobile on iOS has no WebAssembly, so the bundle swaps ssh2's WebAssembly poly1305 for a stub and `tide:ssh` turns the chacha20-poly1305 cipher off. After upgrading ssh2:
-
-```bash
-npm run build:ssh
-```
-
-Lua is fengari (Lua 5.3 in plain JavaScript), bundled into `app/nodejs-assets/nodejs-project/lua/fengari.js` by `npm run build:lua` and run by the `tide:lua` built-in, which adds `io.read`, `io.lines` and `io.open`.
-
-PostgreSQL and MySQL go through `tide:sql`, which holds one connection open with pg and mysql2 bundled into `app/nodejs-assets/nodejs-project/sql/drivers.js` (`npm run build:sql`, committed). Through SSH, the app forwards a local port with `tide:ssh` first. `src/features/database/remote/dialect.test.ts` runs against real servers when `TIDE_TEST_POSTGRES` and `TIDE_TEST_MYSQL` are set (JSON connection settings), and skips otherwise. Redis goes through `tide:redis`, a small RESP client with no driver; MongoDB goes through `tide:mongo`, with the official driver (6.x, for Node 18) bundled into `mongo/driver.js` by the same `npm run build:sql`. `redis.test.ts` and `mongo.test.ts` use real servers when `TIDE_TEST_REDIS` / `TIDE_TEST_MONGO` are set; the Mongo tests also run against a built-in fake server that speaks the wire protocol.
-
-The widget, the deploy Live Activity and the Siri and Shortcuts actions are native: `targets/widget` is a widget extension made by `@bacons/apple-targets` at prebuild, `modules/tide-widgets` writes what it shows to the app group `group.com.thisiskurubaran.tide` and runs ActivityKit, and `native/ios/TideIntents.swift` (App Intents) is copied into the app target by `plugins/withAppIntents.js`. The actions open `tide://` links the app handles. The app group needs registering for both bundle IDs in the Apple Developer portal.
-
-Ruby (CRuby 3.4, ruby.wasm) and PHP (8.3, php-wasm) need WebAssembly, which neither Hermes nor nodejs-mobile has on iOS, so they run in a hidden web view (`src/runtime/wasm`). The page is `web/runtimes`, built into `app/assets/runtimes/runtime.html` by `npm run build:runtimes` and committed; `npm install` copies the interpreters (`ruby.wasm`, 31 MB, and `php.wasm`, 18 MB) next to it from node_modules, and they aren't committed. Each run copies the project into the interpreter's virtual disk and writes back what changed. Programs can't read the terminal (input ends at once). `npm run test:runtimes` checks the page in Chromium.
-
-Markdown previews draw ```mermaid blocks as diagrams. `npm install` (via `build-runtimes.js`) copies Mermaid into `app/assets/mermaid/mermaid.js.txt`, which is not committed; the preview loads it only when a document has a diagram and runs it under a nonce-only script policy, so scripts written in the document never run.
-
-## Extensions
-
-Extensions are free add-ons. Their code ships inside the app and installing one only switches it on, so nothing executable is downloaded. The Extensions screen (Extensions on the projects list, or Settings) shows each one with what it adds, Install or Remove, and its settings once installed.
-
-| Extension | What it adds |
+| Endpoint | |
 |---|---|
-| Themes & Icons Pack | Seven editor and terminal themes (Dracula, One Dark, Monokai, Nord, Solarized Dark and Light, GitHub Light) and file icons in the tree and tabs. Color theme in the command palette. |
-| Format & Lint | Format document (⇧⌥F) with Prettier for JS, TS, JSON, CSS, HTML, Markdown and YAML and autopep8 for Python, optionally on save. ESLint (recommended rules) and pyflakes warnings as you type, and a Problems panel. A JSON Prettier config in the project is used. |
-| Git Tools | Replaces the Source Control sheet: staged and unstaged changes, diffs, staging, unstaging and discarding a file or a single hunk, commit only what is staged, branches (create, switch, delete, merge), history with each commit's diff, and Accept current / incoming / both on conflict markers in the editor. |
-| IntelliSense | Completions, hover, go to definition (F12 or Cmd-click), find references and rename symbol across the project. JavaScript and TypeScript use the TypeScript language service (with inline type errors and the project's tsconfig.json or jsconfig.json); Python uses Jedi (`python/tide_jedi.py`, one long-lived worker in the app's Python), including packages in `.pylibs` and the standard library. jedi and parso are checksum-pinned wheels fetched at `npm install`, without typeshed's third-party stubs. |
-| Debugger | Gutter breakpoints, Debug: start for the open JavaScript or Python file (or the tide.json entry), continue, pause, step over, into and out, variables, call stack, and a console for output, input and evaluating expressions. |
+| `GET /health` | No token. Returns `{ ok, protocol }` |
+| `POST /sessions {"project"}` | Starts or reuses the project's container; reports the sync `protocol` |
+| `DELETE /sessions/:id` | Removes the container |
+| `WS /sessions/:id/pty` | bash |
+| `WS /sessions/:id/sync` | Two-way file sync and listening ports |
+| `GET /p/<previewKey>/<port>/` | Port preview. The random key stands in for the token, because a WebView can't send headers |
 
-How they run:
+Containers run as a non-root user with no capabilities, no privileged mode, resource limits and no published ports. Leftover containers are removed when the server starts.
 
-- Prettier, ESLint and the TypeScript language service are long-lived workers in the Node supervisor that answer JSON requests on stdin (`nodejs-project/service.js`, `format/`, `intellisense/`). They start on first use and work in Local and Remote mode, because the files are on the device. The TypeScript service can take a few seconds for its first answer on a phone.
-- Python formatting and linting run in the app's Python through `tide_runner.snippet`, so the native modules didn't change.
-- The Node debugger debugs each run's worker thread from the supervisor's main thread over the inspector's NodeWorker domain (`nodejs-project/debugger.js`). The Python debugger is bdb from the standard library (`python/tide_debugger.py`). Debugging runs on the device, not in the Remote container. Exceptions don't pause the program; they print their stack trace and end the run, as without the debugger.
+## Native features
 
-The extension API is in `src/extensions/types.ts`: an extension can add palette commands, panels, a bar under the tabs, editor features, a language provider (completions, hover, definition), a hook before explicit saves, and a listener for open files' text, which is how linting and type checking report into the Problems panel.
+- **Widget and deploy Live Activity**: `targets/widget` is a widget extension generated by `@bacons/apple-targets` at prebuild. `modules/tide-widgets` writes its data to the app group `group.com.thisiskurubaran.tide` and runs ActivityKit.
+- **Siri and Shortcuts**: `native/ios/TideIntents.swift` (App Intents) is added to the app target by `plugins/withAppIntents.js`. The actions open `tide://` links, and links that run, deploy or send a request ask for confirmation first.
+- **Apple Developer portal**: register the app group for both bundle IDs.
+- **App icons**: icons and splash images are generated from `app/assets/brand/tide-mark.svg`, including the Midnight alternate icon. Run `npm run build:icons` after changing it.
 
-## WebView bundles
+## Privacy, crash reports and feedback
 
-The editor (CodeMirror 6) and the terminal (xterm.js) each run inside a WebView. Their sources are in `app/web/editor` and `app/web/terminal`, and `npm run build:web` builds each with Vite into one HTML file, written to `app/src/features/<name>/<name>Html.generated.ts`. The generated files are committed, so rebuild them after changing anything in `app/web`:
+- **Crash reports** go to Sentry and stay off until the user turns on *Settings → Privacy → Send crash reports*.
+  - **Opt-in builds only**: the setting only appears in builds made with `EXPO_PUBLIC_SENTRY_DSN`:
+    ```bash
+    EXPO_PUBLIC_SENTRY_DSN=https://<key>@<org>.ingest.sentry.io/<project> npx expo start --dev-client
+    ```
+  - **What's left out**: reports carry no breadcrumbs, user or request data, screenshots or view hierarchy.
+  - **Paths**: any path under Documents is replaced with `<documents>`.
+  - **Source maps** aren't uploaded.
+- **Help & feedback** in Settings has Report a problem, Suggest a feature, Rate Tide and What's new.
+  - **Reports** open a mail draft with device details and recent warnings and errors attached; the user sees it before sending. `EXPO_PUBLIC_SUPPORT_EMAIL` overrides the address.
+  - **Rating prompt**: shown at most once per version, after 5 runs and 3 days of use.
+- **iOS privacy manifest** (`ios.privacyManifests` in `app.json`) declares crash data and the required-reason APIs. `usesNonExemptEncryption` is false.
+- **Published policies**: the privacy policy and support page are at <https://thisiskurubaran.github.io/tide/privacy/> and <https://thisiskurubaran.github.io/tide/support/>.
+
+## Generated bundles
+
+Several third-party libraries are bundled into committed files, so rebuild them after upgrading:
+
+| Command | Builds | Committed |
+|---|---|---|
+| `npm run build:web` | Editor and terminal WebViews → `src/features/<name>/<name>Html.generated.ts` | Yes |
+| `npm run build:runtimes` | Ruby/PHP page → `assets/runtimes/runtime.html` | Yes |
+| `npm run build:git` | isomorphic-git → `nodejs-project/git/isogit.js` | Yes |
+| `npm run build:ssh` | ssh2 → `nodejs-project/ssh/ssh2.js`, with a stub poly1305; chacha20-poly1305 is off, since iOS nodejs-mobile has no WebAssembly | Yes |
+| `npm run build:sql` | pg, mysql2 and the MongoDB driver → `nodejs-project/sql/drivers.js`, `mongo/driver.js` | Yes |
+| `npm run build:lua` | fengari → `nodejs-project/lua/fengari.js` | Yes |
+| `npm run build:services` | Prettier, ESLint and TypeScript workers | No, built at `npm install` |
+| `npm run build:icons` | App icons and splash images | Yes |
+
+All commands run from `app/`.
+
+## Testing
+
+| Suite | Command | Notes |
+|---|---|---|
+| App unit and component tests | `cd app && npm test` | Jest |
+| Type check | `cd app && npx tsc --noEmit -p .` | |
+| Server | `cd server && npm run typecheck && npm test` | `node:test`. The integration tests need Docker and the image from `npm run image` |
+| Python runtime | `cd app/modules/python-runtime && python3 -m unittest discover -s tests` | Jedi tests are skipped unless jedi is on `PYTHONPATH` |
+| Ruby/PHP runtime page | `cd app && npm run test:runtimes` | Runs the page in Chromium |
+| Database drivers | `TIDE_TEST_POSTGRES`, `TIDE_TEST_MYSQL`, `TIDE_TEST_REDIS`, `TIDE_TEST_MONGO` | JSON connection settings; skipped when unset |
+| End to end | `cd app && npm run e2e` | Maestro, against a Release build |
+
+<details>
+<summary><strong>Running the Maestro flows</strong></summary>
+
+The flows in `app/.maestro` create a project, edit and run Node, run Python with input, and run in Remote mode. They start from a cleared app, which also clears a dev client's link to Metro, so run them against a Release build on a simulator.
 
 ```bash
-cd app
-npm run build:web
-```
-
-## Icons
-
-App icons and splash images are generated from `app/assets/brand/tide-mark.svg`, including the Midnight alternate icon (midnight tile, gold wave), which anyone can pick in Settings, Appearance, App icon. After changing the mark:
-
-```bash
-cd app
-npm run build:icons
-```
-
-## Tests
-
-Jest covers the logic:
-
-```bash
-cd app
-npm test
-```
-
-### End-to-end flows
-
-`app/.maestro` has Maestro flows for creating a project, editing and running Node, running Python with input, and running in Remote mode. They start from a cleared app, which also clears a dev client's link to Metro, so run them against a Release build on a simulator.
-
-Install Maestro (`brew install mobile-dev-inc/tap/maestro`). It needs Java; Homebrew's OpenJDK is not linked, so point `JAVA_HOME` at it:
-
-```bash
+brew install mobile-dev-inc/tap/maestro
 export JAVA_HOME=/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home
 ```
-
-Build the Release app for the simulator:
 
 ```bash
 cd app/ios
 xcodebuild -workspace Tide.xcworkspace -scheme Tide -configuration Release -sdk iphonesimulator build
 xcrun simctl install booted ~/Library/Developer/Xcode/DerivedData/Tide-*/Build/Products/Release-iphonesimulator/Tide.app
 ```
-
-Then run the local flows, and the remote one with a server running (see Remote server):
 
 ```bash
 cd app
@@ -320,3 +385,25 @@ maestro test -e TIDE_SERVER_URL=http://localhost:8787 -e TIDE_SERVER_TOKEN=<toke
 ```
 
 The flows read the terminal through xterm.js's screen reader mode, which also lets VoiceOver read terminal output.
+
+</details>
+
+## Releasing
+
+1. Set `expo.version` in `app/app.json` and `version` in `app/package.json`, and add the release to `app/src/features/support/changelog.ts`. A test checks all three agree. What's new shows the entry once after an update; large releases can list `highlights`.
+2. If `shared/protocol.ts` changed, bump `SyncProtocol` and ship the server with the app.
+3. Build and submit with EAS. Build numbers are kept remotely and increase with each build.
+
+```bash
+cd app
+npx eas-cli@latest build --profile production --platform ios
+npx eas-cli@latest submit --profile production --platform ios
+```
+
+`preview` builds the same app for internal testers.
+
+---
+
+<div align="center">
+<sub>Made by <a href="https://github.com/thisiskurubaran">Kurubaran Anandhan</a> · <a href="https://thisiskurubaran.github.io/tide/support/">Support</a> · <a href="https://thisiskurubaran.github.io/tide/privacy/">Privacy</a></sub>
+</div>
