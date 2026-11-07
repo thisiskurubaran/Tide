@@ -25,7 +25,7 @@ Code editor, file manager and terminal, with Node.js, Python, Lua, Ruby and PHP 
 
 ## Features
 
-| | |
+| Area | What you get |
 |---|---|
 | **Editor** | CodeMirror 6 with highlighting, folding and Outline for JS/TS, Python, Go, Rust, Java, C/C++, C#, Kotlin, Swift, Dart, PHP, Ruby, Lua, SQL, web and config languages, IntelliSense for JS/TS (TypeScript language service) and Python (Jedi), Vim and Emacs bindings, Emmet, snippets, breadcrumbs, peek definition, minimap and a split editor on iPad |
 | **Run on the device** | Node.js 18 (nodejs-mobile), CPython 3.15, Lua 5.3, Ruby 3.4 and PHP 8.3, offline. TypeScript runs directly. `npm`, `pip` and `git` built in |
@@ -233,7 +233,7 @@ The extension API is in `src/extensions/types.ts`. An extension can add:
 
 `git` in the Local terminal runs isomorphic-git in the Node supervisor.
 
-| | |
+| Topic | Details |
 |---|---|
 | **Commands** | `clone` (HTTPS, shallow, single branch), `init`, `status [-s]`, `add`, `rm`, `commit [-a] -m`, `log [--oneline]`, `diff --stat`, `branch`, `checkout [-b]`, `remote`, `push [-u]`, `pull`, `stash`, `tag`, `cherry-pick` and `rebase` with `--continue/--skip/--abort` |
 | **Safety** | `checkout`, `pull`, `rm` and `stash` refuse to overwrite uncommitted work, and `pull` and `checkout` refuse during an unfinished merge, rebase or cherry-pick, as real git does (`git/tree.js`, `git/state.js`) |
@@ -269,7 +269,7 @@ Remote mode runs the project in a container on a [Tide server](#remote-server) y
 
 When a terminal switches to Remote, the app starts or reuses the project's container, uploads the project and opens a real bash shell in `/workspace`. Files then sync both ways.
 
-| | |
+| Topic | Behaviour |
 |---|---|
 | **Reconnecting** | Both sides are merged against the last version they agreed on. A file changed on one side takes that side's version. A file changed on both keeps the container's under its name, with the phone's next to it as `<name>.phone-conflict` |
 | **Not synced** | `node_modules`, `.git`, `.pylibs`, `__pycache__`, `.venv`, `.next`, `.gradle` and similar folders at any depth; `venv`, `.cache`, `coverage` and `target` at the project root. Full list in `shared/protocol.ts` |
@@ -299,7 +299,7 @@ TIDE_TOKEN=<at least 16 characters> npm start
 | `TIDE_IDLE_MINUTES` | `15` | Remove a container this long after its last connection closes |
 | `TIDE_MEMORY_MB`, `TIDE_CPUS`, `TIDE_PIDS` | `1024`, `1`, `512` | Per-container limits |
 
-| Endpoint | |
+| Endpoint | Purpose |
 |---|---|
 | `GET /health` | No token. Returns `{ ok, protocol }` |
 | `POST /sessions {"project"}` | Starts or reuses the project's container; reports the sync `protocol` |
