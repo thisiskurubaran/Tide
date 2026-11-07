@@ -14,7 +14,7 @@ import { radius, spacing } from '../../theme/tokens';
 import { diagnosticsStore } from '../diagnostics';
 import { toDiagnostics } from '../formatLint/lintMessages';
 import type { Location, PanelProps, ProjectContext, TideExtension } from '../types';
-import { applyEdits, createTsClient, TS_FILE } from './client';
+import { applyEdits, createTsClient, editsMatchOneName, TS_FILE } from './client';
 import { createPyClient, PY_FILE } from './python';
 
 const ts = createTsClient(localRunner);
@@ -78,10 +78,16 @@ async function rename(ctx: ProjectContext, newName: string) {
     if (project === ctx.project && TS_FILE.test(path)) ts.sync(project, path, b.content);
   }
   const files = await clientFor(at.path).rename(ctx.project, at.path, at.text, at.offset, newName);
-  for (const f of files) {
-    const open = content(ctx.project, f.path);
-    if (open !== undefined) buffersStore.getState().edit(ctx.project, f.path, applyEdits(open, f.edits));
-    else await workspace.writeFile(ctx.project, f.path, applyEdits(await workspace.readFile(ctx.project, f.path), f.edits));
+  // Read every file first, so a mismatch below changes nothing.
+  const opened = files.map((f) => content(ctx.project, f.path));
+  const texts = await Promise.all(files.map((f, i) => opened[i] ?? workspace.readFile(ctx.project, f.path)));
+  if (PY_FILE.test(at.path) && !editsMatchOneName(files, texts)) {
+    throw new Error('Files changed while renaming; nothing was renamed. Try again.');
+  }
+  for (const [i, f] of files.entries()) {
+    const next = applyEdits(texts[i], f.edits);
+    if (opened[i] !== undefined) buffersStore.getState().edit(ctx.project, f.path, next);
+    else await workspace.writeFile(ctx.project, f.path, next);
   }
   return files.reduce((n, f) => n + f.edits.length, 0);
 }

@@ -11,6 +11,7 @@ import ctypes
 import keyword
 import os
 import queue
+import re
 import sys
 import tempfile
 import threading
@@ -215,12 +216,15 @@ def _position(text, offset):
 
 
 def _lines(text):
-    return text.split("\n")
+    """Lines with their line breaks kept, split where jedi (parso) splits them:
+    at \r\n, \r and \n. Keeping the breaks lets _offset count \r\n as the two
+    characters the app's copy of the file has."""
+    return re.split(r"(?<=\n)|(?<=\r)(?!\n)", text)
 
 
 def _offset(lines, line, column):
     """UTF-16 offset of jedi's (line, column)."""
-    before = sum(_u16(l) + 1 for l in lines[: line - 1])
+    before = sum(_u16(l) for l in lines[: line - 1])
     return before + _u16(lines[line - 1][:column]) if line - 1 < len(lines) else before
 
 
@@ -270,7 +274,9 @@ class _Request:
         path = os.path.abspath(str(path))
         if path not in self._files:
             try:
-                with open(path, encoding="utf-8") as f:
+                # newline="" keeps \r\n: edits are offsets into the file as the
+                # app reads it, so universal newlines would shift every line.
+                with open(path, encoding="utf-8", newline="") as f:
                     self._files[path] = _lines(f.read())
             except (OSError, UnicodeDecodeError):
                 self._files[path] = []

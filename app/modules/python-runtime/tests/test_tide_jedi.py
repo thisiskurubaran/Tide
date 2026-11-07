@@ -128,6 +128,30 @@ class JediTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.call("rename", MAIN, MAIN.index("add(1"), newName="not valid")
 
+    def test_rename_in_a_closed_crlf_file(self):
+        # util.py isn't open, so jedi reads it from disk; its offsets must count
+        # the \r\n the app's copy of the file still has.
+        crlf = UTIL.replace("\n", "\r\n") + "print(add(1, 1))\r\n"
+        path = os.path.join(self.root, "projects", "p", "util.py")
+        with open(path, "w", newline="") as f:
+            f.write(crlf)
+        main = MAIN.replace("\n", "\r\n")
+        files = self.call("rename", main, main.index("add(1"), newName="plus")
+        by_path = {f["path"]: f["edits"] for f in files}
+
+        def apply(src, edits):
+            for e in sorted(edits, key=lambda e: -e["from"]):
+                src = src[: e["from"]] + e["insert"] + src[e["to"]:]
+            return src
+
+        with open(path, newline="") as f:
+            raw = f.read()
+        self.assertEqual(apply(raw, by_path["util.py"]), crlf.replace("add", "plus"))
+        self.assertEqual(apply(main, by_path["main.py"]), main.replace("add", "plus"))
+        refs = self.call("references", main, main.index("add(1"))
+        util_refs = [r for r in refs if r["path"] == "util.py"]
+        self.assertEqual([(r["line"], r["column"], r["preview"]) for r in util_refs], [(1, 5, "def add(a: int, b: int) -> int:"), (14, 7, "print(add(1, 1))")])
+
     def test_cancel_drops_a_job(self):
         self.send({"op": "call", "id": "slow", "method": "references", "args": {
             "root": self.root, "project": "p", "path": "main.py", "content": MAIN, "offset": 0}, "wait": 0})

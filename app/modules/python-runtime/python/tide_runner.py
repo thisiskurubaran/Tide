@@ -32,16 +32,37 @@ class _Run:
         self.debugger = None
         self.emit = None
         self.run_id = None
+        self.stdout = None
+        self.stderr = None
+        self.stdin = None
 
 
-# Which run the current thread belongs to, for reporting listening ports.
+# Which run the current thread belongs to: for output, input and listening ports.
 _current = threading.local()
 _socket_listen = socket.socket.listen
+_thread_start = threading.Thread.start
+
+
+def _start_thread(self, *args, **kwargs):
+    # Threads a script starts (servers, executors) belong to its run, so their
+    # print() goes to the right terminal.
+    self._tide_run = getattr(_current, "run", None)
+    return _thread_start(self, *args, **kwargs)
+
+
+threading.Thread.start = _start_thread
+
+
+def _run_of_thread():
+    run = getattr(_current, "run", None)
+    if run is None:
+        run = getattr(threading.current_thread(), "_tide_run", None)
+    return run
 
 
 def _listen(self, *args):
     result = _socket_listen(self, *args)
-    run = getattr(_current, "run", None)
+    run = _run_of_thread()
     if run is None:
         # A server thread the script started: with one run going, it is that one's.
         with _lock:
@@ -137,6 +158,103 @@ class _Input(io.TextIOBase):
         return line
 
 
+class _ThreadStream:
+    """Installed once as sys.stdout/stderr/stdin. Runs share one interpreter on
+    different threads, so each call goes to the stream of the run the calling
+    thread belongs to, and to the interpreter's own stream otherwise."""
+
+    def __init__(self, name):
+        self._name = name
+        self.original = getattr(sys, name)
+
+    def target(self):
+        override = getattr(_current, "streams", None)  # snippet() capturing output
+        if override is not None:
+            return override
+        run = _run_of_thread()
+        stream = getattr(run, self._name, None) if run is not None else None
+        return stream if stream is not None else self.original
+
+    def __getattr__(self, attr):
+        return getattr(self.target(), attr)
+
+    def __iter__(self):
+        return iter(self.target())
+
+    def __next__(self):
+        return next(self.target())
+
+
+_streams = {name: _ThreadStream(name) for name in ("stdout", "stderr", "stdin")}
+
+
+def _install_streams():
+    """Puts the proxies in place. Called with _lock held."""
+    for name, proxy in _streams.items():
+        current = getattr(sys, name)
+        if current is not proxy:
+            if not _runs:
+                # Nothing is running, so whatever is there is the host's own stream.
+                proxy.original = current
+            setattr(sys, name, proxy)
+
+
+# cwd, os.environ, sys.argv and sys.path belong to the whole process, so runs
+# that overlap must agree on them: a second run in the same folder with the same
+# environment joins the first (a server plus a client script), one in another
+# folder is refused instead of moving the first run's files. The state from
+# before the first run is put back when the last one ends.
+_shared = None  # {"key", "count", "cwd", "argv", "path", "env"} while runs are active
+
+
+def _enter_shared(cwd, env):
+    """Returns (error message or None, whether this run is the first)."""
+    global _shared
+    key = (os.path.abspath(cwd), tuple(sorted(env.items())))
+    if _shared is not None:
+        if _shared["key"] != key:
+            return (
+                f"Another Python program is running in {_shared['key'][0]}; stop it first.\n"
+                "(Python programs share one interpreter, so ones in different folders or with "
+                "different environment variables can't run at the same time.)\n"
+            ), False
+        _shared["count"] += 1
+        return None, False
+    saved_env = {k: os.environ.get(k) for k in env}
+    _shared = {"key": key, "count": 1, "cwd": os.getcwd(), "argv": sys.argv, "path": list(sys.path), "env": saved_env}
+    os.environ.update(env)
+    return None, True
+
+
+def _leave_shared(own_paths):
+    """Called with _lock held when a run that entered ends."""
+    global _shared
+    _shared["count"] -= 1
+    if _shared["count"] > 0:
+        # Others still run: take out only this run's sys.path entries.
+        for p in own_paths:
+            try:
+                sys.path.remove(p)
+            except ValueError:
+                pass
+        return
+    saved, _shared = _shared, None
+    sys.argv = saved["argv"]
+    sys.path[:] = saved["path"]
+    for k, v in saved["env"].items():
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v
+    try:
+        os.chdir(saved["cwd"])
+    except OSError:
+        pass
+    # A script that replaced sys.stdout and friends doesn't break the next run.
+    for name, proxy in _streams.items():
+        setattr(sys, name, proxy)
+
+
 def _user_traceback(tb, entry):
     # Skip runpy and this module so the traceback starts in the user's script,
     # like `python script.py` would show it.
@@ -193,22 +311,29 @@ def run(emit, run_id, entry, cwd, args, extra_paths=(), purge_root=None):
         config = json.loads(args[1])
         args = list(args[2:])
         state.debugger = Debugger(emit, run_id, purge_root or os.path.dirname(entry), config.get("breakpoints"))
-    with _lock:
-        _runs[run_id] = state
-
     out = _Output(emit, run_id, "stdout")
     err = _Output(emit, run_id, "stderr")
-    saved = (sys.stdout, sys.stderr, sys.stdin, sys.argv, list(sys.path), os.getcwd())
-    # Runs share one interpreter, so the project's variables are put back afterwards.
-    saved_env = {k: os.environ.get(k) for k in env}
-    os.environ.update(env)
-    sys.stdout, sys.stderr, sys.stdin = out, err, _Input(state)
+    state.stdout, state.stderr, state.stdin = out, err, _Input(state)
+    with _lock:
+        refused, first = _enter_shared(cwd, env)
+        if refused is None:
+            _install_streams()
+            _runs[run_id] = state
+    if refused is not None:
+        _current.run = None
+        err.write(refused)
+        return 1, False
+
     sys.argv = [entry, *args]
-    sys.path[0:0] = [os.path.dirname(entry), *extra_paths]
+    own_paths = [os.path.dirname(entry), *extra_paths]
+    sys.path[0:0] = own_paths
 
     code = 0
     try:
-        os.chdir(cwd)
+        if first:
+            # Runs that join an active one are already there (and must not undo
+            # an os.chdir() the first run's script made).
+            os.chdir(cwd)
         if state.debugger:
             state.debugger.run_script(lambda: runpy.run_path(entry, run_name="__main__"))
         else:
@@ -225,16 +350,7 @@ def run(emit, run_id, entry, cwd, args, extra_paths=(), purge_root=None):
         _current.run = None
         with _lock:
             _runs.pop(run_id, None)
-        sys.stdout, sys.stderr, sys.stdin, sys.argv, sys.path[:], cwd_before = saved
-        for k, v in saved_env.items():
-            if v is None:
-                os.environ.pop(k, None)
-            else:
-                os.environ[k] = v
-        try:
-            os.chdir(cwd_before)
-        except OSError:
-            pass
+            _leave_shared(own_paths)
         if purge_root:
             root = os.path.abspath(purge_root) + os.sep
             for name, module in list(sys.modules.items()):
@@ -291,12 +407,14 @@ def snippet(code):
 
         return tide_tools.handle(code[len(_TOOL_PREFIX):])
     buf = io.StringIO()
-    old_out, old_err = sys.stdout, sys.stderr
-    sys.stdout = sys.stderr = buf
+    # Only this thread's output is captured; runs on other threads keep theirs.
+    with _lock:
+        _install_streams()
+    _current.streams = buf
     try:
         exec(compile(code, "<tide>", "exec"), {"__name__": "__main__"})
     except BaseException:  # noqa: BLE001
         traceback.print_exc()
     finally:
-        sys.stdout, sys.stderr = old_out, old_err
+        _current.streams = None
     return buf.getvalue()

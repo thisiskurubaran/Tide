@@ -12,6 +12,9 @@ const { parentPort, workerData } = require('worker_threads');
 if (!parentPort) throw new Error('worker.js must run in a worker thread');
 const port = parentPort;
 
+// Runs overlap and share one process cwd, so each run gets its own (see runcwd.js).
+require('./runcwd').useCwd(workerData.cwd);
+
 const stdin = new Readable({ read() {} });
 stdin.setEncoding('utf8');
 let reading = false;

@@ -4,6 +4,7 @@
 // Ctrl-C terminates the worker and Node keeps running for the next run.
 'use strict';
 
+const fs = require('fs');
 const path = require('path');
 const { Worker } = require('worker_threads');
 const { createDebugger } = require('./debugger');
@@ -75,10 +76,11 @@ function createSupervisor({ send, builtins = {} }) {
       return fail(req.id, String(/** @type {Error} */ (e).message));
     }
 
-    // Workers can't chdir, but they share the process cwd, so set it here.
-    // Runs share one cwd; the terminal only runs one program at a time.
+    // Runs overlap (terminal, Git Pro, the format/IntelliSense services, ssh...)
+    // and share one process, so the process cwd is never changed here: the
+    // worker gets its own cwd from workerData (see runcwd.js).
     try {
-      process.chdir(cwd);
+      if (!fs.statSync(cwd).isDirectory()) throw new Error('not a directory');
     } catch (e) {
       return fail(req.id, `can't enter ${req.cwd}: ${/** @type {Error} */ (e).message}`);
     }
@@ -92,7 +94,7 @@ function createSupervisor({ send, builtins = {} }) {
     try {
       worker = new Worker(BOOTSTRAP, {
         argv: Array.isArray(req.args) ? req.args : [],
-        workerData: { entry },
+        workerData: { entry, cwd },
         env: { ...process.env, ...(req.env || {}), PWD: cwd, ...(projectDir ? { TIDE_PROJECT_DIR: projectDir } : {}) },
         stdout: true,
         stderr: true,

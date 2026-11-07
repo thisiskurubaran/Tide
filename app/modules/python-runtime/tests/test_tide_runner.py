@@ -174,10 +174,57 @@ class RunnerTest(unittest.TestCase):
         self.assertEqual(len([t for i, k, t in self.h.output if k == "port" and i == "r2"]), 1)
 
     def test_restores_interpreter_state(self):
+        # sys.stdout and friends are thread-aware proxies, installed once.
+        with tide_runner._lock:
+            tide_runner._install_streams()
         before = (sys.stdout, sys.stderr, sys.stdin, list(sys.argv), list(sys.path), os.getcwd())
-        self.h.file("main.py", "import os, sys\nsys.path.append('/x')\nos.chdir('/')\n")
+        self.h.file("main.py", "import os, sys\nsys.path.append('/x')\nos.chdir('/')\nsys.stdout = None\n")
         self.h.run("r1", "main.py")
         self.assertEqual((sys.stdout, sys.stderr, sys.stdin, list(sys.argv), list(sys.path), os.getcwd()), before)
+        # Outside a run the proxies write to the host's own streams.
+        self.assertIs(sys.stdout.target(), tide_runner._streams["stdout"].original)
+
+    def test_overlapping_runs_keep_their_own_output_and_input(self):
+        # a waits for input while b runs to the end; neither sees the other's output.
+        self.h.file("a.py", "import threading\nprint('a1')\nname = input()\nt = threading.Thread(target=lambda: print('a-thread', name))\nt.start(); t.join()\n")
+        self.h.file("b.py", "import sys\nprint('b1')\nprint('b-err', file=sys.stderr)\n")
+        thread_a, result_a = self.h.start("a", "a.py")
+        self.h.wait_for("a", "a1")
+        self.assertEqual(self.h.run("b", "b.py"), (0, False))
+        tide_runner.feed("a", "x\n")
+        thread_a.join(10)
+        self.assertEqual(result_a["value"], (0, False))
+        self.assertEqual(self.h.text("a"), "a1\na-thread x\n")
+        self.assertEqual(self.h.text("b"), "b1\n")
+        self.assertEqual(self.h.text("b", "stderr"), "b-err\n")
+
+    def test_overlapping_runs_in_another_folder_are_refused(self):
+        cwd_before = os.getcwd()
+        self.h.file("p1/wait.py", "import os\ninput()\nopen('out.txt', 'w').write('1')\nprint(os.path.basename(os.getcwd()))\n")
+        self.h.file("p2/main.py", "print('should not run')\n")
+        self.h.file("p1/join.py", "import os\nprint('joined', os.path.basename(os.getcwd()))\n")
+        result = {}
+        p1 = os.path.join(self.h.root, "p1")
+
+        def target():
+            result["value"] = tide_runner.run(self.h.emit, "a", os.path.join(p1, "wait.py"), p1, [])
+
+        thread = threading.Thread(target=target)
+        thread.start()
+        time.sleep(0.2)
+        p2 = os.path.join(self.h.root, "p2")
+        self.assertEqual(tide_runner.run(self.h.emit, "b", os.path.join(p2, "main.py"), p2, []), (1, False))
+        self.assertIn("Another Python program is running", self.h.text("b", "stderr"))
+        self.assertEqual(self.h.text("b"), "")
+        # A run in the same folder joins it, and leaving doesn't undo the first run's state.
+        self.assertEqual(tide_runner.run(self.h.emit, "c", os.path.join(p1, "join.py"), p1, []), (0, False))
+        self.assertEqual(self.h.text("c"), "joined p1\n")
+        tide_runner.feed("a", "\n")
+        thread.join(10)
+        self.assertEqual(result["value"], (0, False))
+        self.assertEqual(self.h.text("a"), "p1\n")
+        self.assertTrue(os.path.exists(os.path.join(p1, "out.txt")))
+        self.assertEqual(os.getcwd(), cwd_before)
 
 
 if __name__ == "__main__":
