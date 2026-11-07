@@ -1,7 +1,18 @@
 # Runs inside the session container. Polls /workspace for file changes and
 # /proc/net for listening ports, printing one JSON object per line.
-# With --oversize it prints the files over MAX_BYTES as one JSON list and exits.
-import base64, json, os, sys, time
+#
+# The first line is a snapshot of the workspace, taken as the poll baseline so
+# nothing that changes after it is missed (the server reconciles the app's init
+# against it while this keeps running):
+#   {"type": "snapshot", "files": {path: [sha1, mode]}, "owned": [path, ...]}
+# "owned" lists paths the container keeps to itself: files over MAX_BYTES and
+# symlinks (never followed, never overwritten from the app).
+# Then "file" (with the permission bits as "mode"), "delete", "skipped" (became
+# owned) and "ports" messages as things change.
+#
+# With --read PATH... it prints the "file" (or "skipped" / "delete") message for
+# each path and exits.
+import base64, hashlib, json, os, stat, sys, time
 
 ROOT = os.environ.get("TIDE_WATCH_ROOT", "/workspace")  # override for tests only
 # Keep in step with SyncSkipDir in shared/protocol.ts (a server test checks).
@@ -14,17 +25,49 @@ SKIP_DIRS = {
 MAX_BYTES = 2 * 1024 * 1024  # SyncLimits maxBytes in shared/protocol.ts
 INTERVAL = 0.5
 
+def signature(full, st):
+    # What a change is detected by. tar writes set mtime in whole seconds, so
+    # mtime and size alone miss a second same-size write within one second;
+    # ctime_ns (bumped by every write, chmod and rename) and the inode don't.
+    if stat.S_ISLNK(st.st_mode):
+        try:
+            return ("link", os.readlink(full))
+        except OSError:
+            return None
+    if stat.S_ISREG(st.st_mode):
+        return (st.st_mtime_ns, st.st_ctime_ns, st.st_size, st.st_ino, st.st_mode & 0o7777)
+    return None
+
+def owned(meta):
+    return meta[0] == "link" or meta[2] > MAX_BYTES
+
 def scan():
     seen = {}
     for dirpath, dirnames, filenames in os.walk(ROOT):
-        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        keep = []
+        for d in dirnames:
+            if d in SKIP_DIRS:
+                continue
+            full = os.path.join(dirpath, d)
+            if os.path.islink(full):
+                # os.walk doesn't descend into folder symlinks; the container owns them.
+                try:
+                    meta = signature(full, os.lstat(full))
+                except OSError:
+                    meta = None
+                if meta:
+                    seen[os.path.relpath(full, ROOT)] = meta
+                continue
+            keep.append(d)
+        dirnames[:] = keep
         for name in filenames:
             full = os.path.join(dirpath, name)
             try:
-                st = os.stat(full)
+                meta = signature(full, os.lstat(full))
             except OSError:
                 continue
-            seen[os.path.relpath(full, ROOT)] = (st.st_mtime_ns, st.st_size)
+            if meta:
+                seen[os.path.relpath(full, ROOT)] = meta
     return seen
 
 def ports():
@@ -45,29 +88,60 @@ def emit(obj):
     sys.stdout.write(json.dumps(obj) + "\n")
     sys.stdout.flush()
 
-if "--oversize" in sys.argv:
-    print(json.dumps(sorted(p for p, meta in scan().items() if meta[1] > MAX_BYTES)))
+def report(path, meta):
+    if owned(meta):
+        # Too big to sync, or a symlink: the container's copy wins, so the app
+        # must stop sending (and init must stop overwriting) its copy.
+        emit({"type": "skipped", "path": path})
+        return
+    try:
+        with open(os.path.join(ROOT, path), "rb") as f:
+            data = f.read(MAX_BYTES + 1)
+    except OSError:
+        return
+    if len(data) > MAX_BYTES:
+        emit({"type": "skipped", "path": path})
+        return
+    emit({"type": "file", "path": path, "data": base64.b64encode(data).decode(), "mode": meta[4]})
+
+def file_hash(path):
+    h = hashlib.sha1()
+    with open(os.path.join(ROOT, path), "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 16), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+if len(sys.argv) > 1 and sys.argv[1] == "--read":
+    for path in sys.argv[2:]:
+        full = os.path.join(ROOT, path)
+        try:
+            meta = signature(full, os.lstat(full))
+        except OSError:
+            meta = None
+        if meta is None:
+            emit({"type": "delete", "path": path})
+        else:
+            report(path, meta)
     sys.exit(0)
 
 before = scan()
+files = {}
+for path, meta in list(before.items()):
+    if owned(meta):
+        continue
+    try:
+        files[path] = [file_hash(path), meta[4]]
+    except OSError:
+        del before[path]  # reported as new once it is readable
+emit({"type": "snapshot", "files": files, "owned": sorted(p for p, m in before.items() if owned(m))})
+
 last_ports = None
 while True:
     time.sleep(INTERVAL)
     now = scan()
     for path, meta in now.items():
-        if before.get(path) == meta:
-            continue
-        if meta[1] > MAX_BYTES:
-            # Too big to sync: the container's copy wins, so the app must stop
-            # sending (and init must stop overwriting) its older copy.
-            emit({"type": "skipped", "path": path})
-            continue
-        try:
-            with open(os.path.join(ROOT, path), "rb") as f:
-                data = base64.b64encode(f.read()).decode()
-        except OSError:
-            continue
-        emit({"type": "file", "path": path, "data": data})
+        if before.get(path) != meta:
+            report(path, meta)
     for path in before.keys() - now.keys():
         emit({"type": "delete", "path": path})
     before = now

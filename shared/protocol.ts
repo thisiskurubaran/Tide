@@ -97,19 +97,37 @@ export type SyncFile = { type: 'file'; path: string; data: string };
 export type SyncDelete = { type: 'delete'; path: string };
 // App -> server once per connection: the whole project, before the shell is
 // used. Sent in batches that each stay under SyncLimits['initBatchBytes'] of file
-// data; every batch but the last has `more: true`, and the server answers
-// 'ready' after the last one. A single init without `more` is the whole project.
+// data; every batch but the last has `more: true`. Flow control: the server
+// answers each `more` batch with 'init-ack' once it has applied it, and the app
+// sends the next batch only after that ack (so no more than one batch is ever
+// queued in the phone's socket). The server answers 'ready' after the last one.
+// A single init without `more` is the whole project.
+//
+// The server reconciles the init against the container (three-way, using the
+// content it last saw both sides agree on, kept per session across reconnects):
+// a side that changed wins over one that didn't; when both changed, the
+// container's file keeps its name and the phone's version is written next to it
+// as `<name>.phone-conflict` (both are then sent to the app). Container changes
+// made while disconnected reach the app as 'file' / 'delete' before 'ready'.
 export type SyncInit = { type: 'init'; files: { path: string; data: string }[]; more?: boolean };
+// Server -> app: the init batch before this was applied; send the next one.
+export type SyncInitAck = { type: 'init-ack' };
+// App -> server, once for every 'file' or 'delete' the server sent, in order,
+// after applying it. `ok: false` means the app could not store it (an invalid
+// name on the phone, a full disk): the app then treats the path as container-owned
+// (like 'skipped'), and the server never deletes it on the app's behalf.
+export type SyncAck = { type: 'ack'; path: string; ok: boolean };
 // Server -> app: the set of ports something is listening on in the container.
 export type SyncPorts = { type: 'ports'; ports: number[] };
-// Server -> app: the container's copy of `path` is over SyncLimits['maxBytes'], so it
-// is not synced. The container's copy wins: the app stops sending that path
-// (and the server drops writes to it) until it shrinks, which the app learns
-// from a 'file' or 'delete' for it.
+// Server -> app: the container owns `path`: its copy is over SyncLimits['maxBytes'],
+// or it is a symlink (or inside a symlinked folder), so it is not synced. The
+// container's copy wins: the app stops sending that path (and the server drops
+// writes to it) until that changes, which the app learns from a 'file' or
+// 'delete' for it.
 export type SyncSkipped = { type: 'skipped'; path: string };
 
-export type SyncToServer = SyncInit | SyncFile | SyncDelete;
-export type SyncToApp = SyncFile | SyncDelete | SyncPorts | SyncSkipped | { type: 'ready' };
+export type SyncToServer = SyncInit | SyncFile | SyncDelete | SyncAck;
+export type SyncToApp = SyncFile | SyncDelete | SyncPorts | SyncSkipped | SyncInitAck | { type: 'ready' };
 
 // This file holds types only (shared/ is loaded as CommonJS by the server's
 // typecheck), so sync constants are literal types that each side's runtime

@@ -13,9 +13,13 @@ import { attachSync } from './sync.ts';
 const MAX_BODY = 64 * 1024;
 export const MAX_MESSAGE = 64 * 1024 * 1024;
 // A phone that drops off the network never sends a close frame. Each socket is
-// pinged this often and terminated if it didn't answer the previous ping, which
-// runs its close handlers (connection count, watcher, shell).
+// pinged this often and terminated once MAX_MISSED pings in a row went by with
+// nothing heard from it, which runs its close handlers (connection count,
+// watcher, shell). Any bytes from the client count, not just pongs: on a slow
+// uplink a pong queues behind the client's outgoing data (a multi-megabyte
+// init batch), and that data still arriving proves the socket is alive.
 const HEARTBEAT_MS = 30_000;
+const MAX_MISSED = 2;
 
 function authorized(config: Config, header: string | undefined) {
   const given = Buffer.from(header?.replace(/^Bearer /, '') ?? '');
@@ -79,14 +83,15 @@ export function createApp(config: Config, manager: SessionManager, options: { he
   });
 
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE });
-  const alive = new WeakMap<WebSocket, boolean>();
+  const missed = new WeakMap<WebSocket, number>();
   const heartbeat = setInterval(() => {
     for (const ws of wss.clients) {
-      if (alive.get(ws) === false) {
+      const n = missed.get(ws) ?? 0;
+      if (n >= MAX_MISSED) {
         ws.terminate();
         continue;
       }
-      alive.set(ws, false);
+      missed.set(ws, n + 1);
       ws.ping();
     }
   }, options.heartbeatMs ?? HEARTBEAT_MS);
@@ -100,8 +105,12 @@ export function createApp(config: Config, manager: SessionManager, options: { he
       return;
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
-      alive.set(ws, true);
-      ws.on('pong', () => alive.set(ws, true));
+      const alive = () => missed.set(ws, 0);
+      alive();
+      ws.on('pong', alive);
+      ws.on('message', alive);
+      // Raw bytes too, so a big message still uploading counts before it completes.
+      socket.on('data', alive);
       session.connections++;
       manager.touch(session);
       ws.on('close', () => {

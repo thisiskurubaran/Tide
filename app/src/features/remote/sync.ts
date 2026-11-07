@@ -17,6 +17,9 @@ export interface SyncHooks {
   onTreeChanged(): void;
   onPorts(ports: number[]): void;
   onReady(): void;
+  // A file from the container could not be stored on the phone (an invalid
+  // name, a full disk). The container keeps it; the phone leaves it alone.
+  onSyncError?(path: string, message: string): void;
 }
 
 // Same limit as the server's watcher: bigger files aren't synced either way.
@@ -25,6 +28,8 @@ const MAX_BASE64 = Math.ceil(MAX_SYNC_BYTES / 3) * 4;
 // The init is sent in batches of about this much file data, so no message
 // comes near the server's 64 MB limit however big the project is.
 export const INIT_BATCH_BYTES: SyncLimits['initBatchBytes'] = 8388608;
+// Same suffix the server gives the phone's side of a conflict.
+export const CONFLICT_SUFFIX = '.phone-conflict';
 
 // Keeps a project's files in step with its container. `known` holds the last
 // content each side agreed on, so a change applied from one side is not sent
@@ -36,8 +41,12 @@ export class RemoteSync {
   private closed = false;
   // Local changes made before 'ready', sent once it arrives ('all' = full diff).
   private pending: Set<string> | 'all' | null = null;
-  // Paths whose container copy is too big to sync; the container owns them.
+  // Paths the container owns: its copy is too big to sync or a symlink, or the
+  // phone failed to store it. Never sent (file, delete or init) until the
+  // container sends a 'file' or 'delete' for them.
   private skipped = new Set<string>();
+  // Resolves the wait for the server's 'init-ack' between init batches.
+  private initAck: (() => void) | null = null;
 
   private socket: WebSocket;
   private project: string;
@@ -57,6 +66,8 @@ export class RemoteSync {
       } catch {
         return;
       }
+      // Not queued: the init is waiting for it in the queue.
+      if (msg.type === 'init-ack') return this.takeInitAck();
       this.enqueue(() => this.apply(msg));
     };
   }
@@ -64,6 +75,13 @@ export class RemoteSync {
   close() {
     this.closed = true;
     this.socket.close();
+    this.takeInitAck();
+  }
+
+  private takeInitAck() {
+    const resolve = this.initAck;
+    this.initAck = null;
+    resolve?.();
   }
 
   // Called after the app saved, created or deleted files. Diffing against
@@ -117,6 +135,9 @@ export class RemoteSync {
     return data !== null && data.length <= MAX_BASE64 ? data : null;
   }
 
+  // Flow-controlled: each batch waits for the server's 'init-ack' of the one
+  // before, so at most one batch sits in the socket's send buffer (OkHttp
+  // closes the socket once 16 MiB is queued; iOS fills up the same way).
   private async sendInit() {
     let files: { path: string; data: string }[] = [];
     let size = 0;
@@ -124,7 +145,10 @@ export class RemoteSync {
       const data = await this.read(path);
       if (data === null) continue;
       if (files.length && size + data.length > INIT_BATCH_BYTES) {
+        const acked = new Promise<void>((resolve) => (this.initAck = resolve));
         this.send({ type: 'init', files, more: true });
+        await acked;
+        if (this.closed) return;
         files = [];
         size = 0;
       }
@@ -145,6 +169,8 @@ export class RemoteSync {
         this.hooks.onReady();
         return;
       }
+      case 'init-ack':
+        return;
       case 'skipped':
         this.known.delete(msg.path);
         this.skipped.add(msg.path);
@@ -152,23 +178,63 @@ export class RemoteSync {
       case 'ports':
         this.hooks.onPorts(msg.ports);
         return;
+      // Both acknowledged, so the server only records what the phone really
+      // has as agreed (and never takes a path it couldn't store as deleted).
       case 'file': {
-        this.skipped.delete(msg.path);
-        if (this.known.get(msg.path) === msg.data) return;
-        const isNew = !this.known.has(msg.path);
-        this.known.set(msg.path, msg.data);
-        await this.files.writeBase64(this.project, msg.path, msg.data);
-        this.hooks.onFileChanged(msg.path);
-        if (isNew) this.hooks.onTreeChanged();
+        const { path, data } = msg;
+        this.skipped.delete(path);
+        let ok = true;
+        if (this.known.get(path) !== data) {
+          const isNew = !this.known.has(path);
+          try {
+            if (!this.ready && !isNew) await this.keepLocalEdit(path);
+            await this.files.writeBase64(this.project, path, data);
+            this.known.set(path, data);
+            this.hooks.onFileChanged(path);
+            if (isNew) this.hooks.onTreeChanged();
+          } catch (e) {
+            ok = false;
+            this.disown(path, e);
+          }
+        }
+        this.send({ type: 'ack', path, ok });
         return;
       }
       case 'delete': {
-        const wasSkipped = this.skipped.delete(msg.path);
-        if (!this.known.delete(msg.path) && !wasSkipped) return;
-        await this.files.removeIfPresent(this.project, msg.path);
-        this.hooks.onTreeChanged();
+        const { path } = msg;
+        const wasSkipped = this.skipped.delete(path);
+        let ok = true;
+        if (this.known.delete(path) || wasSkipped) {
+          try {
+            await this.files.removeIfPresent(this.project, path);
+            this.hooks.onTreeChanged();
+          } catch (e) {
+            ok = false;
+            this.disown(path, e);
+          }
+        }
+        this.send({ type: 'ack', path, ok });
         return;
       }
     }
+  }
+
+  // Before 'ready' the container's reconcile result can arrive for a file the
+  // user saved after the init read it (that edit is still pending): keep the
+  // edit as a conflict copy, which is sent once 'ready' arrives.
+  private async keepLocalEdit(path: string) {
+    const local = await this.read(path);
+    if (local === null || local === this.known.get(path)) return;
+    await this.files.writeBase64(this.project, `${path}${CONFLICT_SUFFIX}`, local);
+    this.pending = 'all';
+    this.hooks.onTreeChanged();
+  }
+
+  // The phone couldn't apply a container change to `path`: the container owns
+  // it from now on, so no stale copy here is ever sent back or taken as deleted.
+  private disown(path: string, e: unknown) {
+    this.known.delete(path);
+    this.skipped.add(path);
+    this.hooks.onSyncError?.(path, e instanceof Error ? e.message : String(e));
   }
 }

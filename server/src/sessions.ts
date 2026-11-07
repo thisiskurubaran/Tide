@@ -6,7 +6,7 @@ import type Docker from 'dockerode';
 
 import type { Config } from './config.ts';
 import { WORKSPACE } from './paths.ts';
-import { packTar } from './tar.ts';
+import { packTar, type TarFile } from './tar.ts';
 
 const LABEL = 'dev.tide.session';
 const RELAY = fs.readFileSync(new URL('./relay.py', import.meta.url), 'utf8');
@@ -46,9 +46,18 @@ export interface Session {
   lastActive: number;
   connections: number;
   ports: number[];
-  // Files whose container copy is over SyncLimits['maxBytes']. The container's copy
-  // wins: writes from the app to these paths are dropped until they shrink.
+  // Paths the container owns: files over SyncLimits['maxBytes'] and symlinks
+  // (a folder symlink covers everything under it). The container's copy wins:
+  // writes and deletes from the app to these paths are dropped.
   skipped: Set<string>;
+  // Sync record, kept across reconnects while the container lives: the content
+  // hash (sha1 of the bytes) of each path as last agreed between the app and the
+  // container, the base of the three-way reconcile at init. null until the first
+  // init, which is then a plain phone-wins copy.
+  agreed: Map<string, string> | null;
+  // Permission bits of container files, as the watcher last reported them, so
+  // writes from the app keep them (an executable ./gradlew stays executable).
+  modes: Map<string, number>;
 }
 
 export class SessionManager {
@@ -132,6 +141,8 @@ export class SessionManager {
       connections: 0,
       ports: [],
       skipped: new Set(),
+      agreed: null,
+      modes: new Map(),
     };
     this.sessions.set(id, session);
     return session;
@@ -154,7 +165,7 @@ export class SessionManager {
     }
   }
 
-  async writeFiles(session: Session, files: { path: string; data: Buffer }[]) {
+  async writeFiles(session: Session, files: TarFile[]) {
     if (!files.length) return;
     await session.container.putArchive(packTar(files), { path: WORKSPACE });
   }
