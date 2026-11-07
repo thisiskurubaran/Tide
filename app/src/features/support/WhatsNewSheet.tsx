@@ -1,5 +1,6 @@
 import Feather from '@expo/vector-icons/Feather';
-import { ScrollView, View } from 'react-native';
+import { useState } from 'react';
+import { Pressable, ScrollView, View } from 'react-native';
 
 import { Button } from '../../components/Button';
 import { Sheet } from '../../components/Sheet';
@@ -10,25 +11,45 @@ import type { Release } from './changelog';
 
 export function WhatsNewSheet({ releases, onClose }: { releases: Release[] | null; onClose(): void }) {
   const styles = useStyles();
-  const colors = useColors();
   return (
     <Sheet visible={!!releases?.length} onClose={onClose}>
       <Text variant="title">What's new</Text>
       <ScrollView style={styles.list}>
         {releases?.map((r) => (
-          <View key={r.version} style={styles.release}>
-            <Text variant="label">Tide {r.version}</Text>
-            {r.items.map((item) => (
-              <View key={item} style={styles.item}>
-                <Feather name="check" size={14} color={colors.brand} style={styles.check} />
-                <Text style={styles.flex}>{item}</Text>
-              </View>
-            ))}
-          </View>
+          <ReleaseNotes key={r.version} release={r} />
         ))}
       </ScrollView>
       <Button title="Done" onPress={onClose} testID="whats-new-done" />
     </Sheet>
+  );
+}
+
+// A big release shows its highlights, with the full list one tap away.
+function ReleaseNotes({ release }: { release: Release }) {
+  const styles = useStyles();
+  const colors = useColors();
+  const [all, setAll] = useState(!release.highlights?.length);
+  const items = all ? release.items : (release.highlights ?? []);
+  return (
+    <View style={styles.release}>
+      <Text variant="label">Tide {release.version}</Text>
+      {items.map((item) => (
+        <View key={item} style={styles.item}>
+          <Feather name="check" size={14} color={colors.brand} style={styles.check} />
+          <Text style={styles.flex}>{item}</Text>
+        </View>
+      ))}
+      {!all && (
+        <Pressable
+          onPress={() => setAll(true)}
+          accessibilityRole="button"
+          hitSlop={8}
+          testID={`whats-new-all-${release.version}`}
+        >
+          <Text style={{ color: colors.brand }}>See all {release.items.length} changes</Text>
+        </Pressable>
+      )}
+    </View>
   );
 }
 

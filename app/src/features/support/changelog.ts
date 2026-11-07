@@ -2,12 +2,24 @@
 // Newest first; add an entry with each release.
 export interface Release {
   version: string;
+  // A short list shown first; the full list is one tap away. Big releases only.
+  highlights?: string[];
   items: string[];
 }
 
 export const CHANGELOG: Release[] = [
   {
     version: '2.0.0',
+    highlights: [
+      'Everything in Tide is free: every feature and every extension, with no subscription',
+      'Bring your own AI: agent mode, inline completions and Fix with AI, with your own key',
+      'A new IDE layout and a new look that follows your editor theme',
+      'Run TypeScript directly, and Lua, Ruby and PHP on your device',
+      'GitHub, GitLab and Bitbucket: clone, pull requests, issues and Actions',
+      'Deploy to GitHub Pages, Netlify, Vercel, Cloudflare Pages or Firebase',
+      'Databases, HTTP requests, SSH and SFTP, built in',
+      'Safer git and remote sync: Tide refuses changes that would overwrite your work',
+    ],
     items: [
       'Everything in Tide is free: every feature and every extension, with no subscription',
       'Highlighting, folding and Outline for Go, Rust, Java, C, C++, C#, Kotlin, Swift, Dart, YAML, TOML, Dockerfile, shell, PowerShell, Makefile, XML and config files; preview SVG files',
@@ -80,13 +92,23 @@ export const CHANGELOG: Release[] = [
       'Browse OpenAPI and Swagger specs and add their endpoints to a .http file',
       'Connect to WebSocket servers from .http files and send and receive messages',
       'See a database schema, with keys and the relationships between tables',
-      'An AI assistant that explains, fixes and changes code with Claude, using your own Anthropic API key',
       'Run the Python cells of Jupyter notebooks on your device',
       'Your own snippets with tab stops, and Emmet in HTML, CSS and JSX',
       'Git blame and the history of each file',
       'GitLab and Bitbucket, with cloning, merge and pull requests, and issues',
       'A Recent Projects widget, deploys as a Live Activity, and Siri and Shortcuts actions',
       'A Midnight app icon, in Settings > Appearance',
+      'git checkout, pull, rm and stash refuse to overwrite uncommitted work, as real git does, and a merge with conflicts keeps every change from the other branch',
+      'Your GitHub token is only ever sent to github.com, over HTTPS; other git hosts use their own sign-in',
+      'Files changed by the terminal, git, package installs or a snapshot restore update in open editors instead of being saved over',
+      'Remote mode: reconnecting merges changes made on both sides and keeps a .phone-conflict copy when both changed a file; build folders like .next and target stay in the container. Update your Tide server to use it',
+      'Unreviewed agent changes survive the app closing and follow a project when it is renamed; "Always allow" can be reset in Settings › AI assistant',
+      'Deploys skip .env files, keys and other secrets',
+      'Links from other apps and Shortcuts ask before running, deploying or sending a request',
+      'Notebook cells and a second Python script can run alongside a running server in the same project',
+      'HTTP history hides tokens and passwords',
+      'A monthly token cap for AI models without a known price, and stopped answers count toward your usage',
+      'Restoring a snapshot never deletes files too large to be in it',
       'Security fixes, and updated React Native, Expo, Git and Markdown components',
     ],
   },

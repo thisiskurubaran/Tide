@@ -92,6 +92,14 @@ npx eas-cli@latest build --profile development --platform android
 
 The Android profile produces an APK you can install directly. iOS cloud builds need an Apple Developer account to sign for a physical device.
 
+Release builds use the `production` profile. Build numbers are kept by EAS (`appVersionSource: remote`) and go up by one with each build; the version shown to users is `expo.version` in `app.json`. `preview` is an internal build of the same app, for testers.
+
+```bash
+cd app
+npx eas-cli@latest build --profile production --platform ios
+npx eas-cli@latest submit --profile production --platform ios
+```
+
 ## Running
 
 ```bash
@@ -170,13 +178,18 @@ Tide is free: every feature and every extension, with no subscription or sign-up
 
 Tide has no in-app purchases.
 
-[appstore/release.md](appstore/release.md) covers the App Store Connect setup, the privacy label and the review notes. The privacy policy ([appstore/site/tide/privacy.md](appstore/site/tide/privacy.md)) and support page ([appstore/site/tide/support.md](appstore/site/tide/support.md)) are published with GitHub Pages at `https://thisiskurubaran.github.io/tide/privacy/` and `/tide/support/`. `appstore/site/` is the whole site, one directory per app, with a template for adding other apps; appstore/release.md has the steps.
+The privacy policy and support page are published at `https://thisiskurubaran.github.io/tide/privacy/` and `/tide/support/`.
 
 ## Remote mode
 
 Remote mode runs the project in a container on a Tide server you host (see below). Set the server URL and token under Settings, Remote server; both are kept in the Keychain (Keystore on Android).
 
-When a project's terminal switches to Remote, the app starts or reuses the project's container, uploads the project's files, and then opens a real bash shell in `/workspace`. After that, files sync both ways: saves, new files and deletes on the phone go to the container, and changes made in the container come back to the phone. Changes to a file with unsaved edits on the phone don't overwrite those edits. `node_modules`, `.git`, `.pylibs` and `__pycache__` are not synced, and neither is any file over 2 MB.
+When a project's terminal switches to Remote, the app starts or reuses the project's container, uploads the project's files, and then opens a real bash shell in `/workspace`. After that, files sync both ways: saves, new files and deletes on the phone go to the container, and changes made in the container come back to the phone. Changes to a file with unsaved edits on the phone don't overwrite those edits.
+
+- **Reconnecting** merges both sides against the last version they agreed on: a file changed only on one side takes that side's version, and a file changed on both keeps the container's under its name with the phone's next to it as `<name>.phone-conflict`.
+- **Not synced:** dependency and build folders stay in the container (`node_modules`, `.git`, `.pylibs`, `__pycache__`, `.venv`, `.next`, `.gradle` and the like at any depth; `venv`, `.cache`, `coverage` and `target` at the project root; the full list is in `shared/protocol.ts`). Files over 2 MB and symlinks belong to the container: they aren't copied to the phone, and the phone never overwrites them.
+- **Server version:** the app and the server must speak the same sync protocol (`SyncProtocol` in `shared/protocol.ts`). The app refuses an older or newer server with a message saying which one to update. Tide 2.0.0 needs a server from the same release.
+- The server URL defaults to `https://`; Settings warns when a plain `http://` address is outside your local network.
 
 When something in the container listens on a port, a button such as `:3000` appears in the terminal header and opens that port in an in-app browser.
 
@@ -195,7 +208,7 @@ TIDE_TOKEN=<at least 16 characters> npm start
 
 Other settings: `HOST`, `PORT` (8787), `TIDE_IMAGE`, `TIDE_IDLE_MINUTES` (15), `TIDE_MEMORY_MB` (1024), `TIDE_CPUS` and `TIDE_PIDS`.
 
-- Every request needs `Authorization: Bearer <token>`. `POST /sessions {"project"}` starts or reuses that project's container; `DELETE /sessions/:id` removes it.
+- Every request needs `Authorization: Bearer <token>`. `POST /sessions {"project"}` starts or reuses that project's container and reports the server's sync `protocol`; `DELETE /sessions/:id` removes it. `GET /health` needs no token.
 - `/sessions/:id/pty` is a WebSocket to bash. `/sessions/:id/sync` syncs files both ways and reports listening ports.
 - Containers run as a non-root user with no capabilities, no privileged mode, memory, CPU and process limits, and no published ports. A container with no open connections is removed after the idle timeout, and leftovers are removed when the server starts.
 - Previews are served at `/p/<previewKey>/<port>/`. The key is random and stands in for the token, because a WebView can't send headers. Pages that link to absolute paths like `/app.js` break under this prefix.
