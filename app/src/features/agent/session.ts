@@ -10,65 +10,20 @@ import { openProjectDb } from '../database/open';
 import { projectEnv, readSecrets } from '../env/store';
 import { PROJECTS_DIR } from '../files/workspace';
 import { gitEnv } from '../git/settings';
-import { fileHistory } from '../history';
 import { Shell } from '../terminal/shell/shell';
 import { createShellFs } from '../terminal/shell/shellFs';
 import { localRunner } from '../../runtime';
 import { buffersStore, projectsStore, storage, workspace } from '../../state';
-import { bufferKey, isDirty, splitKey } from '../../state/buffers';
 import { ApprovalRequest, buildSystemPrompt, Decision, runAgent, StepStatus } from './agent';
-import { ChangeIo, createChangesStore } from './changes';
+import { changesStore, readCurrent } from './changesStore';
 import { createShellCommandRunner } from './shellRunner';
 import { AGENT_TOOLS, AgentFiles, CommandRunner, StepView, TestRun } from './tools';
 
 // ---------------------------------------------------------------------------
-// Files: what the user has, open editor text included
+// Files: pending changes and what the user has live in changesStore.ts, so the
+// app can load saved changes at start-up without loading the whole agent.
 
-async function readCurrent(project: string, path: string): Promise<string | null> {
-  const buffer = buffersStore.getState().buffers[bufferKey(project, path)];
-  if (buffer) return buffer.content;
-  if ((await workspace.stat(project, path).catch(() => null)) !== 'file') return null;
-  return workspace.readFile(project, path);
-}
-
-async function ensureFolder(project: string, dir: string) {
-  let at = '';
-  for (const part of dir.split('/').filter(Boolean)) {
-    const next = at ? `${at}/${part}` : part;
-    if ((await workspace.stat(project, next)) !== 'dir') await workspace.createFolder(project, at, part);
-    at = next;
-  }
-}
-
-// Writes go through the buffers store so open editors show the new text.
-const changeIo: ChangeIo = {
-  read: readCurrent,
-  async write(project, path, content) {
-    const kind = await workspace.stat(project, path).catch(() => null);
-    if (content === null) {
-      if (kind) await projectsStore.getState().deleteEntry(project, path);
-      return;
-    }
-    if (kind === 'file') {
-      await buffersStore.getState().replace(project, path, content);
-      return;
-    }
-    const slash = path.lastIndexOf('/');
-    const dir = slash < 0 ? '' : path.slice(0, slash);
-    await ensureFolder(project, dir);
-    await workspace.createFile(project, dir, path.slice(slash + 1), content);
-    await projectsStore.getState().loadTree(project);
-  },
-  recordHistory: (project, path, content, before) => fileHistory.record(project, path, content, before ?? undefined),
-};
-
-export const changesStore = createChangesStore(changeIo);
-export const useChanges = <T>(selector: (s: ReturnType<typeof changesStore.getState>) => T) => useStore(changesStore, selector);
-
-projectsStore.subscribe((s, prev) => {
-  // Deleted projects take their pending changes with them.
-  for (const p of prev.projects) if (prev.loaded && s.loaded && !s.projects.includes(p)) changesStore.getState().forget(p);
-});
+export { changesStore, useChanges } from './changesStore';
 
 function commandRunner(project: string): CommandRunner {
   const runner = createShellCommandRunner(
@@ -100,10 +55,7 @@ function commandRunner(project: string): CommandRunner {
         return await runner.run(command, options);
       } finally {
         // Programs write files directly; editors that aren't mid-edit pick that up.
-        for (const key of Object.keys(buffersStore.getState().buffers)) {
-          const [p, path] = splitKey(key);
-          if (p === project && !isDirty(buffersStore.getState().buffers[key])) await buffersStore.getState().reload(p, path);
-        }
+        await buffersStore.getState().reloadProject(project);
         await projectsStore.getState().loadTree(project).catch(() => undefined);
       }
     },

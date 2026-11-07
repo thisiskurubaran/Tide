@@ -20,6 +20,7 @@ import {
   SiteFile,
 } from './providers';
 import { gitSettingsStore } from '../git/settings';
+import { isPublishable } from './publishable';
 
 export const PROVIDERS: { id: ProviderId; label: string; token: string | null; help: string }[] = [
   { id: 'github', label: 'GitHub Pages', token: null, help: 'Uses your GitHub sign-in. The folder is published to a gh-pages branch of the repository.' },
@@ -37,7 +38,6 @@ export const PROVIDERS: { id: ProviderId; label: string; token: string | null; h
 
 // Above this the upload is too big to send from the phone in one go.
 export const MAX_SITE_BYTES = 50 * 1024 * 1024;
-const SKIP = /(^|\/)(\.git|node_modules|\.DS_Store|\.tide|\.pylibs|__pycache__)(\/|$)/;
 
 const tokenKey = (provider: ProviderId) => `tide.deploy.${provider}`;
 const hookKey = (project: string) => `tide.deploy.render.${project.replace(/[^\w.-]/g, '_')}`;
@@ -86,7 +86,8 @@ export async function saveConfig(project: string, config: DeployConfig): Promise
 
 export async function collectSite(project: string, folder: string, progress: Progress): Promise<SiteFile[]> {
   const prefix = folder.replace(/^\/+|\/+$/g, '');
-  const paths = (await workspace.listFiles(project)).filter((p) => (!prefix || p === prefix || p.startsWith(`${prefix}/`)) && !SKIP.test(p));
+  // Secrets (.env, private keys, ...) and other dotfiles never go up: the site is public.
+  const paths = (await workspace.listFiles(project)).filter((p) => (!prefix || p === prefix || p.startsWith(`${prefix}/`)) && isPublishable(prefix ? p.slice(prefix.length + 1) : p));
   if (!paths.some((p) => p === (prefix ? `${prefix}/index.html` : 'index.html')))
     throw new Error(`There's no index.html in ${prefix || 'the project'}. Pick the folder your site is built into.`);
   let bytes = 0;

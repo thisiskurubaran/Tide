@@ -1,4 +1,7 @@
-import { ChangeConflictError, changeHunks, countLines, diffStats } from './changes';
+import { createMemoryFs } from '../files/memoryFs';
+import { hydrated } from '../../state/hydrated';
+import { createFsStorage } from '../../state/storage';
+import { ChangeConflictError, changeHunks, countLines, createChangesStore, diffStats } from './changes';
 import { memoryProject } from './testUtils';
 
 const P = 'demo';
@@ -159,5 +162,66 @@ describe('pending changes', () => {
   it('counts +/− between two texts', () => {
     expect(diffStats('a\nb\n', 'a\nB\nc\n')).toEqual({ added: 2, removed: 1 });
     expect(diffStats(null, 'x\ny\n')).toEqual({ added: 2, removed: 0 });
+  });
+});
+
+describe('pending changes across a relaunch', () => {
+  const relaunch = async (p: ReturnType<typeof memoryProject>, storage: ReturnType<typeof createFsStorage>) => {
+    const store = createChangesStore(p.io, storage);
+    await hydrated(store, 1000);
+    return store;
+  };
+
+  it('saves applied changes before they reach disk, and Undo restores the originals after a restart', async () => {
+    const fs = createMemoryFs();
+    const storage = createFsStorage(fs);
+    const p = memoryProject({ 'a.txt': before });
+    const first = await relaunch(p, storage);
+    first.getState().stage(P, 'a.txt', before, after);
+    first.getState().stage(P, 'new.txt', null, 'brand new\n');
+    // The saved record exists by the time the first file is written.
+    const io = p.io.write;
+    let savedAtWrite: string | null = null;
+    p.io.write = async (...args) => {
+      savedAtWrite ??= await fs.readFile('.tide/agent-changes.json');
+      return io(...args);
+    };
+    await first.getState().applyToDisk(P);
+    expect(JSON.parse(savedAtWrite!).state.byProject[P]['a.txt'].original).toBe(before);
+    expect(p.disk.get('a.txt')).toBe(after);
+
+    // The app is killed; a new store loads what was saved.
+    const second = await relaunch(p, storage);
+    expect(Object.keys(second.getState().byProject[P]).sort()).toEqual(['a.txt', 'new.txt']);
+    await second.getState().undoAll(P);
+    expect(p.disk.get('a.txt')).toBe(before);
+    expect(p.disk.has('new.txt')).toBe(false);
+    expect(second.getState().byProject[P]).toEqual({});
+
+    // Resolved changes are gone from the record too.
+    const third = await relaunch(p, storage);
+    expect(third.getState().byProject[P] ?? {}).toEqual({});
+  });
+
+  it('keeps a hunk after a restart', async () => {
+    const storage = createFsStorage(createMemoryFs());
+    const p = memoryProject({ 'a.txt': before });
+    const first = await relaunch(p, storage);
+    first.getState().stage(P, 'a.txt', before, after);
+    await first.getState().applyToDisk(P);
+    const second = await relaunch(p, storage);
+    await second.getState().keepHunk(P, 'a.txt', 0);
+    await second.getState().rejectHunk(P, 'a.txt', 0);
+    expect(p.disk.get('a.txt')).toBe(lines(20, { 2: 'TWO' }));
+    expect(second.getState().byProject[P]['a.txt']).toBeUndefined();
+  });
+
+  it('starts empty from a damaged save', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const fs = createMemoryFs();
+    await fs.writeFile('.tide/agent-changes.json', '{"state":');
+    const store = await relaunch(memoryProject(), createFsStorage(fs));
+    expect(store.getState().byProject).toEqual({});
+    warn.mockRestore();
   });
 });

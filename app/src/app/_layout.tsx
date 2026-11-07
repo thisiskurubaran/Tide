@@ -7,6 +7,7 @@ import { breakpointsStore } from '../extensions/debugger/breakpoints';
 import { extensionsStore } from '../extensions/state';
 // Keeps a local history of every file save.
 import '../features/history';
+import { changesStore } from '../features/agent/changesStore';
 import { gitSettingsStore } from '../features/git/settings';
 import { accountsStore } from '../features/hosts/accounts';
 import { startWidgets } from '../features/widgets';
@@ -16,6 +17,7 @@ import { startQuickActions } from '../features/launch/quickActions';
 import { startCrashReports } from '../features/privacy/crashReports';
 import { remoteSettingsStore } from '../features/remote/settings';
 import { projectsStore, runnerStore, settingsStore, tabsStore, useSettings } from '../state';
+import { hydrated } from '../state/hydrated';
 import { useChromeTheme, useColors } from '../theme/theme';
 import { captureConsole } from '../features/support/logs';
 import { supportStore } from '../features/support/store';
@@ -25,14 +27,6 @@ import { RuffHost } from '../extensions/formatLint/RuffHost';
 // Before anything else logs, so bug reports include start-up warnings.
 captureConsole();
 SplashScreen.preventAutoHideAsync();
-
-type Persisted = { persist: { hasHydrated(): boolean; onFinishHydration(fn: () => void): () => void } };
-
-const hydrated = (store: Persisted) =>
-  new Promise<void>((resolve) => {
-    if (store.persist.hasHydrated()) resolve();
-    else store.persist.onFinishHydration(() => resolve());
-  });
 
 export default function RootLayout() {
   const [ready, setReady] = useState(false);
@@ -62,6 +56,8 @@ export default function RootLayout() {
       hydrated(keyBarStore),
       hydrated(linkedStore),
       hydrated(supportStore),
+      // The agent's unreviewed changes, so Review and Undo work after a relaunch.
+      hydrated(changesStore),
       projectsStore.getState().refresh(),
       remoteSettingsStore.getState().load().catch(() => undefined),
       gitSettingsStore.getState().load().catch(() => undefined),
