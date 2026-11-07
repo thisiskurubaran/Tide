@@ -16,6 +16,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { conflicts } = require('./state');
+const { lstatWork } = require('./tree');
 
 const ZERO = '0'.repeat(40);
 const LOG = path.join('logs', 'refs', 'stash');
@@ -116,7 +117,8 @@ function createStash({ git, author, changes, GitError, tree }) {
     // here, as real git saves them.
     const work = new Map(index);
     for (const c of tracked) {
-      if (fs.existsSync(path.join(dir, c.path))) work.set(c.path, await hashFile(dir, c.path));
+      // lstat, so a symlink whose target is gone is still saved as the link.
+      if (lstatWork(dir, c.path)) work.set(c.path, await hashFile(dir, c.path));
       else work.delete(c.path);
     }
     const parents = [head, i];
@@ -148,7 +150,7 @@ function createStash({ git, author, changes, GitError, tree }) {
     const head = await git.resolveRef({ fs, dir, ref: 'HEAD' });
     const untrackedFiles = untrackedCommit ? await tree.files(dir, untrackedCommit) : new Map();
     for (const filepath of untrackedFiles.keys()) {
-      if (fs.existsSync(path.join(dir, filepath))) throw new GitError(`${filepath} already exists; move it before applying this stash`);
+      if (lstatWork(dir, filepath)) throw new GitError(`${filepath} already exists; move it before applying this stash`);
     }
     const r = await tree.applyChange(dir, { base, ours: head, theirs: oid, labels: { ours: 'Updated upstream', theirs: 'Stashed changes' } });
     const inHead = await tree.files(dir, head);

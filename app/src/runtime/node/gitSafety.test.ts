@@ -335,6 +335,127 @@ withGit('rebase and merge with untracked files in the way', () => {
   });
 });
 
+withGit('Git Pro merge with conflicts keeps the other branch', () => {
+  // feat edits a.txt and c.txt, adds n.txt and deletes d.txt; main edits a.txt.
+  async function conflicted() {
+    const dir = tmp();
+    await git(dir, ['init']);
+    write(dir, 'a.txt', 'a\n');
+    write(dir, 'c.txt', 'c\n');
+    write(dir, 'd.txt', 'd\n');
+    await git(dir, ['add', '-A']);
+    await git(dir, ['commit', '-m', 'base']);
+    await git(dir, ['branch', 'feat']);
+    await git(dir, ['checkout', 'feat']);
+    write(dir, 'a.txt', 'feat\n');
+    write(dir, 'c.txt', 'c2\n');
+    write(dir, 'n.txt', 'n\n');
+    await git(dir, ['rm', '-q', 'd.txt']);
+    await git(dir, ['add', '-A']);
+    await git(dir, ['commit', '-m', 'feat']);
+    await git(dir, ['checkout', 'main']);
+    write(dir, 'a.txt', 'main\n');
+    await git(dir, ['commit', '-am', 'main']);
+    const r = await git(dir, ['__tide', 'merge', 'feat']);
+    expect(JSON.parse(r.out).conflicts).toEqual(['a.txt']);
+    return dir;
+  }
+
+  it('stages their changes, additions and deletions, leaving only the conflict unmerged', async () => {
+    const dir = await conflicted();
+    expect(real(dir, 'status', '--porcelain')).toBe('UU a.txt\nM  c.txt\nD  d.txt\nA  n.txt\n');
+    expect(fs.existsSync(path.join(dir, 'd.txt'))).toBe(false);
+  });
+
+  it.each(['cli', 'gitpro'])('the merge commit has every change from the merged branch (%s commit)', async (via) => {
+    const dir = await conflicted();
+    write(dir, 'a.txt', 'resolved\n');
+    await git(dir, ['add', 'a.txt']);
+    const r = via === 'cli' ? await git(dir, ['commit', '-m', 'merge']) : await git(dir, ['__tide', 'commit', Buffer.from('merge').toString('base64')]);
+    expect(r.code).toBe(0);
+    expect(real(dir, 'log', '-1', '--format=%p').trim().split(' ')).toHaveLength(2);
+    expect(real(dir, 'ls-tree', '--name-only', 'HEAD')).toBe('a.txt\nc.txt\nn.txt\n');
+    expect(real(dir, 'show', 'HEAD:c.txt')).toBe('c2\n');
+    expect(real(dir, 'show', 'HEAD:a.txt')).toBe('resolved\n');
+    expect(real(dir, 'status', '--porcelain')).toBe('');
+    expect(fs.existsSync(path.join(dir, '.git', 'MERGE_HEAD'))).toBe(false);
+    expect(fs.existsSync(path.join(dir, '.git', 'TIDE_CONFLICTS'))).toBe(false);
+  });
+
+  it('CLI commit, even with -a, refuses while a conflict is unresolved', async () => {
+    const dir = await conflicted();
+    const before = real(dir, 'rev-parse', 'HEAD');
+    const r = await git(dir, ['commit', '-am', 'oops']);
+    expect(r.code).toBe(128);
+    expect(r.out).toMatch(/unmerged files: a\.txt/);
+    expect(real(dir, 'rev-parse', 'HEAD')).toBe(before);
+  });
+
+  it('abort puts everything back to HEAD, removing the files the merge added', async () => {
+    const dir = await conflicted();
+    write(dir, 'mine.txt', 'untracked\n');
+    expect((await git(dir, ['__tide', 'abort-merge'])).code).toBe(0);
+    expect(real(dir, 'status', '--porcelain')).toBe('?? mine.txt\n');
+    expect(read(dir, 'a.txt')).toBe('main\n');
+    expect(read(dir, 'd.txt')).toBe('d\n');
+    expect(fs.existsSync(path.join(dir, 'n.txt'))).toBe(false);
+    expect(fs.existsSync(path.join(dir, '.git', 'MERGE_HEAD'))).toBe(false);
+  });
+});
+
+withGit('tracked symlinks', () => {
+  // A link to a folder and a link to a file, committed; the index is written
+  // in the same second, so the racy-file recheck looks at both links.
+  async function linked() {
+    const dir = tmp();
+    await git(dir, ['init']);
+    write(dir, 'lib/x.txt', 'x\n');
+    write(dir, 't.txt', 't\n');
+    fs.symlinkSync('lib', path.join(dir, 'lib-link'));
+    fs.symlinkSync('t.txt', path.join(dir, 't-link'));
+    await git(dir, ['add', '-A']);
+    await git(dir, ['commit', '-m', 'base']);
+    expect(real(dir, 'ls-files', '-s', 'lib-link', 't-link')).toMatch(/^120000 .*\tlib-link\n120000 .*\tt-link\n$/);
+    // Newer than the index: racy.
+    const later = new Date(Date.now() + 5000);
+    fs.lutimesSync(path.join(dir, 'lib-link'), later, later);
+    fs.lutimesSync(path.join(dir, 't-link'), later, later);
+    return dir;
+  }
+
+  it('status works with a link to a folder', async () => {
+    const dir = await linked();
+    const r = await git(dir, ['status', '-s']);
+    expect(r.code).toBe(0);
+    expect(r.out).toBe('');
+    expect(real(dir, 'status', '--porcelain')).toBe('');
+  });
+
+  it("a link isn't modified when its target changes", async () => {
+    const dir = await linked();
+    write(dir, 't.txt', 'changed\n');
+    const later = new Date(Date.now() + 5000);
+    fs.utimesSync(path.join(dir, 't.txt'), later, later);
+    expect((await git(dir, ['status', '-s'])).out).toBe(' M t.txt\n');
+    expect(real(dir, 'status', '--porcelain')).toBe(' M t.txt\n');
+  });
+
+  it('commit -a, stash and checkout work with the links in place', async () => {
+    const dir = await linked();
+    await git(dir, ['branch', 'other']);
+    write(dir, 'lib/x.txt', 'x2\n');
+    expect((await git(dir, ['stash'])).code).toBe(0);
+    expect(read(dir, 'lib/x.txt')).toBe('x\n');
+    expect((await git(dir, ['stash', 'pop'])).code).toBe(0);
+    expect((await git(dir, ['commit', '-am', 'x2'])).code).toBe(0);
+    expect(real(dir, 'show', '--name-only', '--format=', 'HEAD')).toBe('lib/x.txt\n');
+    expect((await git(dir, ['checkout', 'other'])).code).toBe(0);
+    expect(read(dir, 'lib-link/x.txt')).toBe('x\n');
+    expect(fs.readlinkSync(path.join(dir, 't-link'))).toBe('t.txt');
+    expect(real(dir, 'status', '--porcelain')).toBe('');
+  });
+});
+
 describe('credentials', () => {
   class GitError extends Error {}
   const auth = (env: Record<string, string>) => createAuth({ env, GitError });

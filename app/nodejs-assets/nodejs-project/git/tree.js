@@ -18,6 +18,28 @@ const isBinary = (buf) => buf.subarray(0, 8000).includes(0);
 
 const sameEntry = (/** @type {Entry | null} */ a, /** @type {Entry | null} */ b) => (!a || !b ? a === b : a.oid === b.oid && a.mode === b.mode);
 
+/** lstat of a working tree path, or null when nothing is there. Never follows a symlink. */
+function lstatWork(/** @type {string} */ dir, /** @type {string} */ filepath) {
+  try {
+    return fs.lstatSync(path.join(dir, filepath));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A working tree file's content as git stores it, or null when it isn't there:
+ * a symlink is the text of its target (mode 120000), never what it points at,
+ * so a link to a folder or to a changing file reads the same as real git.
+ * @returns {Buffer | null}
+ */
+function readWork(/** @type {string} */ dir, /** @type {string} */ filepath) {
+  const st = lstatWork(dir, filepath);
+  if (!st || st.isDirectory()) return null;
+  const abs = path.join(dir, filepath);
+  return st.isSymbolicLink() ? Buffer.from(fs.readlinkSync(abs)) : fs.readFileSync(abs);
+}
+
 /** @param {{ git: any, changes(dir: string, paths?: string[]): Promise<any[]>, GitError: any }} deps */
 function createTree({ git, changes, GitError }) {
   async function blob(dir, oid) {
@@ -342,4 +364,4 @@ function createTree({ git, changes, GitError }) {
   };
 }
 
-module.exports = { createTree };
+module.exports = { createTree, lstatWork, readWork, sameEntry };

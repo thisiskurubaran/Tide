@@ -8,6 +8,7 @@ const fs = require('fs');
 const { blame } = require('./blame');
 const path = require('path');
 const { CONFLICTS, conflicts, gitFile, readGitFile, setConflicts } = require('./state');
+const { lstatWork, readWork, sameEntry } = require('./tree');
 
 // Merge state isomorphic-git doesn't keep: the commit being merged (as real
 // git does) and which files had conflicts, until they are staged (state.js).
@@ -68,9 +69,38 @@ function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure,
 
   // Stage or unstage the whole file, like `git add` / `git restore --staged`.
   async function stagePath(dir, filepath) {
-    if (fs.existsSync(path.join(dir, filepath))) await git.add({ fs, dir, filepath });
+    if (lstatWork(dir, filepath)) await git.add({ fs, dir, filepath });
     else await git.remove({ fs, dir, filepath });
     setConflicts(dir, conflicts(dir).filter((p) => p !== filepath));
+  }
+
+  /**
+   * After a merge with conflicts, makes the index hold the merge result for
+   * every path that isn't conflicted, as real git does, so only conflicted
+   * paths are left to resolve. isomorphic-git (abortOnConflict: false) stages
+   * only paths both sides changed: a file changed or added only on their side
+   * was left unstaged or untracked, and one deleted only on their side wasn't
+   * deleted, so committing the merge dropped those changes.
+   * @param {string} dir @param {string} oursOid @param {string} theirsOid @param {string[]} unmerged
+   */
+  async function stageMergeResult(dir, oursOid, theirsOid, unmerged) {
+    const [base] = await git.findMergeBase({ fs, dir, oids: [oursOid, theirsOid] });
+    const [b, o, t] = await Promise.all([base ? tree.files(dir, base) : new Map(), tree.files(dir, oursOid), tree.files(dir, theirsOid)]);
+    const skip = new Set(unmerged);
+    for (const filepath of new Set([...b.keys(), ...o.keys(), ...t.keys()])) {
+      if (skip.has(filepath)) continue;
+      const [be, oe, te] = [b.get(filepath) ?? null, o.get(filepath) ?? null, t.get(filepath) ?? null];
+      // Ours already is the result.
+      if (sameEntry(oe, te) || sameEntry(be, te)) continue;
+      // Only their side changed it: take theirs, in the working tree and index.
+      if (sameEntry(be, oe)) {
+        await tree.setFile(dir, filepath, te);
+        continue;
+      }
+      // Both changed it and it merged cleanly: stage what the merge wrote.
+      if (lstatWork(dir, filepath)) await git.add({ fs, dir, filepath });
+      else await git.remove({ fs, dir, filepath });
+    }
   }
 
   /** @type {Record<string, (dir: string, args: string[]) => Promise<unknown>>} */
@@ -90,7 +120,7 @@ function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure,
     async show(dir, [filepath]) {
       const head = await headOid(dir);
       const entry = await indexEntry(dir, filepath);
-      const work = fs.existsSync(path.join(dir, filepath)) ? fs.readFileSync(path.join(dir, filepath)) : null;
+      const work = readWork(dir, filepath);
       const index = entry ? Buffer.from((await git.readBlob({ fs, dir, oid: entry.oid })).blob) : null;
       const r = texts([head ? await blobAt(dir, head, filepath) : null, index, work]);
       return r.binary ? { binary: true } : { binary: false, head: r.sides[0], index: r.sides[1], work: r.sides[2] };
@@ -198,6 +228,7 @@ function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure,
       // merged branch tracks; refuse first, as real git does.
       await tree.assertCanSwitch(dir, await headOid(dir), await tree.resolveCommit(dir, theirsOid), 'merge');
       const message = `Merge branch '${theirs}' into ${ours}`;
+      const oursOid = await git.resolveRef({ fs, dir, ref: ours });
       try {
         const result = await git.merge({ fs, dir, ours, theirs, author: author(), message, abortOnConflict: false });
         // merge moves the branch; the working tree has to follow it.
@@ -207,6 +238,7 @@ function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure,
         const err = /** @type {any} */ (e);
         if (err && err.code === 'MergeConflictError') {
           const files = err.data && err.data.filepaths ? err.data.filepaths : [];
+          await stageMergeResult(dir, oursOid, theirsOid, files);
           fs.writeFileSync(gitFile(dir, MERGE_HEAD), `${theirsOid}\n`);
           fs.writeFileSync(gitFile(dir, MERGE_MSG), `${message}\n`);
           setConflicts(dir, files);
@@ -217,6 +249,14 @@ function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure,
     },
 
     async 'abort-merge'(dir) {
+      // Like `git merge --abort`: every path the merge staged or left
+      // conflicted goes back to HEAD, so files it added are removed again.
+      const head = await headOid(dir);
+      if (head) {
+        const [inHead, inIndex] = await Promise.all([tree.files(dir, head), tree.indexFiles(dir)]);
+        const staged = [...new Set([...inHead.keys(), ...inIndex.keys()])].filter((p) => !sameEntry(inHead.get(p) ?? null, inIndex.get(p) ?? null));
+        await tree.restore(dir, head, [...new Set([...staged, ...conflicts(dir)])]);
+      }
       await git.abortMerge({ fs, dir });
       clearMerge(dir);
       return null;
@@ -290,7 +330,7 @@ function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure,
     // commit, oid null for changes not committed yet. Lines older than the
     // last `n` commits that touched the file are given to the oldest one.
     async blame(dir, [filepath, n]) {
-      const work = fs.existsSync(path.join(dir, filepath)) ? fs.readFileSync(path.join(dir, filepath)) : null;
+      const work = readWork(dir, filepath);
       if (!work) throw new GitError(`${filepath} isn't in the working tree`);
       if (isBinary(work)) return { binary: true };
       let entries = [];

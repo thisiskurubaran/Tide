@@ -16,9 +16,10 @@ delete globalThis.DecompressionStream;
 
 const { git, http } = require('./isogit');
 const { porcelainCode } = require('./status');
+const { conflicts: unresolved, readGitFile } = require('./state');
 const { lineStat } = require('./diffstat');
 const { createUi } = require('./ui');
-const { createTree } = require('./tree');
+const { createTree, readWork } = require('./tree');
 const { createStash } = require('./stash');
 const { createSequencer } = require('./sequencer');
 const { createCommands } = require('./commands');
@@ -108,7 +109,8 @@ async function changes(dir, filepaths) {
   return rows.map((row) => ({ path: row[0], code: porcelainCode(row), row })).filter((c) => c.code !== null);
 }
 
-const seconds = (p) => Math.floor(fs.statSync(p).mtimeMs / 1000);
+// lstat: a symlink's own mtime, not its target's (real git tracks the link text).
+const seconds = (p) => Math.floor(fs.lstatSync(p).mtimeMs / 1000);
 
 // statusMatrix trusts size and mtime in whole seconds, so a same-size edit made
 // in the same second as the last index write looks unchanged (autosave, then
@@ -141,7 +143,9 @@ async function recheckRacy(dir, rows) {
     },
   });
   for (const row of suspects) {
-    const { oid } = await git.hashBlob({ object: fs.readFileSync(path.join(dir, row[0])) });
+    const work = readWork(dir, row[0]);
+    if (!work) continue;
+    const { oid } = await git.hashBlob({ object: work });
     if (oid !== staged.get(row[0])) row[2] = 2;
   }
   return rows;
@@ -304,6 +308,11 @@ const commands = {
     const all = takeFlag(args, '-a', '--all');
     const message = takeValue(args, '-m', '--message');
     if (!message) throw new GitError('usage: git commit [-a] -m <message>');
+    // As in real git, even with -a: conflict markers mustn't be committed by accident.
+    const left = unresolved(dir);
+    if (left.length) throw new GitError(`committing is not possible because you have unmerged files: ${left.join(', ')} (fix them, then git add each one)`);
+    // A merge started from Git Pro makes this a merge commit, as in real git.
+    const merging = readGitFile(dir, 'MERGE_HEAD');
     if (all) {
       for (const c of await changes(dir)) {
         if (c.code === '??') continue;
@@ -312,18 +321,13 @@ const commands = {
       }
     }
     const staged = (await changes(dir)).filter((c) => c.code[0] !== ' ' && c.code !== '??');
-    if (!staged.length) {
+    // A merge whose result matches HEAD (conflicts resolved to ours) still
+    // records that the branch was merged.
+    if (!staged.length && !merging) {
       console.log('nothing to commit (use git add)');
       return 1;
     }
-    // A merge started from Git Pro makes this a merge commit, as in real git.
-    let parent;
-    try {
-      const merging = fs.readFileSync(path.join(dir, '.git', 'MERGE_HEAD'), 'utf8').trim();
-      parent = [await git.resolveRef({ fs, dir, ref: 'HEAD' }), merging];
-    } catch {
-      parent = undefined;
-    }
+    const parent = merging ? [await git.resolveRef({ fs, dir, ref: 'HEAD' }), merging] : undefined;
     const oid = await git.commit({ fs, dir, message, author: author(), parent });
     if (parent) for (const f of ['MERGE_HEAD', 'MERGE_MSG', 'TIDE_CONFLICTS']) fs.rmSync(path.join(dir, '.git', f), { force: true });
     sequencer.committed(dir);
@@ -371,7 +375,7 @@ const commands = {
       /** @param {'head' | 'index' | 'work'} where */
       const read = async (where) => {
         try {
-          if (where === 'work') return fs.readFileSync(path.join(dir, c.path), 'utf8');
+          if (where === 'work') return (readWork(dir, c.path) ?? Buffer.alloc(0)).toString('utf8');
           const { blob } =
             where === 'head'
               ? await git.readBlob({ fs, dir, oid: await git.resolveRef({ fs, dir, ref: 'HEAD' }), filepath: c.path })
