@@ -34,7 +34,7 @@ import {
 import { parseCurl, toCurl, toHttpText } from './curl';
 import { projectEnv } from '../env/store';
 import { onSendRequested, takeSend } from './pending';
-import { HistoryEntry, historyKey, restoreHeaders } from './history';
+import { HistoryEntry, historyKey, restoreRequest } from './history';
 import { HistorySheet } from './HistorySheet';
 import { WsSheet } from './WsSheet';
 import { httpHistory } from './store';
@@ -116,7 +116,7 @@ export function HttpPane({ project, path }: { project: string; path: string }) {
     setResults((r) => ({ ...r, [i]: 'sending' }));
     try {
       const current = toWire(resolveRequest(parsed.requests[i], parsed.variables));
-      const req = override ? { ...current, ...override.request, headers: restoreHeaders(override.request.headers, current.headers) } : current;
+      const req = override ? restoreRequest(override.request, current) : current;
       const response = await send(req);
       httpHistory.getState().add(keyFor(i), req, response);
       setResults((r) => ({ ...r, [i]: { response } }));

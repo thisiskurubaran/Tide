@@ -14,6 +14,8 @@ import { haptic } from '../../components/haptics';
 const summary = (r: SyncResult, verb: string) => {
   const parts = [`${r.written} ${r.written === 1 ? 'file' : 'files'} ${verb}`];
   if (r.removed) parts.push(`${r.removed} deleted`);
+  // Kept on both sides, just not copied.
+  if (r.tooLarge.length) parts.push(`${r.tooLarge.length} too large to sync (over 20 MB), left as they are: ${r.tooLarge.join(', ')}`);
   return parts.join(', ');
 };
 

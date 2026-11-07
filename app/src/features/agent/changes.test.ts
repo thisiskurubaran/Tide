@@ -372,4 +372,29 @@ describe('pending changes follow the project', () => {
     await store.getState().reconcileAll();
     expect(store.getState().byProject[P]).toBeUndefined();
   });
+
+  it('drops a saved record for a project deleted outside Tide while the app was closed (L12)', async () => {
+    ids.set(P, 'born-1');
+    const fs = createMemoryFs();
+    const storage = createFsStorage(fs);
+    const p = memoryProject({ 'a.txt': 'a\n' });
+    const first = createChangesStore(p.io, storage, { identify });
+    await hydrated(first, 1000);
+    first.getState().stage(P, 'a.txt', 'a\n', 'A\n');
+    await settle();
+    await first.getState().flush();
+    expect(JSON.parse(await fs.readFile(`.tide/${CHANGES_STORAGE_KEY}.json`)).state.owners[P]).toBe('born-1');
+
+    // Deleted in the Files app; the next launch reconciles what it loaded
+    // (changesStore.ts runs reconcileAll once hydrated) and saves that.
+    ids.delete(P);
+    const second = createChangesStore(p.io, storage, { identify });
+    await hydrated(second, 1000);
+    expect(second.getState().byProject[P]).toBeDefined();
+    await second.getState().reconcileAll();
+    await second.getState().flush();
+    const saved = JSON.parse(await fs.readFile(`.tide/${CHANGES_STORAGE_KEY}.json`)).state;
+    expect(saved.byProject[P]).toBeUndefined();
+    expect(saved.owners[P]).toBeUndefined();
+  });
 });

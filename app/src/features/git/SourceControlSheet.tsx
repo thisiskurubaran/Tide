@@ -76,31 +76,42 @@ export function SourceControlSheet({ visible, project, onClose }: { visible: boo
   // Runs git steps in order, stopping at the first failure, and shows what git printed.
   async function act(label: string, steps: string[][]) {
     setBusy(label);
-    // Git reads the disk: unsaved editor text goes there first.
-    await buffersStore.getState().flushProject(project);
     let text = '';
     let failed = false;
-    for (const args of steps) {
-      const r = await runGit(localRunner, project, args);
-      text += lastLines(r.stdout + r.stderr) + '\n';
-      if (r.code !== 0) {
-        failed = true;
-        break;
+    try {
+      // Git reads the disk: unsaved editor text goes there first. If that
+      // fails, git doesn't run (it would commit or overwrite stale files).
+      await buffersStore.getState().flushProject(project);
+      for (const args of steps) {
+        const r = await runGit(localRunner, project, args);
+        text += lastLines(r.stdout + r.stderr) + '\n';
+        if (r.code !== 0) {
+          failed = true;
+          break;
+        }
       }
+    } catch (e) {
+      failed = true;
+      text += `${e instanceof Error ? e.message : String(e)}\n`;
+    } finally {
+      // Never leave the sheet stuck busy.
+      setBusy(null);
     }
     setOutput({ text: text.trim(), failed });
-    setBusy(null);
-    // Pulls and checkouts change files under the editor.
-    await projectsStore.getState().loadTree(project);
-    // Every clean buffer, not only open tabs: a stale one would be autosaved back over the change.
-    await buffersStore.getState().reloadProject(project);
-    await refresh();
+    try {
+      // Pulls and checkouts change files under the editor.
+      await projectsStore.getState().loadTree(project);
+      // Every clean buffer, not only open tabs: a stale one would be autosaved back over the change.
+      await buffersStore.getState().reloadProject(project);
+      await refresh();
+    } catch {
+      // The tree and status catch up on the next refresh.
+    }
     return !failed;
   }
 
   async function commit() {
-    // Unsaved editor text would otherwise be left out of the commit.
-    await buffersStore.getState().flushProject(project);
+    // act() flushes unsaved editor text before `git add`, so it is in the commit.
     if (await act('commit', [['add', '-A'], ['commit', '-m', message.trim()]])) {
       setMessage('');
       autoDeployer.onCommit(project).catch(() => undefined);

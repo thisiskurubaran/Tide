@@ -17,7 +17,7 @@ import { startQuickActions } from '../features/launch/quickActions';
 import { startCrashReports } from '../features/privacy/crashReports';
 import { remoteSettingsStore } from '../features/remote/settings';
 import { projectsStore, runnerStore, settingsStore, tabsStore, useSettings } from '../state';
-import { hydrated } from '../state/hydrated';
+import { allLoaded, hydrated } from '../state/hydrated';
 import { useChromeTheme, useColors } from '../theme/theme';
 import { captureConsole } from '../features/support/logs';
 import { supportStore } from '../features/support/store';
@@ -47,28 +47,25 @@ export default function RootLayout() {
   useEffect(() => {
     // Keep the splash up until saved tabs and the project list are loaded,
     // so a restart lands on the right screen without flashing an empty one.
-    // Each waits on its own and swallows its own failure, so one that fails
-    // (the project list can't be read) doesn't lift the splash before the rest
-    // have loaded.
-    const settle = (p: Promise<unknown>) => p.catch((e) => console.warn('Start-up loading failed', e));
-    Promise.all(
-      [
-        hydrated(tabsStore),
-        hydrated(runnerStore),
-        hydrated(settingsStore),
-        hydrated(extensionsStore),
-        hydrated(breakpointsStore),
-        hydrated(keyBarStore),
-        hydrated(linkedStore),
-        hydrated(supportStore),
-        // The agent's unreviewed changes, so Review and Undo work after a relaunch.
-        hydrated(changesStore),
-        projectsStore.getState().refresh(),
-        remoteSettingsStore.getState().load(),
-        gitSettingsStore.getState().load(),
-        accountsStore.getState().load(),
-      ].map(settle),
-    ).finally(() => {
+    // allLoaded waits for each on its own and reports its own failure, so one
+    // that fails (the project list can't be read) doesn't lift the splash
+    // before the rest have loaded.
+    allLoaded([
+      hydrated(tabsStore),
+      hydrated(runnerStore),
+      hydrated(settingsStore),
+      hydrated(extensionsStore),
+      hydrated(breakpointsStore),
+      hydrated(keyBarStore),
+      hydrated(linkedStore),
+      hydrated(supportStore),
+      // The agent's unreviewed changes, so Review and Undo work after a relaunch.
+      hydrated(changesStore),
+      projectsStore.getState().refresh(),
+      remoteSettingsStore.getState().load(),
+      gitSettingsStore.getState().load(),
+      accountsStore.getState().load(),
+    ]).finally(() => {
       startCrashReports(settingsStore);
       startQuickActions();
       startWidgets();

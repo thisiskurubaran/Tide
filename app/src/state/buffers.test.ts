@@ -303,3 +303,66 @@ describe('files deleted on disk', () => {
     expect(buf(buffers, 'index.js')).toEqual({ content, saved: content });
   });
 });
+
+describe('a slow reload overtaken by a write (L4)', () => {
+  // Holds the next readFile of the workspace until released, returning what
+  // was on disk when the read started.
+  const holdNextRead = (workspace: Awaited<ReturnType<typeof setup>>['workspace']) => {
+    const real = workspace.readFile.bind(workspace);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const spy = jest.spyOn(workspace, 'readFile').mockImplementationOnce(async (project, path) => {
+      const old = await real(project, path);
+      await gate;
+      return old;
+    });
+    return { release, restore: () => spy.mockRestore() };
+  };
+
+  it('discards a reload read that started before a replace', async () => {
+    const { buffers, workspace } = await setup();
+    await buffers.getState().load('p', 'index.js');
+    await workspace.writeFile('p', 'index.js', 'old on disk');
+    const held = holdNextRead(workspace);
+    const reloading = buffers.getState().reload('p', 'index.js');
+    await settle();
+    await buffers.getState().replace('p', 'index.js', 'new from shell');
+    held.release();
+    await reloading;
+    held.restore();
+    expect(buf(buffers, 'index.js')).toEqual({ content: 'new from shell', saved: 'new from shell' });
+    // The next edit doesn't write the old text back.
+    buffers.getState().edit('p', 'index.js', 'new from shell!');
+    await buffers.getState().save('p', 'index.js');
+    expect(await workspace.readFile('p', 'index.js')).toBe('new from shell!');
+  });
+
+  it('discards a reload read that started before a save', async () => {
+    const { buffers, workspace } = await setup();
+    await buffers.getState().load('p', 'index.js');
+    await workspace.writeFile('p', 'index.js', 'old on disk');
+    const held = holdNextRead(workspace);
+    const reloading = buffers.getState().reload('p', 'index.js');
+    await settle();
+    buffers.getState().edit('p', 'index.js', 'typed');
+    await buffers.getState().save('p', 'index.js');
+    held.release();
+    await reloading;
+    held.restore();
+    expect(buf(buffers, 'index.js')).toEqual({ content: 'typed', saved: 'typed' });
+    expect(await workspace.readFile('p', 'index.js')).toBe('typed');
+  });
+
+  it('still applies a reload nothing overtook', async () => {
+    const { buffers, workspace } = await setup();
+    await buffers.getState().load('p', 'index.js');
+    await workspace.writeFile('p', 'index.js', 'pulled');
+    const held = holdNextRead(workspace);
+    const reloading = buffers.getState().reload('p', 'index.js');
+    await settle();
+    held.release();
+    await reloading;
+    held.restore();
+    expect(buf(buffers, 'index.js')).toEqual({ content: 'pulled', saved: 'pulled' });
+  });
+});

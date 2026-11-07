@@ -74,6 +74,14 @@ export function createBuffersStore(workspace: Workspace, autosaveMs = AUTOSAVE_M
     for (const key of [...dropped.keys()]) if (match(...splitKey(key))) dropped.delete(key);
   };
 
+  // Bumped whenever a buffer's text or saved text is written or replaced
+  // (before and after the write lands). A reload whose read started before the
+  // latest bump may have read an older file and is discarded, so a slow reload
+  // can't put back old text, and mark it saved, over a newer save or replace.
+  const versions = new Map<string, number>();
+  const bump = (key: string) => versions.set(key, (versions.get(key) ?? 0) + 1);
+  const version = (key: string) => versions.get(key) ?? 0;
+
   const cancel = (key: string) => {
     const t = timers.get(key);
     if (t !== undefined) clearTimeout(t);
@@ -89,9 +97,11 @@ export function createBuffersStore(workspace: Workspace, autosaveMs = AUTOSAVE_M
       if (buffer.deleted && !recreate) return;
       const [project, path] = splitKey(key);
       const content = buffer.content;
+      bump(key);
       // writeFile only writes over an existing file; writeBase64 creates it (and its folders).
       if (buffer.deleted) await workspace.writeBase64(project, path, toBase64(strToU8(content)));
       else await workspace.writeFile(project, path, content);
+      bump(key);
       set((s) => {
         const current = s.buffers[key];
         // The user may have kept typing while the write was in flight.
@@ -131,6 +141,11 @@ export function createBuffersStore(workspace: Workspace, autosaveMs = AUTOSAVE_M
           if (next === null) {
             cancel(key);
             continue;
+          }
+          if (next) {
+            // An in-flight reload of whatever was at the new path is stale now.
+            bump(bufferKey(...next));
+            bump(key);
           }
           buffers[next ? bufferKey(...next) : key] = buffer;
         }
@@ -185,26 +200,34 @@ export function createBuffersStore(workspace: Workspace, autosaveMs = AUTOSAVE_M
       async replace(project, path, content) {
         const key = bufferKey(project, path);
         cancel(key);
+        bump(key);
         await workspace.writeFile(project, path, content);
+        bump(key);
         set((s) => (s.buffers[key] ? { buffers: { ...s.buffers, [key]: { content, saved: content } } } : s));
       },
       async reload(project, path) {
         const key = bufferKey(project, path);
         const buffer = get().buffers[key];
         if (!buffer) return;
+        const started = version(key);
         // Missing, as opposed to unreadable for a moment: only a missing file counts as deleted.
         const kind = await workspace.stat(project, path).catch(() => undefined);
-        if (kind === undefined) return;
+        if (kind === undefined || version(key) !== started) return;
         if (kind !== 'file') return gone(project, path);
         if (isDirty(buffer) && !buffer.deleted) return;
         const content = await workspace.readFile(project, path).catch(() => null);
         if (content === null) return;
         set((s) => {
           const current = s.buffers[key];
-          if (!current) return s;
+          // Written, replaced or reloaded since this read started: the read may be older.
+          if (!current || version(key) !== started) return s;
           // Back on disk (e.g. git checkout the other way): unsaved edits stay unsaved.
-          if (current.deleted) return { buffers: { ...s.buffers, [key]: { content: current.content, saved: content } } };
+          if (current.deleted) {
+            bump(key);
+            return { buffers: { ...s.buffers, [key]: { content: current.content, saved: content } } };
+          }
           if (isDirty(current) || current.content === content) return s;
+          bump(key);
           return { buffers: { ...s.buffers, [key]: { content, saved: content } } };
         });
       },

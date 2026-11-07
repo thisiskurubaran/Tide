@@ -1,6 +1,6 @@
 import { createMemoryFs } from '../files/memoryFs';
 import { createWorkspace } from '../files/workspace';
-import { Folder, hashBytes, pull, push, pushFile } from './sync';
+import { Folder, hashBytes, MAX_FILE_BYTES, pull, push, pushFile } from './sync';
 
 const enc = (s: string) => new Uint8Array(Buffer.from(s, 'utf8'));
 const dec = (b: Uint8Array) => Buffer.from(b).toString('utf8');
@@ -69,5 +69,35 @@ describe('linked folder sync', () => {
     const next = await pushFile(folder, workspace, 'p', 'src/a.js', manifest);
     expect(dec(folder.files.get('src/a.js')!)).toBe('saved');
     expect(next['src/a.js']).toBe(hashBytes(enc('saved')));
+  });
+
+  describe('files over the size limit (L14)', () => {
+    const big = () => new Uint8Array(MAX_FILE_BYTES + 1);
+
+    it('keeps the project copy of a synced file that grew too large in the folder', async () => {
+      const { workspace, folder, manifest } = await setup();
+      folder.files.set('src/a.js', big());
+      const r = await pull(folder, workspace, 'p', manifest);
+      expect(await workspace.readFile('p', 'src/a.js')).toBe('a');
+      expect(r).toMatchObject({ removed: 0, tooLarge: ['src/a.js'] });
+      // Still known as synced, so it isn't treated as new or deleted later.
+      expect(r.manifest['src/a.js']).toBe(manifest['src/a.js']);
+      // And it never deletes the folder copy on the way back either.
+      const back = await push(folder, workspace, 'p', r.manifest);
+      expect(folder.files.get('src/a.js')!.length).toBe(MAX_FILE_BYTES + 1);
+      expect(back).toMatchObject({ written: 0, removed: 0, tooLarge: ['src/a.js'] });
+    });
+
+    it('keeps the folder copy of a synced file that grew too large here', async () => {
+      const { workspace, folder, manifest } = await setup();
+      await workspace.writeBase64('p', 'src/a.js', Buffer.from(big()).toString('base64'));
+      const r = await push(folder, workspace, 'p', manifest);
+      expect(dec(folder.files.get('src/a.js')!)).toBe('a');
+      expect(r).toMatchObject({ removed: 0, written: 0, tooLarge: ['src/a.js'] });
+      // A pull doesn't write the old small copy over the big one either.
+      await pull(folder, workspace, 'p', r.manifest);
+      expect((await workspace.listFiles('p')).includes('src/a.js')).toBe(true);
+      expect((await workspace.readBase64('p', 'src/a.js')).length).toBeGreaterThan(MAX_FILE_BYTES);
+    });
   });
 });

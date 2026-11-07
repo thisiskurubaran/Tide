@@ -117,21 +117,35 @@ export function PackagesSheet({ project, visible, onClose, onTerminal }: Package
     setOutput('');
     setFailed(false);
     let text = '';
-    // The installer reads package.json / requirements.txt from disk: unsaved edits go there first.
-    await buffersStore.getState().flushProject(project);
-    const code = await runTool(localRunner, project, eco, args, (chunk) => {
-      text += chunk;
+    let code: number;
+    try {
+      // The installer reads package.json / requirements.txt from disk: unsaved
+      // edits go there first. If that fails, the installer doesn't run.
+      await buffersStore.getState().flushProject(project);
+      code = await runTool(localRunner, project, eco, args, (chunk) => {
+        text += chunk;
+        setOutput(tidyOutput(text));
+      });
+    } catch (e) {
+      code = 1;
+      text += `${text && !text.endsWith('\n') ? '\n' : ''}${e instanceof Error ? e.message : String(e)}`;
       setOutput(tidyOutput(text));
-    });
-    setBusy(null);
+    } finally {
+      // Never leave the sheet stuck busy.
+      setBusy(null);
+    }
     setFailed(code !== 0);
     haptic(code === 0 ? 'success' : 'error');
     announce(code === 0 ? 'Packages updated' : `${eco} failed: ${tidyOutput(text).split('\n').pop()}`);
     if (code === 0) setQuery('');
-    // npm rewrites package.json (and lock files): editors that aren't mid-edit follow.
-    await buffersStore.getState().reloadProject(project);
-    await projectsStore.getState().loadTree(project);
-    await load();
+    try {
+      // npm rewrites package.json (and lock files): editors that aren't mid-edit follow.
+      await buffersStore.getState().reloadProject(project);
+      await projectsStore.getState().loadTree(project);
+      await load();
+    } catch {
+      // The list catches up the next time the sheet opens.
+    }
   }
 
   const confirmRemove = (name: string) =>

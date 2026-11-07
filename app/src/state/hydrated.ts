@@ -45,3 +45,10 @@ export const hydrated = (store: Persisted, timeoutMs = HYDRATION_TIMEOUT_MS) =>
       resolve();
     }
   });
+
+// Resolves once every start-up task has finished, whether it loaded or failed.
+// Each failure is reported on its own and never cuts the wait short, so one
+// that fails early (the project list can't be read) doesn't lift the splash
+// before the rest have loaded. Never rejects.
+export const allLoaded = (tasks: Promise<unknown>[], onError: (e: unknown) => void = (e) => console.warn('Start-up loading failed', e)) =>
+  Promise.all(tasks.map((p) => p.catch(onError))).then(() => undefined);

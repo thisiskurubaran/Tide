@@ -2,7 +2,7 @@ import { createStore } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
 import { createMemoryFs } from '../features/files/memoryFs';
-import { hydrated } from './hydrated';
+import { allLoaded, hydrated } from './hydrated';
 import { createFsStorage } from './storage';
 import { createTabsStore } from './tabs';
 
@@ -82,6 +82,25 @@ describe('createFsStorage', () => {
     expect(await storage.getItem('a')).toBe('{"x":1}');
     await storage.setItem('a', '{"x":2}');
     expect(await fs.readFile('.tide/a.json')).toBe('{"x":2}');
+  });
+
+  it('quarantines only a file that is not valid JSON (L2)', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const fs = createMemoryFs();
+    await fs.writeFile('.tide/a.json', '{"x":1}');
+    await fs.writeFile('.tide/b.json', '{"x":');
+    // An I/O error from stat (on the .tmp check) is not damage.
+    const spy = jest.spyOn(fs, 'stat').mockRejectedValueOnce(new Error('EACCES'));
+    const storage = createFsStorage(fs);
+    expect(await storage.getItem('a')).toBeNull();
+    spy.mockRestore();
+    expect(await fs.readFile('.tide/a.json')).toBe('{"x":1}');
+    expect(await fs.stat('.tide/a.json.corrupt')).toBeNull();
+    // Bad JSON is moved aside, keeping a copy.
+    expect(await storage.getItem('b')).toBeNull();
+    expect(await fs.stat('.tide/b.json')).toBeNull();
+    expect(await fs.readFile('.tide/b.json.corrupt')).toBe('{"x":');
+    warn.mockRestore();
   });
 
   it('gives up on a read that hangs, without writing over the file', async () => {
@@ -183,5 +202,20 @@ describe('hydrated', () => {
   it('resolves as soon as the store has hydrated', async () => {
     const tabs = createTabsStore(createFsStorage(createMemoryFs()));
     await expect(hydrated(tabs, 60_000)).resolves.toBeUndefined();
+  });
+});
+
+describe('allLoaded (L6: the splash waits for every start-up task)', () => {
+  it('waits for the slow tasks even when one rejects early', async () => {
+    const onError = jest.fn();
+    let finishTabs!: () => void;
+    const tabs = new Promise<void>((r) => (finishTabs = r));
+    let done = false;
+    const all = allLoaded([Promise.reject(new Error('listProjects failed')), tabs], onError).then(() => (done = true));
+    await flush();
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'listProjects failed' }));
+    expect(done).toBe(false);
+    finishTabs();
+    await expect(all).resolves.toBe(true);
   });
 });
