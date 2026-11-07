@@ -1,0 +1,31 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../shared/common.css">
+<link rel="stylesheet" href="../shared/preview.css">
+<script src="../shared/ui.js"></script>
+<script src="../shared/preview.js"></script>
+</head>
+<body>
+<script>
+const P = 'weather-site';
+const screen =
+  Tide.header({ project: P, branch: 'main', changed: 1, eye: true }) +
+  Tide.wave() +
+  Tide.tabs([{ path: 'index.html', on: true, dirty: true }, { path: 'style.css' }, { path: 'app.js' }]) +
+  Tide.editor(Preview.HTML, {
+    lang: 'html', active: 12, caret: 38,
+    overlay: Preview.window({ x: 178, y: 6, w: 214, h: 200, s: 8.2 }),
+  }) +
+  Tide.keybar(['i:move', 'sel', 'i:arrow-left', 'i:arrow-up', 'i:arrow-down', 'i:arrow-right', '⇥', '<', '>', '/', '=', '"', '</']) +
+  Tide.keyboard();
+
+Tide.mount(Tide.iphoneShot({
+  headline: 'Preview what<br><em>you build</em>',
+  sub: 'A live preview floats over your code and updates as you type.',
+  screen,
+}));
+</script>
+</body>
+</html>

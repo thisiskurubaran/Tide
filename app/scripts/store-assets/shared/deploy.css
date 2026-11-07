@@ -1,0 +1,19 @@
+/* Deploy screen (src/features/deploy/DeployScreen.tsx). */
+.scr-head { display: flex; align-items: center; gap: 4px; height: 54px; padding: 0 10px 0 6px; flex: none; }
+.scr-head .stt { display: flex; flex-direction: column; gap: 3px; }
+.scr-head .stt b { font: 600 18px/1 var(--head); letter-spacing: -0.02em; }
+.scr-head .stt span { font: 400 12px/1 var(--sans); color: var(--muted); }
+.dp { flex: 1; padding: 6px 16px 0; display: flex; flex-direction: column; gap: 14px; overflow: hidden; }
+.dp .providers { display: flex; flex-wrap: wrap; gap: 7px; }
+.dp .help { font: 400 12.5px/1.45 var(--sans); color: var(--muted); }
+.dp .field { display: flex; flex-direction: column; gap: 7px; }
+.dp .field .input { padding: 10px 12px; font-family: var(--mono); font-size: 13.5px; }
+.dp .hint { font: 400 12px/1.35 var(--sans); color: var(--muted); }
+.dp .done { background: var(--success-soft); border-radius: 14px; padding: 14px; box-shadow: inset 0 0 0 1px rgba(74,222,128,0.3); display: flex; flex-direction: column; gap: 9px; }
+.dp .done .h { display: flex; align-items: center; gap: 8px; font: 600 15px/1 var(--sans); color: var(--success); }
+.dp .done .url { font: 400 13px/1 var(--mono); color: var(--fg); }
+.dp .done .row { display: flex; gap: 8px; margin-top: 3px; }
+.dp .hist { display: flex; gap: 10px; align-items: flex-start; padding: 2px 0; }
+.dp .hist .ok { color: var(--success); font: 600 13px/1.3 var(--sans); }
+.dp .hist .l { font: 500 13px/1.3 var(--sans); }
+.dp .hist .m { font: 400 12px/1.35 var(--sans); color: var(--muted); }

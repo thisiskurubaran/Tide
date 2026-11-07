@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../shared/common.css">
+<script src="../shared/ui.js"></script>
+<script src="../shared/ipad.js"></script>
+<script src="../shared/scenes.js"></script>
+</head>
+<body>
+<script>
+// 3840×2560 search results asset. Text and devices stay inside the central
+// 80% (x 192–1728, y 128–1152 at this 1920×1280 viewport).
+Tide.mount(`<div class="canvas">
+  <div class="glow" style="width:1200px;height:700px;left:360px;top:520px;background:rgba(59,91,219,0.42)"></div>
+  <div class="glow" style="width:800px;height:500px;left:200px;top:60px;background:rgba(45,212,191,0.14)"></div>
+  <div style="position:absolute;left:0;right:0;top:150px;display:flex;flex-direction:column;align-items:center;text-align:center;z-index:5">
+    <img src="../../../assets/brand/tide-logo-dark.svg" style="height:58px;margin-bottom:34px">
+    <h1 class="headline" style="font-size:86px">Your code, <em>in your pocket.</em></h1>
+    <p class="subhead" style="font-size:32px;margin-top:20px">A full IDE for iPhone and iPad</p>
+  </div>
+  ${Tide.ipad(Scenes.ipadWorkspace({ termHeight: 230 }), { x: 440, y: 480, scale: 0.68, w: 1200, h: 900 })}
+  ${Tide.phone(Scenes.phoneRun(), { x: 1176, y: 500, scale: 0.705 })}
+</div>`);
+</script>
+</body>
+</html>

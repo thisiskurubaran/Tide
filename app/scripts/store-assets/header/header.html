@@ -1,0 +1,29 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../shared/common.css">
+<script src="../shared/ui.js"></script>
+<script src="../shared/ipad.js"></script>
+<script src="../shared/scenes.js"></script>
+</head>
+<body>
+<script>
+// 3840×1646 product page header. Text and devices stay inside the central
+// 80% (x 192–1728, y 82–741 at this 1920×823 viewport).
+const ipadScale = 0.6;
+const phoneScale = 0.575;
+Tide.mount(`<div class="canvas">
+  <div class="glow" style="width:900px;height:700px;left:1000px;top:60px;background:rgba(59,91,219,0.40)"></div>
+  <div class="glow" style="width:700px;height:500px;left:80px;top:300px;background:rgba(45,212,191,0.16)"></div>
+  <div style="position:absolute;left:236px;top:0;bottom:0;display:flex;flex-direction:column;justify-content:center;width:700px">
+    <img src="../../../assets/brand/tide-logo-dark.svg" style="height:62px;align-self:flex-start;margin-bottom:44px">
+    <h1 class="headline" style="font-size:86px">Your code,<br><em>in your pocket.</em></h1>
+    <p class="subhead" style="font-size:31px;margin-top:26px">A full IDE for iPhone and iPad</p>
+  </div>
+  ${Tide.ipad(Scenes.ipadWorkspace({ termHeight: 230 }), { x: 952, y: 116, scale: ipadScale, w: 1200, h: 900 })}
+  ${Tide.phone(Scenes.phoneRun(), { x: 1466, y: 214, scale: phoneScale })}
+</div>`);
+</script>
+</body>
+</html>

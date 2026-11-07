@@ -1,0 +1,61 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../shared/common.css">
+<script src="../shared/ui.js"></script>
+</head>
+<body>
+<script>
+const P = 'weather-cli';
+const code = `
+#!/usr/bin/env node
+import * as api from './lib/forecast.js';
+import { formatDay } from './lib/format.js';
+
+const city = process.argv[2] ?? 'Lisbon';
+const units = process.env.UNITS ?? 'metric';
+
+async function main() {
+  const days = await api.getForecast(city, 3);
+  console.log(\`Forecast for \${city}\`);
+  for (const day of days) {
+    console.log(formatDay(day, units));
+  }
+}
+
+main().catch((err) => {
+  console.error(err.message);
+  process.exit(1);
+});`;
+
+const out = [
+  `${Tide.prompt(P)}node index.js Lisbon`,
+  `<span class="tt">Forecast for Lisbon</span>`,
+  `  Mon  <span class="ty">sunny  </span>  24° / 16°  <span class="td">wind 11 km/h</span>`,
+  `  Tue  <span class="tm">cloudy </span>  22° / 15°  <span class="td">wind 14 km/h</span>`,
+  `  Wed  <span class="tc">showers</span>  19° / 14°  <span class="td">rain 6 mm</span>`,
+  `${Tide.prompt(P)}python3 scripts/avg.py`,
+  `Average high: <span class="tg2">21.7°C</span> over 3 days`,
+  `${Tide.prompt(P)}lua tools/wind.lua`,
+  `Max gust: <span class="ty">38 km/h</span> on Wednesday`,
+  `${Tide.prompt(P)}<span class="cursor-block"></span>`,
+].join('\n');
+
+const screen =
+  Tide.header({ project: P, branch: 'main', changed: 2 }) +
+  Tide.wave({ state: 'success' }) +
+  Tide.tabs([{ path: 'index.js', on: true }, { path: 'lib/forecast.js' }, { path: 'package.json' }]) +
+  Tide.editor(code, { lang: 'js', active: 10, caret: 39 }) +
+  Tide.terminal({ out, height: 262 }) +
+  Tide.statusBar({ branch: 'main', changed: 2, ln: 10, col: 40, lang: 'JavaScript' }) +
+  Tide.activity({ active: 'terminal', git: 2 });
+
+Tide.mount(Tide.iphoneShot({
+  headline: 'Code and run<br><em>on your iPhone</em>',
+  sub: 'Node.js, Python, Lua, Ruby and PHP run right on your device, even offline.',
+  screen,
+}));
+</script>
+</body>
+</html>

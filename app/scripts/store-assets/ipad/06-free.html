@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../shared/common.css">
+<script src="../shared/ui.js"></script>
+<script src="../shared/free.js"></script>
+</head>
+<body>
+<script>
+Tide.mount(`<div class="canvas">
+  <div class="glow" style="width:900px;height:700px;left:-200px;top:650px;background:rgba(45,212,191,0.18)"></div>
+  <div class="glow" style="width:800px;height:600px;left:300px;top:0px;background:rgba(59,91,219,0.30)"></div>
+  <div style="position:absolute;top:96px;left:0;right:0;display:flex;justify-content:center">${Tide.mark(104)}</div>
+  <div class="copy" style="top:236px"><h1 class="headline" style="font-size:84px">Free. <em>Every feature.</em></h1></div>
+  <div style="position:absolute;left:0;right:0;top:362px;display:flex;justify-content:center;z-index:6">${Free.pill(1.45)}</div>
+  <div style="position:absolute;left:84px;right:84px;top:478px;bottom:90px;display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr;gap:20px">
+    ${Free.FEATURES.map((f) => Free.tile(f, 1.42)).join('')}
+  </div>
+</div>`);
+</script>
+</body>
+</html>

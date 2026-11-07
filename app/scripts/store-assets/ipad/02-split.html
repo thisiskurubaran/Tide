@@ -1,0 +1,97 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../shared/common.css">
+<script src="../shared/ui.js"></script>
+<script src="../shared/ipad.js"></script>
+</head>
+<body>
+<script>
+const P = 'weather-cli';
+const left = `
+import { parseUnits, toF } from './units.js';
+
+export function formatDay(day, units) {
+  const temp = units === 'imperial'
+    ? \`\${toF(day.high)}°F / \${toF(day.low)}°F\`
+    : \`\${day.high}°C / \${day.low}°C\`;
+  const wind = units === 'imperial'
+    ? \`\${Math.round(day.wind / 1.609)} mph\`
+    : \`\${day.wind} km/h\`;
+  return [
+    day.name.padEnd(4),
+    day.sky.padEnd(8),
+    temp,
+    wind,
+  ].join('  ');
+}
+
+export function formatAll(days, argv) {
+  const units = parseUnits(argv);
+  return days.map((d) => formatDay(d, units));
+}`;
+
+const right = `
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { formatDay } from '../lib/format.js';
+
+const mon = {
+  name: 'Mon', sky: 'sunny',
+  high: 24, low: 16, wind: 11,
+};
+
+test('formatDay shows highs and lows', () => {
+  const line = formatDay(mon, 'metric');
+  assert.match(line, /24°C \\/ 16°C/);
+});
+
+test('formatDay converts to Fahrenheit', () => {
+  const line = formatDay(mon, 'imperial');
+  assert.match(line, /75°F \\/ 61°F/);
+  assert.match(line, /7 mph/);
+});
+
+test('formatDay pads the columns', () => {
+  const [name] = formatDay(mon, 'metric')
+    .split('  ');
+  assert.equal(name, 'Mon ');
+});`;
+
+const peek = {
+  height: 116,
+  html: `<div class="peek"><div class="ph">${Tide.badge('units.js', 13)}units.js<span class="m">lib · line 12</span>${Tide.icon('x')}</div><div class="pc">
+    <div><span class="no">11</span>${Tide.hl('// Celsius to Fahrenheit', 'js')}</div>
+    <div class="hi"><span class="no">12</span>${Tide.hl('export const toF = (c) => c * 1.8 + 32;', 'js')}</div>
+    <div><span class="no">13</span>${Tide.hl('export const toKmh = (ms) => ms * 3.6;', 'js')}</div>
+  </div></div>`,
+};
+const out = [
+  `${Tide.prompt(P)}node --test test/format.test.js`,
+  `<span class="tg2">✔</span> formatDay shows highs and lows <span class="td">(0.9ms)</span>`,
+  `<span class="tg2">✔</span> formatDay converts to Fahrenheit <span class="td">(0.3ms)</span>`,
+  `<span class="tg2">✔</span> formatDay pads the columns <span class="td">(0.2ms)</span>`,
+  `<span class="tc">ℹ</span> tests 3  <span class="tg2">pass 3</span>  fail 0  <span class="td">duration 64ms</span>`,
+  `${Tide.prompt(P)}<span class="cursor-block"></span>`,
+].join('\n');
+const pane = (path, code, opts, focus) =>
+  `<div class="ws-pane ${focus ? 'focus' : ''}"><div class="pane-tabs">${Tide.badge(path)}<span style="color:#93aaa9">${path.slice(0, path.lastIndexOf('/') + 1)}</span><span style="margin-left:-6px">${path.split('/').pop()}</span></div>${Tide.editor(code, opts)}</div>`;
+
+const screen = Tide.workspace({
+  project: P, branch: 'feat/units', changed: 3,
+  tabs: [{ path: 'lib/format.js', on: true }, { path: 'test/format.test.js' }, { path: 'lib/units.js' }, { path: 'index.js' }],
+  crumbs: [[P, 'lib', 'format.js'], 'formatDay'],
+  panes: pane('lib/format.js', left, { lang: 'js', active: 5, caret: 32, fontSize: 12.5, widgets: { 5: peek } }, true) + Tide.divider() + pane('test/format.test.js', right, { lang: 'js', active: 17, fontSize: 12.5 }),
+  terminal: Tide.terminal({ out, height: 250 }),
+  status: { branch: 'feat/units', changed: 3, ln: 5, col: 33, lang: 'JavaScript' },
+});
+
+Tide.mount(Tide.ipadShot({
+  headline: 'Split editor, <em>side by side</em>',
+  sub: 'Code and its tests together, with breadcrumbs and peek definition.',
+  screen,
+}));
+</script>
+</body>
+</html>

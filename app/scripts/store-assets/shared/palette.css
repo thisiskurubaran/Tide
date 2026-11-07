@@ -1,0 +1,14 @@
+/* Command palette (src/features/search/CommandPalette.tsx). */
+.pal { position: absolute; left: 10px; right: 10px; z-index: 30; background: var(--card); border-radius: 18px; box-shadow: 0 0 0 1px #284049, 0 30px 70px rgba(0,0,0,0.6); overflow: hidden; }
+.pal .in { display: flex; align-items: center; gap: 9px; height: 50px; padding: 0 14px; border-bottom: 1px solid var(--border); font: 400 15.5px/1 var(--sans); color: var(--fg); }
+.pal .in .fe { color: var(--muted); font-size: 16px; }
+.pal .in .q { font-family: var(--mono); color: var(--brand); }
+.pal .chips { display: flex; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.pal .chips span { padding: 6px 10px; border-radius: 999px; font: 500 12px/1 var(--sans); color: var(--muted); background: var(--secondary); }
+.pal .chips span.on { background: var(--brand-soft); color: var(--brand); box-shadow: inset 0 0 0 1px rgba(45,212,191,0.5); }
+.pal .chips span b { font-family: var(--mono); font-weight: 400; margin-right: 3px; opacity: 0.8; }
+.pal .row { display: flex; align-items: center; gap: 12px; height: 42px; padding: 0 14px; font: 500 14px/1 var(--sans); color: var(--fg); white-space: nowrap; }
+.pal .row .ic { width: 20px; text-align: center; color: var(--muted); font-size: 15px; }
+.pal .row .hint { margin-left: auto; font: 400 11.5px/1 var(--mono); color: var(--muted); background: var(--secondary); padding: 4px 6px; border-radius: 5px; }
+.pal .row.on { background: var(--brand-soft); box-shadow: inset 2px 0 0 var(--brand); }
+.pal .row.on .ic { color: var(--brand); }

@@ -1,0 +1,58 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../shared/common.css">
+<link rel="stylesheet" href="../shared/http.css">
+<script src="../shared/ui.js"></script>
+</head>
+<body>
+<script>
+const I = Tide.icon;
+const P = 'notes-api';
+const body = `[
+  {
+    "id": 1,
+    "title": "Buy oat milk",
+    "done": false
+  },
+  {
+    "id": 2,
+    "title": "Ship v2 screenshots",
+    "done": true
+  }
+]`;
+const card = (name, method, url, resp) => `<div class="card">
+  <div class="rq"><div style="flex:1;min-width:0"><div class="nm">${name}</div><div class="url" data-fit><b>${method}</b> ${url}</div></div>
+    <div class="icon-btn muted">${I('clipboard')}</div><span class="btn sm" style="padding:0 10px">${I('send')}Send</span></div>
+  ${resp || ''}</div>`;
+const resp = `<div class="resp">
+  <div class="meta"><b>200 OK</b><span>18 ms · 214 B</span></div>
+  <div class="meta">${I('chevron-right', 'font-size:14px')}Headers (5)</div>
+  <div class="body">${Tide.hl(body, 'json')}</div>
+  <div style="display:flex;justify-content:flex-end"><span class="btn sm outline">${I('save')}Save</span></div>
+</div>`;
+
+const screen =
+  Tide.header({ project: P, branch: 'main', running: true, eye: 'code' }) +
+  Tide.wave({ state: 'running' }) +
+  Tide.tabs([{ path: 'requests.http', on: true }, { path: 'app/main.py' }, { path: 'notes.db' }]) +
+  `<div class="hp">
+    <div class="envs"><span class="env m">+ Paste cURL</span><span class="env">No environment</span><span class="env on">dev</span><span class="env">prod</span></div>
+    ${card('List notes', 'GET', 'http://localhost:8000/notes', resp)}
+    ${card('Create a note', 'POST', 'http://localhost:8000/notes')}
+    ${card('Get one note', 'GET', 'http://localhost:8000/notes/2')}
+  </div>` +
+  Tide.statusBar({ branch: 'main', running: true, lang: '' }) +
+  Tide.activity({});
+
+Tide.mount(Tide.iphoneShot({
+  headline: 'Every tool<br><em>you need</em>',
+  sub: 'Send HTTP requests, query databases and connect over SSH.',
+  screen,
+  phoneTop: 238,
+  extra: `<div class="tools" style="top:186px">${[['terminal', 'SSH'], ['database', 'SQLite'], ['database', 'Postgres'], ['database', 'Redis']].map(([i, t]) => `<span class="chip">${I(i)}${t}</span>`).join('')}</div>`,
+}));
+</script>
+</body>
+</html>

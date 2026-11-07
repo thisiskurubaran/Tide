@@ -1,0 +1,66 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../shared/common.css">
+<link rel="stylesheet" href="../shared/preview.css">
+<script src="../shared/ui.js"></script>
+<script src="../shared/ipad.js"></script>
+<script src="../shared/preview.js"></script>
+</head>
+<body>
+<script>
+const P = 'weather-site';
+const html = `
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width">
+  <title>Weather</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="sun"></div>
+  <main class="card">
+    <p class="city">Lisbon</p>
+    <h1 class="temp">21°</h1>
+    <p class="sky">Sunny, light breeze</p>
+    <ul class="days">
+      <li>Mon <b>24°</b></li>
+      <li>Tue <b>22°</b></li>
+      <li>Wed <b>19°</b></li>
+    </ul>
+  </main>
+  <script type="module">
+    import { load } from './app.js';
+    const city = new URL(location).searchParams
+      .get('city') ?? 'Lisbon';
+    load(city).then(render);
+  <\/script>
+</body>
+</html>`;
+
+const screen = Tide.workspace({
+  project: P, branch: 'main', changed: 1, eye: 'code',
+  tabs: [{ path: 'index.html', on: true, dirty: true }, { path: 'style.css' }, { path: 'app.js' }],
+  panes: `<div class="ws-pane" style="flex:0.57">${Tide.editor(html, { lang: 'html', active: 15, caret: 35 })}</div>${Tide.divider()}<div class="ws-pane" style="flex:0.43;display:flex">${Preview.fullPage(13)}</div>`,
+  terminal: Tide.terminal({ height: 230, out: [
+    `${Tide.prompt(P)}git status --short`,
+    ` <span class="ty">M</span> index.html`,
+    `${Tide.prompt(P)}git commit -am "Add hourly strip"`,
+    `[main 4c1e9a2] Add hourly strip`,
+    ` 1 file changed, 12 insertions(+)`,
+    `${Tide.prompt(P)}<span class="cursor-block"></span>`,
+  ].join('\n') }),
+  status: { branch: 'main', changed: 1, ln: 15, col: 36, lang: 'HTML' },
+});
+
+Tide.mount(Tide.ipadShot({
+  headline: 'Preview what <em>you build</em>',
+  sub: 'HTML and Markdown previews beside their source, reloading as you save.',
+  screen,
+}));
+</script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../shared/common.css">
+<link rel="stylesheet" href="../shared/agent.css">
+<script src="../shared/ui.js"></script>
+<script src="../shared/agent.js"></script>
+</head>
+<body>
+<script>
+const I = Tide.icon;
+const ask = `<div style="padding:16px;display:flex;flex-direction:column;gap:12px">
+  <div style="display:flex;align-items:center;gap:8px;font:600 13px/1 var(--sans);color:var(--muted)">${I('cpu', 'color:var(--brand);font-size:15px')}Agent · weather-cli</div>
+  <div class="ag-user" style="max-width:100%;font-size:14px">Add a --units flag so I can see Fahrenheit, and update the tests.</div>
+  ${Agent.approval()}
+</div>`;
+Tide.mount(Tide.ipadShot({
+  headline: 'Your AI, <em>your key</em>',
+  sub: 'Agent mode, inline completions and Fix with AI. Use Anthropic, OpenAI, Gemini, OpenRouter or your own server.',
+  screen: Agent.review({ fs: 13 }),
+  extra: `<div class="callout" style="right:34px;bottom:150px;width:410px;background:#122027">${ask}</div>`,
+}));
+</script>
+</body>
+</html>

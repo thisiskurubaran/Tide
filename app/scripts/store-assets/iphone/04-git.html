@@ -1,0 +1,47 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../shared/common.css">
+<link rel="stylesheet" href="../shared/git.css">
+<script src="../shared/ui.js"></script>
+<script src="../shared/git.js"></script>
+</head>
+<body>
+<script>
+const P = 'weather-cli';
+const code = `
+const UNITS = ['metric', 'imperial'];
+
+export function parseUnits(argv) {
+  const i = argv.indexOf('--units');
+  const value = i < 0 ? 'metric' : argv[i + 1];
+  if (!UNITS.includes(value)) {
+    throw new Error(\`Unknown units: \${value}\`);
+  }
+  return value;
+}
+
+export const toF = (c) => c * 1.8 + 32;
+export const toKmh = (ms) => ms * 3.6;
+`;
+
+const screen =
+  Tide.header({ project: P, branch: 'feat/units', changed: 4 }) +
+  Tide.wave() +
+  Tide.tabs([{ path: 'lib/units.js', on: true }, { path: 'index.js' }]) +
+  Tide.editor(code, { lang: 'js', active: 5 }) +
+  Tide.statusBar({ branch: 'feat/units', changed: 4, ln: 5, col: 12, lang: 'JavaScript' }) +
+  Tide.activity({ active: 'git', git: 4 }) +
+  '<div class="scrim"></div>' +
+  `<div class="sheet"><div class="grab"></div>${Git.sheet()}</div>`;
+
+Tide.mount(Tide.iphoneShot({
+  headline: 'Git and pull requests<br><em>built in</em>',
+  sub: 'Commit, push and review pull requests on GitHub, GitLab or Bitbucket.',
+  screen,
+  extra: `<div class="callout" style="left:22px;top:284px;width:358px">${Git.pr()}</div>`,
+}));
+</script>
+</body>
+</html>

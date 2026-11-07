@@ -1,0 +1,17 @@
+/* Live preview window (src/features/preview/LivePreviewWindow.tsx) and the sample web page. */
+.live { position: absolute; z-index: 15; border-radius: 14px; overflow: hidden; background: var(--card); box-shadow: 0 0 0 1px #2a434d, 0 24px 50px rgba(0,0,0,0.6), 0 0 40px rgba(45,212,191,0.15); display: flex; flex-direction: column; }
+.live .bar { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 6px 0 10px; border-bottom: 1px solid var(--border); flex: none; }
+.live .bar .dot { width: 7px; height: 7px; border-radius: 4px; background: var(--success); box-shadow: 0 0 6px var(--success); }
+.live .bar .lv { font: 600 11px/1 var(--sans); color: var(--success); }
+.live .bar .tt { flex: 1; font: 400 11px/1 var(--sans); color: var(--muted); }
+.live .bar .fe { color: var(--muted); font-size: 13px; padding: 0 4px; }
+.live .resize { position: absolute; right: 3px; bottom: 3px; width: 12px; height: 12px; border-right: 2px solid rgba(147,170,169,0.6); border-bottom: 2px solid rgba(147,170,169,0.6); border-radius: 0 0 4px 0; }
+.web { flex: 1; background: linear-gradient(170deg, #fff7e8 0%, #ffe3c2 45%, #ffd0a8 100%); font-family: 'Inter'; color: #2b1d12; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; }
+.web .sun { position: absolute; width: 120px; height: 120px; border-radius: 50%; background: radial-gradient(circle, #ffcf5a 0%, #ffb547 45%, rgba(255,181,71,0) 70%); }
+.web .card { position: relative; background: rgba(255,255,255,0.72); border-radius: 18px; box-shadow: 0 10px 30px rgba(160, 90, 30, 0.18); text-align: left; }
+.web .city { font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #b4642a; }
+.web .temp { font-family: 'Instrument Sans'; font-weight: 600; letter-spacing: -0.04em; line-height: 1; }
+.web .sky { color: #7a5a40; }
+.web .days { display: flex; justify-content: space-between; border-top: 1px solid rgba(180,100,42,0.2); }
+.web .days div { display: flex; flex-direction: column; align-items: center; color: #7a5a40; }
+.web .days b { color: #2b1d12; font-weight: 600; }

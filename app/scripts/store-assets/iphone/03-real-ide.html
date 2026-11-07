@@ -1,0 +1,68 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../shared/common.css">
+<link rel="stylesheet" href="../shared/palette.css">
+<script src="../shared/ui.js"></script>
+<script src="../shared/palette.js"></script>
+</head>
+<body>
+<script>
+const P = 'weather-cli';
+const code = `
+import { geocode } from './geocode.js';
+
+const BASE = 'https://api.open-meteo.com/v1';
+
+export async function getForecast(city, n) {
+  const { lat, lon } = await geocode(city);
+  const res = await fetch(
+    \`\${BASE}/forecast?lat=\${lat}&lon=\${lon}\`
+  );
+  if (!res.ok) throw new HttpError(res);
+  const { daily } = await res.json();
+  return daily.time.map((date, i) => ({
+    name: weekday(date),
+    high: Math.round(daily.max[i]),
+    low: Math.round(daily.min[i]),
+    sky: skyFor(daily.code[i]),
+  })).slice(0, n);
+}
+
+function weekday(date) {
+  const d = new Date(dat);
+  return d.toLocaleDateString('en', {
+    weekday: 'short',
+  });
+}
+
+const SKY = {
+  0: 'sunny', 2: 'cloudy',
+  61: 'showers', 95: 'storm',
+};
+
+export const skyFor = (c) => SKY[c] ?? '?';`;
+
+const screen =
+  Tide.header({ project: P, branch: 'feat/units', changed: 3 }) +
+  Tide.wave() +
+  Tide.tabs([{ path: 'lib/forecast.js', on: true }, { path: 'index.js' }]) +
+  Tide.editor(code, {
+    lang: 'js',
+    active: 21,
+    diags: { 21: ['error', "'dat' is not defined", [21, 24]] },
+  }) +
+  Tide.statusBar({ branch: 'feat/units', changed: 3, errors: 1, warnings: 0, ln: 21, col: 24, lang: 'JavaScript' }) +
+  Tide.activity({ git: 3, problems: 1 }) +
+  '<div class="scrim" style="background:rgba(3,7,9,0.5)"></div>' +
+  Palette.card({ query: '>', top: 98, items: Palette.COMMANDS.slice(0, 6) });
+
+Tide.mount(Tide.iphoneShot({
+  headline: 'A real IDE<br><em>in your pocket</em>',
+  sub: 'Command palette, IntelliSense, problems, peek definition and Vim keys.',
+  screen,
+}));
+</script>
+</body>
+</html>

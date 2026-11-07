@@ -1,0 +1,66 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../shared/common.css">
+<link rel="stylesheet" href="../shared/git.css">
+<link rel="stylesheet" href="../shared/agent.css">
+<script src="../shared/ui.js"></script>
+<script src="../shared/git.js"></script>
+<script src="../shared/agent.js"></script>
+</head>
+<body>
+<script>
+const I = Tide.icon;
+const dl = (lines) => lines.map(([s, n, text]) => `<div class="dl ${s === '+' ? 'add' : s === '-' ? 'del' : ''}"><span class="no">${n}</span><span class="sg">${s === ' ' ? '' : s}</span><span>${Tide.hl(text, 'js') || ' '}</span></div>`).join('');
+const thread = `<div class="thread">
+  <div class="c"><span class="av" style="background:#c4a7ff">M</span><div><div class="who">maria <span>· 2h</span></div><div class="tx">Should --units also accept f and c as shorthands?</div></div></div>
+  <div class="c"><span class="av" style="background:#2dd4bf">Y</span><div><div class="who">you <span>· now</span></div><div class="tx">Let's keep it explicit for now. Added a clear error for unknown units.</div></div></div>
+</div>`;
+const fs = 13;
+const diff = (lines) => `<div class="diff" style="font-size:${fs}px;line-height:${Math.round(fs * 1.65)}px">${lines}</div>`;
+const screen = `
+  <div class="prs-head"><div class="icon-btn">${I('chevron-left', 'font-size:24px')}</div><div class="tt2"><b>Add --units flag with Fahrenheit output</b><span>you/weather-cli #42</span></div><div class="icon-btn muted">${I('external-link', 'font-size:18px')}</div></div>
+  <div style="flex:1;min-height:0;overflow:hidden">
+    <div style="display:flex;align-items:center;gap:10px;padding:14px 18px 10px">
+      <span class="pr-badge" style="background:#0f2a1c;color:#4ade80">${I('git-pull-request', 'font-size:11px')}Open</span>
+      <span style="font:400 13px/1 var(--sans);color:var(--muted)">feat/units → main · 3 commits</span>
+      <span style="flex:1"></span>
+      <div class="seg"><span>Conversation</span><span class="on">Files</span><span>Checks</span></div>
+    </div>
+    <div style="padding:2px 18px 12px;font:400 13px/1 var(--sans);color:var(--muted)">Tap a line to comment on it.</div>
+    <div class="prs-file"><div class="fh">${Tide.badge('format.js', 15)}lib/format.js<span style="margin-left:auto;font-size:12.5px"><span style="color:#4ade80">+6</span> <span style="color:#fb7185">−1</span></span></div>
+      ${diff(`<div class="hh">@@ -8,4 +8,6 @@ formatDay</div>` + dl(Agent.diffLines.slice(0, 4)))}
+      ${thread}
+      ${diff(dl(Agent.diffLines.slice(4, 7)))}
+    </div>
+    <div class="prs-file"><div class="fh">${Tide.badge('units.js', 15)}lib/units.js<span style="margin-left:auto;font-size:12.5px;color:#4ade80">+14</span></div>
+      ${diff(`<div class="hh">@@ -0,0 +1,14 @@</div>` + dl([
+        ['+', 1, "const UNITS = ['metric', 'imperial'];"],
+        ['+', 2, ''],
+        ['+', 3, 'export function parseUnits(argv) {'],
+        ['+', 4, "  const i = argv.indexOf('--units');"],
+      ]))}
+    </div>
+    <div class="prs-file"><div class="fh">${Tide.badge('format.test.js', 15)}test/format.test.js<span style="margin-left:auto;font-size:12.5px;color:#4ade80">+18</span></div>
+      ${diff(`<div class="hh">@@ -13,0 +14,18 @@</div>` + dl([
+        ['+', 14, "test('formatDay converts to Fahrenheit', () => {"],
+        ['+', 15, "  const line = formatDay(mon, 'imperial');"],
+        ['+', 16, '  assert.match(line, /75°F/);'],
+        ['+', 17, '});'],
+        ['+', 18, ''],
+        ['+', 19, "test('parseUnits rejects unknown units', () => {"],
+      ]))}
+    </div>
+  </div>
+  <div class="pr-actions" style="padding:12px 18px 30px;background:var(--card)"><span class="btn outline">${I('message-square')}Comment</span><span class="btn outline">${I('check-square')}Review</span><span class="btn">${I('git-merge')}Merge</span></div>`;
+
+Tide.mount(Tide.ipadShot({
+  headline: 'Git and <em>pull requests</em>',
+  sub: 'Commit, push, branch and rebase. Review and merge pull requests from GitHub, GitLab and Bitbucket.',
+  screen,
+  extra: `<div class="callout" style="right:40px;bottom:140px;width:400px;padding:18px 18px 18px">${Git.sheet()}</div>`,
+}));
+</script>
+</body>
+</html>
