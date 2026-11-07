@@ -4,6 +4,7 @@ import http from 'node:http';
 import { type WebSocket, WebSocketServer } from 'ws';
 
 import type { SessionInfo } from '../../shared/protocol.ts';
+import { SYNC_PROTOCOL } from './syncRules.ts';
 import type { Config } from './config.ts';
 import { handlePreview } from './preview.ts';
 import { attachPty } from './pty.ts';
@@ -53,12 +54,13 @@ export function createApp(config: Config, manager: SessionManager, options: { he
     id: s.id,
     project: s.project,
     previewBase: `/p/${s.previewKey}`,
+    protocol: SYNC_PROTOCOL,
   });
 
   const server = http.createServer(async (req, res) => {
     try {
       if (handlePreview(manager, req, res)) return;
-      if (req.url === '/health') return json(res, 200, { ok: true });
+      if (req.url === '/health') return json(res, 200, { ok: true, protocol: SYNC_PROTOCOL });
       if (!authorized(config, req.headers.authorization)) return json(res, 401, { error: 'unauthorized' });
 
       const m = /^\/sessions(?:\/([A-Za-z0-9_-]+))?$/.exec(req.url ?? '');

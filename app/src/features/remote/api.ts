@@ -1,6 +1,7 @@
 import type { SessionInfo } from '@shared/protocol';
 
 import type { RemoteSettings } from './settings';
+import { SYNC_PROTOCOL } from './syncRules';
 
 export class RemoteError extends Error {
   constructor(message: string) {
@@ -25,7 +26,17 @@ export async function openSession(settings: RemoteSettings, project: string, fet
   }
   if (res.status === 401) throw new RemoteError('The server rejected the token');
   if (!res.ok) throw new RemoteError(`The server answered ${res.status}`);
-  return (await res.json()) as SessionInfo;
+  const info = (await res.json()) as SessionInfo;
+  checkProtocol(info);
+  return info;
+}
+
+// Syncing with a server that follows other rules could lose files, so a
+// mismatch stops here with what to update.
+export function checkProtocol(info: SessionInfo) {
+  const theirs = typeof info.protocol === 'number' ? info.protocol : 1;
+  if (theirs < SYNC_PROTOCOL) throw new RemoteError('Your Tide server is out of date. Update it to the latest version (git pull, then restart it) and try again.');
+  if (theirs > SYNC_PROTOCOL) throw new RemoteError('Your Tide server is newer than this app. Update Tide from the App Store and try again.');
 }
 
 export function socketUrl(settings: RemoteSettings, session: SessionInfo, channel: 'pty' | 'sync') {

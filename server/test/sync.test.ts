@@ -22,7 +22,7 @@ import type { Config } from '../src/config.ts';
 import { handlePreview } from '../src/preview.ts';
 import { streamDone, type Session, type SessionManager } from '../src/sessions.ts';
 import { attachSync, hashBytes } from '../src/sync.ts';
-import { isSyncSkipped, SYNC_MAX_BYTES, SYNC_ROOT_SKIP_DIRS, SYNC_SKIP_DIRS } from '../src/syncRules.ts';
+import { isSyncSkipped, SYNC_MAX_BYTES, SYNC_PROTOCOL, SYNC_ROOT_SKIP_DIRS, SYNC_SKIP_DIRS } from '../src/syncRules.ts';
 import { packTar, type TarFile } from '../src/tar.ts';
 
 const WATCHER_PATH = fileURLToPath(new URL('../src/watcher.py', import.meta.url));
@@ -651,5 +651,23 @@ test('preview: the upstream relay is torn down when the browser goes away', asyn
     proxy.close();
     dev.closeAllConnections();
     dev.close();
+  }
+});
+
+test('the server reports its sync protocol on /health and with each session', async () => {
+  const config = { token: 'test-token-0123456789' } as Config;
+  const session = fakeSession();
+  const { manager } = fakeContainer();
+  (manager as unknown as { get: () => Session }).get = () => session;
+  const server = createApp(config, manager);
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  try {
+    assert.deepEqual(await (await fetch(`${base}/health`)).json(), { ok: true, protocol: SYNC_PROTOCOL });
+    const info = await (await fetch(`${base}/sessions/${session.id}`, { headers: { authorization: `Bearer ${config.token}` } })).json();
+    assert.equal(info.protocol, SYNC_PROTOCOL);
+  } finally {
+    server.closeAllConnections();
+    server.close();
   }
 });

@@ -1,8 +1,9 @@
-import type { AllSyncRootSkipDirs, AllSyncSkipDirs, SyncLimits, SyncRootSkipDir, SyncSkipDir } from '@shared/protocol';
+import type { AllSyncRootSkipDirs, AllSyncSkipDirs, SyncLimits, SyncProtocol, SyncRootSkipDir, SyncSkipDir } from '@shared/protocol';
 
 // Runtime copy of the sync rules in shared/protocol.ts (tsc checks they match;
 // server/src/syncRules.ts is the server's copy).
 export const SYNC_MAX_BYTES: SyncLimits['maxBytes'] = 2097152;
+export const SYNC_PROTOCOL: SyncProtocol = 2;
 
 // Skipped at any depth.
 const DIRS = [

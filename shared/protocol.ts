@@ -181,4 +181,11 @@ export type AllSyncSkipDirs<T extends readonly SyncSkipDir[]> = ListsAll<SyncSki
 export type AllSyncRootSkipDirs<T extends readonly SyncRootSkipDir[]> = ListsAll<SyncRootSkipDir, T>;
 
 // POST /sessions response.
-export type SessionInfo = { id: string; project: string; previewBase: string };
+// Bumped whenever the app and the server stop understanding each other's sync
+// or session messages. The app refuses a server whose number doesn't match,
+// rather than syncing with rules the other side doesn't follow.
+// 2: acked, batched init with a three-way reconnect merge (Tide 2.0.0).
+export type SyncProtocol = 2;
+
+// `protocol` is missing on servers older than protocol 2.
+export type SessionInfo = { id: string; project: string; previewBase: string; protocol?: number };

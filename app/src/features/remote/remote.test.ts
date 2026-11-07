@@ -2,7 +2,7 @@ import type { SyncToApp, SyncToServer } from '@shared/protocol';
 
 import { createMemoryFs } from '../files/memoryFs';
 import { createWorkspace } from '../files/workspace';
-import { previewUrl, socketUrl } from './api';
+import { checkProtocol, openSession, previewUrl, RemoteError, socketUrl } from './api';
 import { RemotePty } from './pty';
 import { isInsecureUrl, normalizeUrl, validateSettings } from './settings';
 import { base64Bytes, INIT_BATCH_BYTES, MAX_SYNC_BYTES, RemoteSync } from './sync';
@@ -387,5 +387,24 @@ describe('settings', () => {
     const session = { id: 'abc', project: 'demo', previewBase: '/p/key' };
     expect(socketUrl(settings, session, 'pty')).toBe('wss://tide.example.com/sessions/abc/pty');
     expect(previewUrl(settings, session, 3000)).toBe('https://tide.example.com/p/key/3000/');
+  });
+});
+
+describe('server protocol', () => {
+  const settings = { url: 'https://tide.example.com', token: 't' };
+  const answer = (body: object) => (async () => ({ ok: true, status: 200, json: async () => body })) as unknown as typeof fetch;
+
+  it('accepts a server on the same sync protocol', async () => {
+    const info = { id: 'a', project: 'demo', previewBase: '/p/k', protocol: 2 };
+    await expect(openSession(settings, 'demo', answer(info))).resolves.toEqual(info);
+  });
+
+  it('refuses an older server, including one that predates the protocol number', async () => {
+    await expect(openSession(settings, 'demo', answer({ id: 'a', project: 'demo', previewBase: '/p/k' }))).rejects.toThrow(/server is out of date/);
+    expect(() => checkProtocol({ id: 'a', project: 'demo', previewBase: '/p/k', protocol: 1 })).toThrow(RemoteError);
+  });
+
+  it('refuses a newer server and says to update the app', () => {
+    expect(() => checkProtocol({ id: 'a', project: 'demo', previewBase: '/p/k', protocol: 3 })).toThrow(/newer than this app/);
   });
 });
