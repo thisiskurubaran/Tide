@@ -40,14 +40,21 @@ export class WasmRunner implements Runner {
   run(req: RunRequest, on: (m: RunnerMessage) => void) {
     const { project, rest: entry } = split(req.entry);
     const cwd = split(req.cwd).rest;
-    this.runs.set(req.id, { project, on });
+    const run = { project, on };
+    this.runs.set(req.id, run);
+    // A kill can land while this is still starting: it reloads the page and
+    // finishes the run, so a run that's no longer the live one is never sent.
+    const live = () => this.runs.get(req.id) === run;
     (async () => {
       await this.page.ready();
       this.urls ??= await this.resolveUrls();
+      if (!live()) return;
       this.page.send({ type: 'init', ...this.urls });
       const files = await this.files.read(project);
+      if (!live()) return;
       this.page.send({ type: 'run', id: req.id, runtime: req.runtime as WasmRuntime, entry, cwd, args: req.args, env: req.env ?? {}, files, stdin: '' });
     })().catch((e) => {
+      if (!live()) return;
       on({ type: 'stderr', id: req.id, data: `${e instanceof Error ? e.message : String(e)}\n` });
       this.finish(req.id, 1);
     });

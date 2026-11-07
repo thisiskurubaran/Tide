@@ -44,4 +44,25 @@ describe('WasmRunner', () => {
     expect(restarts()).toBe(1);
     expect(got.at(-1)).toEqual({ type: 'exit', id: 'r2', code: 130, signal: 'SIGINT' });
   });
+
+  it('never sends a run that was killed while it was starting', async () => {
+    const { runner, sent, got, restarts } = setup();
+    runner.run({ type: 'run', id: 'r3', runtime: 'ruby', entry: 'projects/demo/main.rb', cwd: 'projects/demo', args: [] }, (m) => got.push(m));
+    runner.send({ type: 'kill', id: 'r3' });
+    expect(restarts()).toBe(1);
+    await tick();
+    await tick();
+    expect(sent.filter((m) => m.type === 'run')).toEqual([]);
+    expect(got).toEqual([{ type: 'exit', id: 'r3', code: 130, signal: 'SIGINT' }]);
+  });
+
+  it('a new run with the same id after a kill is still sent', async () => {
+    const { runner, sent, got } = setup();
+    runner.run({ type: 'run', id: 'r4', runtime: 'ruby', entry: 'projects/demo/main.rb', cwd: 'projects/demo', args: [] }, (m) => got.push(m));
+    runner.send({ type: 'kill', id: 'r4' });
+    runner.run({ type: 'run', id: 'r4', runtime: 'ruby', entry: 'projects/demo/main.rb', cwd: 'projects/demo', args: [] }, (m) => got.push(m));
+    await tick();
+    await tick();
+    expect(sent.filter((m) => m.type === 'run')).toHaveLength(1);
+  });
 });

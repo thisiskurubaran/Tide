@@ -69,6 +69,11 @@ export function applyEdits(text: string, edits: FileEdits['edits']): string {
   return [...edits].sort((a, b) => b.from - a.from).reduce((t, e) => t.slice(0, e.from) + e.insert + t.slice(e.to), text);
 }
 
+// Python's identifier rule (str.isidentifier): XID_Start or _, then XID_Continue.
+// Those take in Other_ID_Start and Other_ID_Continue (℘, ℮, the middle dot ·),
+// which JS has no regex property for. Not ゛ or ゜: Python rejects them too.
+const PY_IDENTIFIER = /^[\p{XID_Start}_]\p{XID_Continue}*$/u;
+
 // A Python rename replaces one name everywhere, so every edit's range must hold
 // that same identifier in the text the edits are applied to. Anything else means
 // the service's offsets don't match the file (it changed, or line endings were
@@ -77,5 +82,5 @@ export function editsMatchOneName(files: { edits: FileEdits['edits'] }[], texts:
   const names = new Set<string>();
   files.forEach((f, i) => f.edits.forEach((e) => names.add(texts[i].slice(e.from, e.to))));
   const [name] = names;
-  return names.size === 1 && /^[\p{L}\p{M}\p{N}\p{Pc}]+$/u.test(name);
+  return names.size === 1 && PY_IDENTIFIER.test(name);
 }

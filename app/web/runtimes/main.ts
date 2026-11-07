@@ -49,6 +49,37 @@ function lineWriter(id: string, type: 'stdout' | 'stderr') {
   return (text: string) => post({ type, id, data: text });
 }
 
+// ConsoleStdout.lineBuffered, plus flush(): the shim's keeps the text after the
+// last newline until another one comes, and never sends it, so a program's last
+// line without a newline (`print "done"`) would be lost.
+function lineBuffered(id: string, type: 'stdout' | 'stderr') {
+  const write = lineWriter(id, type);
+  const dec = new TextDecoder('utf-8', { fatal: false });
+  let buf = '';
+  const fd = new ConsoleStdout((bytes) => {
+    buf += dec.decode(bytes, { stream: true });
+    const end = buf.lastIndexOf('\n');
+    if (end < 0) return;
+    write(buf.slice(0, end + 1));
+    buf = buf.slice(end + 1);
+  });
+  const flush = () => {
+    buf += dec.decode();
+    if (buf) write(buf);
+    buf = '';
+  };
+  return { fd, flush };
+}
+
+// `rel` from `from`, both project-relative ('' is the project's root).
+function relative(from: string, to: string) {
+  const a = from.split('/').filter(Boolean);
+  const b = to.split('/').filter(Boolean);
+  let i = 0;
+  while (i < a.length && i < b.length - 1 && a[i] === b[i]) i++;
+  return [...a.slice(i).map(() => '..'), ...b.slice(i)].join('/');
+}
+
 // ---- Ruby ------------------------------------------------------------------
 
 function toTree(files: FileMap): Map<string, Inode> {
@@ -81,9 +112,19 @@ function fromTree(dir: Map<string, Inode>, prefix = '', out: Record<string, Uint
 async function runRuby(id: string, entry: string, cwd: string, args: string[], env: Record<string, string>, files: FileMap, stdin: string) {
   const module = await compiled('ruby', id);
   const tree = toTree(files);
-  const out = ConsoleStdout.lineBuffered((l) => lineWriter(id, 'stdout')(`${l}\n`));
-  const err = ConsoleStdout.lineBuffered((l) => lineWriter(id, 'stderr')(`${l}\n`));
-  const wasi = new WASI([], ['HOME=/project', 'TERM=xterm-256color', ...Object.entries(env).map(([k, v]) => `${k}=${v}`)], [new OpenFile(new File(encoder.encode(stdin))), out, err, new PreopenDirectory('/project', tree)]);
+  const out = lineBuffered(id, 'stdout');
+  const err = lineBuffered(id, 'stderr');
+  const wasi = new WASI([], ['HOME=/project', 'TERM=xterm-256color', ...Object.entries(env).map(([k, v]) => `${k}=${v}`)], [new OpenFile(new File(encoder.encode(stdin))), out.fd, err.fd, new PreopenDirectory('/project', tree)]);
+  try {
+    return await evalRuby(module, wasi, tree, entry, cwd, args);
+  } finally {
+    // Whatever's left after the last newline, also when the run throws.
+    out.flush();
+    err.flush();
+  }
+}
+
+async function evalRuby(module: WebAssembly.Module, wasi: WASI, tree: Map<string, Inode>, entry: string, cwd: string, args: string[]) {
   const { vm } = await RubyVM.instantiateModule({ module, wasip1: wasi, args: ['ruby.wasm', '-EUTF-8', '-e_=0'] });
   const q = (s: string) => JSON.stringify(s);
   // A script's exit status, uncaught exceptions printed like the ruby command does.
@@ -108,8 +149,6 @@ async function runRuby(id: string, entry: string, cwd: string, args: string[], e
       1
     end
   `);
-  out.fd_close?.();
-  err.fd_close?.();
   return { code: Number(status.toString()) || 0, after: fromTree(tree) };
 }
 
@@ -158,7 +197,8 @@ async function runPHP(id: string, entry: string, cwd: string, args: string[], en
   }
   if (stdin) php.writeFile('/tmp/.tide-stdin', encoder.encode(stdin));
   php.chdir(`/project/${cwd}`.replace(/\/$/, ''));
-  const rel = cwd ? entry.slice(cwd.length + 1) : entry;
+  // The entry needn't be under cwd (`cd sub; php ../index.php`).
+  const rel = relative(cwd, entry);
   const response = await php.cli(['php', rel, ...args], { env });
   await Promise.all([pump(response.stdout, lineWriter(id, 'stdout')), pump(response.stderr, lineWriter(id, 'stderr'))]);
   const code = await response.exitCode;

@@ -152,6 +152,23 @@ class JediTest(unittest.TestCase):
         util_refs = [r for r in refs if r["path"] == "util.py"]
         self.assertEqual([(r["line"], r["column"], r["preview"]) for r in util_refs], [(1, 5, "def add(a: int, b: int) -> int:"), (14, 7, "print(add(1, 1))")])
 
+    def test_cr_only_line_endings(self):
+        # Old Mac files break lines at a lone \r, which jedi counts as a line break
+        # too: positions sent to jedi and offsets coming back must agree.
+        main = MAIN.replace("\n", "\r")
+        hover = self.call("hover", main, main.index("total, 3"))
+        self.assertEqual(hover["text"], "total: int")
+        self.assertEqual((hover["from"], hover["to"]), (main.index("total, 3"), main.index("total, 3") + 5))
+        files = self.call("rename", main, main.index("add(1"), newName="plus")
+        edits = {f["path"]: f["edits"] for f in files}["main.py"]
+        for e in sorted(edits, key=lambda e: -e["from"]):
+            main = main[: e["from"]] + e["insert"] + main[e["to"]:]
+        self.assertEqual(main, MAIN.replace("\n", "\r").replace("add", "plus"))
+        text = MAIN.replace("\n", "\r") + "c.bu"
+        result = self.call("complete", text, len(text))
+        self.assertEqual(result["from"], len(text) - 2)
+        self.assertIn("bump", [i["label"] for i in result["items"]])
+
     def test_cancel_drops_a_job(self):
         self.send({"op": "call", "id": "slow", "method": "references", "args": {
             "root": self.root, "project": "p", "path": "main.py", "content": MAIN, "offset": 0}, "wait": 0})
@@ -189,3 +206,25 @@ class JediTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PositionTest(unittest.TestCase):
+    def test_position_and_offset_agree_for_every_line_break(self):
+        import tide_jedi
+
+        for text in ["a = 1\nbb = 2\n\nc", "a = 1\r\nbb = 2\r\n\r\nc", "a = 1\rbb = 2\r\rc", "a\r\nb\rc\nd\r\re"]:
+            lines = tide_jedi._lines(text)
+            for i, ch in enumerate(text):
+                # A cursor inside \r\n isn't a position of its own.
+                if i and text[i - 1] == "\r" and ch == "\n":
+                    continue
+                line, col = tide_jedi._position(text, i)
+                self.assertEqual(tide_jedi._offset(lines, line, col), i, (text, i))
+            self.assertEqual(tide_jedi._position(text, len(text))[0], len(lines))
+
+    def test_position_counts_a_lone_cr(self):
+        import tide_jedi
+
+        self.assertEqual(tide_jedi._position("a\rb\rcd", 5), (3, 1))
+        self.assertEqual(tide_jedi._position("a\r\nb", 3), (2, 0))
+

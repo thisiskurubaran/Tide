@@ -210,8 +210,10 @@ def _cp_index(s, u16):
 def _position(text, offset):
     """1-based line and 0-based code point column of a UTF-16 offset, as jedi wants."""
     i = _cp_index(text, offset)
-    line = text.count("\n", 0, i) + 1
-    start = text.rfind("\n", 0, i) + 1
+    # Breaks as _lines and jedi count them: \r\n, a lone \r and \n.
+    before = text[:i]
+    line = before.count("\n") + before.count("\r") - before.count("\r\n") + 1
+    start = max(before.rfind("\n"), before.rfind("\r")) + 1
     return line, i - start
 
 
