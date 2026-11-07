@@ -24,7 +24,14 @@ export interface SyncHooks {
 
 // Same limit as the server's watcher: bigger files aren't synced either way.
 export const MAX_SYNC_BYTES = SYNC_MAX_BYTES;
-const MAX_BASE64 = Math.ceil(MAX_SYNC_BYTES / 3) * 4;
+
+// Bytes a base64 string decodes to. Compared with MAX_SYNC_BYTES rather than a
+// base64 length, which can't tell 2097152 bytes from 2097153 (both encode to
+// the same length) and so let a file through that the watcher calls oversize.
+export function base64Bytes(data: string): number {
+  const pad = data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0;
+  return Math.floor((data.length * 3) / 4) - pad;
+}
 // The init is sent in batches of about this much file data, so no message
 // comes near the server's 64 MB limit however big the project is.
 export const INIT_BATCH_BYTES: SyncLimits['initBatchBytes'] = 8388608;
@@ -132,7 +139,7 @@ export class RemoteSync {
 
   private async read(path: string): Promise<string | null> {
     const data = await this.files.readBase64(this.project, path).catch(() => null);
-    return data !== null && data.length <= MAX_BASE64 ? data : null;
+    return data !== null && base64Bytes(data) <= MAX_SYNC_BYTES ? data : null;
   }
 
   // Flow-controlled: each batch waits for the server's 'init-ack' of the one

@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button, IconButton } from '../../components/Button';
 import { Text } from '../../components/Text';
 import { borderWidth, fonts, fontSizes, radius, spacing } from '../../theme/tokens';
-import { normalizeUrl, remoteSettingsStore, useRemoteSettings, validateSettings } from './settings';
+import { isInsecureUrl, normalizeUrl, remoteSettingsStore, useRemoteSettings, validateSettings } from './settings';
 import { makeStyles, useColors } from '../../theme/theme';
 
 export function RemoteSettingsScreen() {
@@ -18,6 +18,7 @@ export function RemoteSettingsScreen() {
   const [token, setToken] = useState(saved?.token ?? '');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const insecure = isInsecureUrl(normalizeUrl(url));
 
   async function save() {
     const settings = { url: normalizeUrl(url), token: token.trim() };
@@ -73,10 +74,16 @@ export function RemoteSettingsScreen() {
               setUrl(v);
               setError(null);
             }}
-            placeholder="http://192.168.1.20:8787"
+            placeholder="https://tide.example.com"
             keyboardType="url"
             textContentType="URL"
           />
+          {insecure && (
+            <Text variant="muted" style={styles.warning} testID="remote-url-insecure">
+              Plain http:// to a host outside your local network: the token and your files travel unencrypted. Use https:// unless
+              this is a trusted network.
+            </Text>
+          )}
         </View>
         <View style={styles.field}>
           <Text variant="label">Token</Text>
@@ -117,6 +124,7 @@ const useStyles = makeStyles((colors) => ({
   },
   content: { padding: spacing.md, gap: spacing.md },
   field: { gap: spacing.xs },
+  warning: { color: colors.warning },
   input: {
     height: 44,
     paddingHorizontal: spacing.md,

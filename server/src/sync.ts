@@ -17,6 +17,9 @@ const READ_CHUNK = 32;
 const RM_CHUNK = 256;
 // Hashes kept per path for echo suppression (writes the watcher hasn't seen yet).
 const MAX_ECHOES = 8;
+// How long an app delete of a container-owned file waits for the 'file' that
+// would make it a rename (see ownedDeletes in attachSync).
+export const RENAME_WINDOW_MS = 1000;
 
 // What watcher.py prints (server-internal; 'file' and 'delete' are forwarded).
 type WatcherMsg =
@@ -60,7 +63,14 @@ type InitState = {
 // Two-way file sync for one connection. The app sends the project once
 // ("init", in flow-controlled batches) and then each saved file; a watcher in the container reports files
 // created or changed there (npm install output, generated files, edits in vim).
-export function attachSync(manager: SessionManager, session: Session, ws: WebSocket, touch: () => void) {
+export function attachSync(
+  manager: SessionManager,
+  session: Session,
+  ws: WebSocket,
+  touch: () => void,
+  opts: { renameWindowMs?: number } = {},
+) {
+  const renameWindowMs = opts.renameWindowMs ?? RENAME_WINDOW_MS;
   const send = (msg: SyncToApp) => ws.readyState === ws.OPEN && ws.send(JSON.stringify(msg));
   // What the container has as far as this connection knows, so a file the app
   // just pushed isn't echoed back and one the watcher reported isn't sent twice.
@@ -83,8 +93,9 @@ export function attachSync(manager: SessionManager, session: Session, ws: WebSoc
     return false;
   };
 
-  // Paths the app may write or delete. Container-owned ones are not: the app's
-  // copy is older (it never got the big one), so overwriting would lose work.
+  // Paths the app may write (or delete, apart from ownedDeletes below).
+  // Container-owned ones are not: the app's copy is older (it never got the big
+  // one), so overwriting would lose work.
   const writable = (path: string) => {
     if (isSyncSkipped(path)) return false;
     if (!containerOwned(path)) return true;
@@ -120,6 +131,60 @@ export function attachSync(manager: SessionManager, session: Session, ws: WebSoc
     for (let i = 0; i < paths.length; i += RM_CHUNK) {
       await manager.run(session, ['rm', '-rf', '--', ...paths.slice(i, i + RM_CHUNK).map((p) => `${WORKSPACE}/${p}`)]);
     }
+  };
+
+  // App deletes of paths the container owns itself (an oversize file or a
+  // symlink). The app only sends one when the path became owned after its last
+  // look (its own diff skips owned paths), so the user did delete or rename it:
+  // - A plain delete is carried out: the user asked for the path to go, and
+  //   keeping it would bring the file back on the phone at the next reconnect.
+  // - A rename arrives as this delete plus a 'file' for the new path holding
+  //   what the app last had at the old one (its agreed hash). Then the
+  //   container's (bigger, newer) file is moved to the new path instead of
+  //   being replaced by the app's stale copy, and the app is told the container
+  //   owns the new path ('skipped').
+  // So each delete waits renameWindowMs for such a 'file' before it runs.
+  // Paths inside a symlinked folder are never deleted from the app: rm would
+  // reach through the link, and the app's view of them is stale.
+  // path -> the hash the app last agreed on for it (undefined: none).
+  const ownedDeletes = new Map<string, string | undefined>();
+
+  const flushOwnedDeletes = async () => {
+    // A path the container changed since (it shrank and was sent to the app) is newer than the delete: kept.
+    const paths = [...ownedDeletes.keys()].filter((p) => session.skipped.has(p));
+    ownedDeletes.clear();
+    for (const p of paths) session.skipped.delete(p);
+    await remove(paths);
+  };
+
+  const deleteOwned = (path: string) => {
+    ownedDeletes.set(path, session.agreed?.get(path));
+    session.agreed?.delete(path);
+    known.delete(path);
+    setTimeout(() => {
+      chain = chain.then(flushOwnedDeletes).catch((e: Error) => ws.close(1011, e.message.slice(0, 100)));
+    }, renameWindowMs).unref();
+  };
+
+  // Moves a container-owned file the app just renamed; false if it wasn't a rename after all.
+  const moveOwned = async (to: string, hash: string): Promise<boolean> => {
+    let from: string | undefined;
+    for (const [p, h] of ownedDeletes) if (h !== undefined && h === hash && session.skipped.has(p)) from = p;
+    if (from === undefined) return false;
+    ownedDeletes.delete(from);
+    const dir = to.includes('/') ? to.slice(0, to.lastIndexOf('/')) : '';
+    if (dir) await manager.run(session, ['mkdir', '-p', '--', `${WORKSPACE}/${dir}`]);
+    if ((await manager.run(session, ['mv', '-fT', '--', `${WORKSPACE}/${from}`, `${WORKSPACE}/${to}`])) !== 0) {
+      ownedDeletes.set(from, hash); // Still deleted, once the window ends.
+      return false;
+    }
+    session.skipped.delete(from);
+    session.skipped.add(to);
+    session.modes.delete(to);
+    known.delete(to);
+    session.agreed?.delete(to);
+    send({ type: 'skipped', path: to });
+    return true;
   };
 
   const sendFile = (path: string, data: string, hash: string) => {
@@ -340,15 +405,17 @@ export function attachSync(manager: SessionManager, session: Session, ws: WebSoc
         return handleInit(msg);
       case 'file': {
         const path = safePath(msg.path);
-        if (!writable(path)) return;
         const data = Buffer.from(msg.data, 'base64');
         const hash = hashBytes(data);
+        if (ownedDeletes.size && !isSyncSkipped(path) && !containerOwned(path) && (await moveOwned(path, hash))) return;
+        if (!writable(path)) return;
         session.agreed?.set(path, hash);
         await write([{ path, data, hash }]);
         return;
       }
       case 'delete': {
         const path = safePath(msg.path);
+        if (!isSyncSkipped(path) && session.skipped.has(path)) return deleteOwned(path);
         if (!writable(path)) return;
         session.agreed?.delete(path);
         await remove([path]);
@@ -384,5 +451,7 @@ export function attachSync(manager: SessionManager, session: Session, ws: WebSoc
   ws.on('close', () => {
     closed = true;
     watcher?.stop();
+    // No rename can follow any more: pending deletes run now.
+    chain = chain.then(flushOwnedDeletes).catch(() => undefined);
   });
 }

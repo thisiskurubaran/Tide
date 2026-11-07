@@ -37,6 +37,41 @@ export function stripPid(onPid: (pid: number) => void): Transform {
   });
 }
 
+// How long a run() or output() exec may take before it is given up on.
+export const EXEC_TIMEOUT_MS = 60_000;
+
+// Settles once an exec's stream is done: resolves on 'end' or 'close', rejects
+// on 'error' or after `ms` (destroying the stream). Waiting for 'end' alone
+// hung forever when the stream errored, which stalled the whole sync chain.
+export function streamDone(stream: NodeJS.ReadableStream & { destroy?(err?: Error): void }, ms = EXEC_TIMEOUT_MS): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      done();
+      stream.destroy?.();
+      reject(new Error(`container command timed out after ${Math.round(ms / 1000)}s`));
+    }, ms);
+    const ok = () => {
+      done();
+      resolve();
+    };
+    const fail = (e: Error) => {
+      done();
+      reject(e);
+    };
+    const done = () => {
+      clearTimeout(timer);
+      stream.off('end', ok);
+      stream.off('close', ok);
+      stream.off('error', fail);
+      // A late error must not crash the process once nothing listens for it.
+      stream.on('error', () => undefined);
+    };
+    stream.on('end', ok);
+    stream.on('close', ok);
+    stream.on('error', fail);
+  });
+}
+
 export interface Session {
   id: string;
   project: string;
@@ -48,7 +83,8 @@ export interface Session {
   ports: number[];
   // Paths the container owns: files over SyncLimits['maxBytes'] and symlinks
   // (a folder symlink covers everything under it). The container's copy wins:
-  // writes and deletes from the app to these paths are dropped.
+  // writes from the app to these paths are dropped (an app delete or rename of
+  // one is carried out: see ownedDeletes in sync.ts).
   skipped: Set<string>;
   // Sync record, kept across reconnects while the container lives: the content
   // hash (sha1 of the bytes) of each path as last agreed between the app and the
@@ -193,23 +229,23 @@ export class SessionManager {
     };
   }
 
-  async run(session: Session, cmd: string[]) {
+  async run(session: Session, cmd: string[], timeoutMs = EXEC_TIMEOUT_MS) {
     const exec = await session.container.exec({ Cmd: cmd, User: 'tide', AttachStdout: true, AttachStderr: true });
     const stream = await exec.start({ hijack: true, stdin: false });
     stream.resume();
-    await new Promise((resolve) => stream.on('end', resolve));
+    await streamDone(stream, timeoutMs);
     return (await exec.inspect()).ExitCode ?? 1;
   }
 
   // Runs a command to completion and returns its stdout.
-  async output(session: Session, cmd: string[]): Promise<string> {
+  async output(session: Session, cmd: string[], timeoutMs = EXEC_TIMEOUT_MS): Promise<string> {
     const exec = await session.container.exec({ Cmd: cmd, User: 'tide', AttachStdout: true, AttachStderr: true });
     const stream = await exec.start({ hijack: true, stdin: false });
     const out = new PassThrough();
     const chunks: Buffer[] = [];
     out.on('data', (d: Buffer) => chunks.push(d));
     this.docker.modem.demuxStream(stream, out, new PassThrough());
-    await new Promise((resolve) => stream.on('end', resolve));
+    await streamDone(stream, timeoutMs);
     return Buffer.concat(chunks).toString('utf8');
   }
 
@@ -220,7 +256,12 @@ export class SessionManager {
     const { onPid, stop } = this.stopper(session);
     const raw = new PassThrough();
     this.docker.modem.demuxStream(stream, raw, new PassThrough());
-    stream.on('end', () => raw.end());
+    // Ends stdout however the stream finishes, so a watcher that dies before its
+    // snapshot rejects the sync's wait instead of hanging it.
+    const finish = () => !raw.writableEnded && raw.end();
+    stream.on('end', finish);
+    stream.on('close', finish);
+    stream.on('error', finish);
     const stdout = raw.pipe(stripPid(onPid));
     return {
       stdout,

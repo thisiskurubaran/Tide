@@ -141,9 +141,10 @@ export type SyncLimits = {
 };
 
 // Folders never synced, at any depth: dependencies, VCS data, and build or
-// tool caches that are regenerated in the container and can be huge. 'dist',
-// 'build' and 'out' are deliberately not here, since some projects keep
-// sources or checked-in assets in them (batched init keeps big ones safe).
+// tool caches whose names nobody gives a source folder. They are regenerated in
+// the container and can be huge. 'dist', 'build' and 'out' are deliberately not
+// here, since some projects keep sources or checked-in assets in them (batched
+// init keeps big ones safe).
 // The runtime lists (server/src/syncRules.ts, app/src/features/remote/syncRules.ts)
 // must name exactly these (checked by tsc); server/src/watcher.py has a copy
 // that a server test compares.
@@ -153,8 +154,6 @@ export type SyncSkipDir =
   | '__pycache__'
   | '.pylibs'
   | '.venv'
-  | 'venv'
-  | '.cache'
   | '.next'
   | '.nuxt'
   | '.svelte-kit'
@@ -168,12 +167,18 @@ export type SyncSkipDir =
   | '.mypy_cache'
   | '.ruff_cache'
   | '.tox'
-  | '.nyc_output'
-  | 'coverage'
-  | 'target';
+  | '.nyc_output';
 
-// Resolves to T only when T lists every SyncSkipDir (use with `satisfies`).
-export type AllSyncSkipDirs<T extends readonly SyncSkipDir[]> = [Exclude<SyncSkipDir, T[number]>] extends [never] ? T : never;
+// Folders never synced only at the project root: generic names that are build
+// output or caches there (cargo's target, coverage reports, a virtualenv) but
+// can be real source folders deeper down (src/features/coverage/). Same
+// runtime copies and checks as SyncSkipDir.
+export type SyncRootSkipDir = 'venv' | '.cache' | 'coverage' | 'target';
+
+// Resolves to T only when T lists every member of All (use with `satisfies`).
+type ListsAll<All extends string, T extends readonly All[]> = [Exclude<All, T[number]>] extends [never] ? T : never;
+export type AllSyncSkipDirs<T extends readonly SyncSkipDir[]> = ListsAll<SyncSkipDir, T>;
+export type AllSyncRootSkipDirs<T extends readonly SyncRootSkipDir[]> = ListsAll<SyncRootSkipDir, T>;
 
 // POST /sessions response.
 export type SessionInfo = { id: string; project: string; previewBase: string };

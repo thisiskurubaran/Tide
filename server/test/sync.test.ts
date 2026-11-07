@@ -5,7 +5,8 @@ import { execFileSync, spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
-import type { AddressInfo, Socket } from 'node:net';
+import http from 'node:http';
+import net, { type AddressInfo, type Socket } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
@@ -18,9 +19,10 @@ import WebSocket from 'ws';
 import type { SyncToApp } from '../../shared/protocol.ts';
 import { createApp } from '../src/app.ts';
 import type { Config } from '../src/config.ts';
-import type { Session, SessionManager } from '../src/sessions.ts';
+import { handlePreview } from '../src/preview.ts';
+import { streamDone, type Session, type SessionManager } from '../src/sessions.ts';
 import { attachSync, hashBytes } from '../src/sync.ts';
-import { isSyncSkipped, SYNC_MAX_BYTES, SYNC_SKIP_DIRS } from '../src/syncRules.ts';
+import { isSyncSkipped, SYNC_MAX_BYTES, SYNC_ROOT_SKIP_DIRS, SYNC_SKIP_DIRS } from '../src/syncRules.ts';
 import { packTar, type TarFile } from '../src/tar.ts';
 
 const WATCHER_PATH = fileURLToPath(new URL('../src/watcher.py', import.meta.url));
@@ -34,17 +36,27 @@ test('watcher.py skips the same folders and size as the app', () => {
 t = ast.parse(open(sys.argv[1]).read())
 v = {}
 for n in t.body:
-    if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name) and n.targets[0].id in ("SKIP_DIRS", "MAX_BYTES"):
+    if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name) and n.targets[0].id in ("SKIP_DIRS", "ROOT_SKIP_DIRS", "MAX_BYTES"):
         v[n.targets[0].id] = eval(compile(ast.Expression(n.value), "w", "eval"))
-print(json.dumps({"dirs": sorted(v["SKIP_DIRS"]), "max": v["MAX_BYTES"]}))`,
+print(json.dumps({"dirs": sorted(v["SKIP_DIRS"]), "root": sorted(v["ROOT_SKIP_DIRS"]), "max": v["MAX_BYTES"]}))`,
     WATCHER_PATH,
   ]);
-  const { dirs, max } = JSON.parse(String(out));
+  const { dirs, root, max } = JSON.parse(String(out));
   assert.deepEqual(dirs, [...SYNC_SKIP_DIRS].sort());
+  assert.deepEqual(root, [...SYNC_ROOT_SKIP_DIRS].sort());
   assert.equal(max, SYNC_MAX_BYTES);
   assert.equal(isSyncSkipped('a/.next/cache/x.js'), true);
   assert.equal(isSyncSkipped('src/target.rs'), false);
   assert.equal(isSyncSkipped('dist/index.js'), false);
+});
+
+test('generic build folder names are skipped only at the project root', () => {
+  for (const p of ['coverage/lcov.info', 'target/debug/app', 'venv/bin/python', '.cache/x', 'pkg/node_modules/a/index.js', 'a/b/.git/HEAD', 'src/__pycache__/m.pyc']) {
+    assert.equal(isSyncSkipped(p), true, p);
+  }
+  for (const p of ['src/features/coverage/Coverage.tsx', 'docs/target/goals.md', 'tools/venv/setup.md', 'src/.cache/keep.ts', 'coverage', 'target']) {
+    assert.equal(isSyncSkipped(p), false, p);
+  }
 });
 
 class FakeWs extends EventEmitter {
@@ -77,6 +89,8 @@ function fakeContainer(initial: Record<string, string> = {}, opts: { owned?: str
   const writes: string[][] = [];
   const written: TarFile[] = [];
   const removed: string[] = [];
+  const moved: [string, string][] = [];
+  const runs: string[][] = [];
   let watcherOut = new PassThrough();
   const fileMsg = (p: string) => ({ type: 'file', path: p, data: files.get(p)!.toString('base64'), mode: modes.get(p) ?? 0o644 });
   const manager = {
@@ -100,6 +114,15 @@ function fakeContainer(initial: Record<string, string> = {}, opts: { owned?: str
       return { stdout: watcherOut, stop() {} };
     },
     run: async (_s: Session, cmd: string[]) => {
+      runs.push(cmd);
+      if (cmd[0] === 'mv') {
+        const [from, to] = cmd.slice(cmd.indexOf('--') + 1).map((p) => p.replace('/workspace/', ''));
+        if (!files.has(from) && !owned.has(from)) return 1;
+        if (files.has(from)) files.set(to, files.get(from)!);
+        files.delete(from);
+        moved.push([from, to]);
+        return 0;
+      }
       if (cmd[0] === 'rm') {
         for (const p of cmd.slice(cmd.indexOf('--') + 1)) {
           const rel = p.replace('/workspace/', '');
@@ -117,6 +140,8 @@ function fakeContainer(initial: Record<string, string> = {}, opts: { owned?: str
     writes,
     written,
     removed,
+    moved,
+    runs,
     watch: (msg: object) => watcherOut.write(JSON.stringify(msg) + '\n'),
     text: (p: string) => files.get(p)?.toString(),
   };
@@ -127,9 +152,9 @@ const until = async (cond: () => boolean) => {
 };
 const settle = (ws: FakeWs, type: string) => until(() => ws.sent.some((m) => m.type === type));
 
-async function connect(c: ReturnType<typeof fakeContainer>, session: Session, init: Record<string, string>) {
+async function connect(c: ReturnType<typeof fakeContainer>, session: Session, init: Record<string, string>, renameWindowMs?: number) {
   const ws = new FakeWs();
-  attachSync(c.manager, session, ws as never, () => {});
+  attachSync(c.manager, session, ws as never, () => {}, { renameWindowMs });
   ws.receive({ type: 'init', files: Object.entries(init).map(([path, s]) => ({ path, data: b64(s) })) });
   await settle(ws, 'ready');
   return ws;
@@ -273,7 +298,7 @@ test('writes keep the container file mode and never touch symlinks', async () =>
 
   ws.receive({ type: 'file', path: 'gradlew', data: b64('#!/bin/sh\necho hi\n') });
   ws.receive({ type: 'file', path: 'new.sh', data: b64('x') });
-  ws.receive({ type: 'delete', path: 'link.txt' });
+  ws.receive({ type: 'delete', path: 'vendor/lib.js' });
   ws.receive({ type: 'file', path: 'vendor/lib.js', data: b64('y') });
   await until(() => c.writes.length === 2);
   await tick();
@@ -294,6 +319,72 @@ test('writes keep the container file mode and never touch symlinks', async () =>
   await until(() => c.writes.length === 3);
   assert.equal(c.written.at(-1)!.mode, 0o755);
   assert.deepEqual(ws.sent, []);
+});
+
+// The app only sends a delete for a container-owned path when it became owned
+// after the app last looked (here: a.txt grew past the limit in the container).
+async function ownedAfterAgreeing(c: ReturnType<typeof fakeContainer>, session: Session, renameWindowMs: number) {
+  const ws = await connect(c, session, { 'a.txt': 'small', 'dir/b.txt': 'b' }, renameWindowMs);
+  c.files.set('a.txt', Buffer.from('BIG'));
+  c.watch({ type: 'skipped', path: 'a.txt' });
+  await settle(ws, 'skipped');
+  ws.sent.length = 0;
+  return ws;
+}
+
+test('an app delete of a container-owned file deletes it in the container', async () => {
+  const c = fakeContainer();
+  const session = fakeSession();
+  const ws = await ownedAfterAgreeing(c, session, 30);
+  ws.receive({ type: 'delete', path: 'a.txt' });
+  await tick();
+  assert.deepEqual(c.removed, []); // Waits in case a rename's 'file' follows.
+  await until(() => c.removed.length > 0);
+  assert.deepEqual(c.removed, ['a.txt']);
+  assert.equal(session.skipped.has('a.txt'), false);
+  assert.equal(session.agreed!.has('a.txt'), false);
+  // The watcher's report of it is not echoed to the app, which already deleted it.
+  c.watch({ type: 'delete', path: 'a.txt' });
+  await tick();
+  assert.deepEqual(ws.sent, []);
+});
+
+test('an app rename of a container-owned file moves the container copy and hands the new path to the container', async () => {
+  const c = fakeContainer();
+  const session = fakeSession();
+  const ws = await ownedAfterAgreeing(c, session, 1000);
+  // A rename in the app's tree: the old path deleted, the new one holding what the app had.
+  ws.receive({ type: 'delete', path: 'a.txt' });
+  ws.receive({ type: 'file', path: 'moved/a.txt', data: b64('small') });
+  await settle(ws, 'skipped');
+  assert.deepEqual(c.moved, [['a.txt', 'moved/a.txt']]);
+  assert.equal(c.text('moved/a.txt'), 'BIG'); // Not overwritten by the app's stale copy.
+  assert.ok(c.runs.some((r) => r[0] === 'mkdir' && r.at(-1) === '/workspace/moved'));
+  assert.deepEqual(ws.sent, [{ type: 'skipped', path: 'moved/a.txt' }]);
+  assert.ok(session.skipped.has('moved/a.txt'));
+  assert.equal(session.skipped.has('a.txt'), false);
+  // Later app writes to the new path are dropped like any container-owned path.
+  ws.receive({ type: 'file', path: 'moved/a.txt', data: b64('stale edit') });
+  await tick();
+  assert.equal(c.text('moved/a.txt'), 'BIG');
+  // Nothing is left to delete when the socket closes.
+  ws.close();
+  await tick();
+  assert.deepEqual(c.removed, []);
+});
+
+test('a pending owned delete runs when the socket closes; deletes inside a symlinked folder never do', async () => {
+  const c = fakeContainer({}, { owned: ['vendor'] });
+  const session = fakeSession();
+  const ws = await ownedAfterAgreeing(c, session, 60_000);
+  ws.receive({ type: 'delete', path: 'vendor/lib.js' });
+  ws.receive({ type: 'delete', path: 'a.txt' });
+  await tick();
+  assert.deepEqual(ws.sent, [{ type: 'skipped', path: 'vendor/lib.js' }]);
+  assert.deepEqual(c.removed, []);
+  ws.close();
+  await until(() => c.removed.length > 0);
+  assert.deepEqual(c.removed, ['a.txt']);
 });
 
 test('packTar writes each file with its mode', () => {
@@ -374,6 +465,13 @@ test('watcher: snapshot, symlinks, modes, and same-size saves within one second'
     fs.symlinkSync('real', at('linkdir'));
     fs.mkdirSync(at('.next'));
     fs.writeFileSync(at('.next/chunk.js'), 'built');
+    // Generic names: skipped as top-level folders, synced deeper down.
+    fs.mkdirSync(at('coverage'));
+    fs.writeFileSync(at('coverage/lcov.info'), 'report');
+    fs.mkdirSync(at('src/features/coverage'), { recursive: true });
+    fs.writeFileSync(at('src/features/coverage/index.ts'), 'source');
+    fs.mkdirSync(at('src/node_modules'));
+    fs.writeFileSync(at('src/node_modules/dep.js'), 'dep');
     const env = { ...process.env, TIDE_WATCH_ROOT: root };
 
     const proc = spawn('python3', ['-u', WATCHER_PATH], { env });
@@ -386,7 +484,7 @@ test('watcher: snapshot, symlinks, modes, and same-size saves within one second'
     };
     try {
       const snap = await waitFor((m) => m.type === 'snapshot');
-      assert.deepEqual(Object.keys(snap.files).sort(), ['a.txt', 'real/x', 'run.sh']);
+      assert.deepEqual(Object.keys(snap.files).sort(), ['a.txt', 'real/x', 'run.sh', 'src/features/coverage/index.ts']);
       assert.equal(snap.files['a.txt'][0], crypto.createHash('sha1').update('v1').digest('hex'));
       assert.equal(snap.files['run.sh'][1], 0o755);
       assert.deepEqual(snap.owned, ['big.bin', 'link.txt', 'linkdir']);
@@ -481,5 +579,77 @@ test('heartbeat keeps a socket whose upload is still arriving, without pongs', a
     assert.equal(closed, true);
   } finally {
     stop();
+  }
+});
+
+test('exec waits settle on error, on close and on timeout, not only on end', async () => {
+  const errored = new PassThrough();
+  const p1 = streamDone(errored, 5000);
+  errored.destroy(new Error('docker stream broke'));
+  await assert.rejects(p1, /docker stream broke/);
+
+  const closed = new PassThrough();
+  const p2 = streamDone(closed, 5000);
+  closed.destroy();
+  await p2;
+
+  const ended = new PassThrough();
+  const p3 = streamDone(ended, 5000);
+  ended.resume();
+  ended.end();
+  await p3;
+
+  const stuck = new PassThrough();
+  await assert.rejects(streamDone(stuck, 20), /timed out/);
+  assert.equal(stuck.destroyed, true);
+});
+
+test('preview: the upstream relay is torn down when the browser goes away', async () => {
+  // A dev server streaming forever (an event stream) inside the "container".
+  let upstreamClosed = false;
+  const dev = http.createServer((_req, res) => {
+    res.writeHead(200, { 'content-type': 'text/event-stream' });
+    res.write('data: hello\n\n');
+    res.on('close', () => (upstreamClosed = true));
+  });
+  await new Promise<void>((r) => dev.listen(0, '127.0.0.1', () => r()));
+  const devPort = (dev.address() as AddressInfo).port;
+  let relayDestroyed = false;
+  const session = fakeSession();
+  const manager = {
+    byPreviewKey: (k: string) => (k === 'key' ? session : undefined),
+    touch() {},
+    // Stands in for the relay exec: destroying it is what kills the exec.
+    connect: async () => {
+      const sock = net.connect(devPort, '127.0.0.1');
+      const destroy = sock.destroy.bind(sock);
+      sock.destroy = (e?: Error) => {
+        relayDestroyed = true;
+        return destroy(e);
+      };
+      await new Promise((r) => sock.once('connect', r));
+      return sock;
+    },
+  } as unknown as SessionManager;
+  const proxy = http.createServer((req, res) => {
+    if (!handlePreview(manager, req, res)) res.writeHead(404).end();
+  });
+  await new Promise<void>((r) => proxy.listen(0, '127.0.0.1', () => r()));
+  try {
+    const req = http.get(`http://127.0.0.1:${(proxy.address() as AddressInfo).port}/p/key/3000/events`);
+    const res = await new Promise<http.IncomingMessage>((r) => req.once('response', r));
+    assert.equal(res.statusCode, 200);
+    await new Promise((r) => res.once('data', r));
+    assert.equal(relayDestroyed, false);
+    req.on('error', () => undefined);
+    req.destroy();
+    await until(() => relayDestroyed && upstreamClosed);
+    assert.equal(relayDestroyed, true);
+    assert.equal(upstreamClosed, true);
+  } finally {
+    proxy.closeAllConnections();
+    proxy.close();
+    dev.closeAllConnections();
+    dev.close();
   }
 });

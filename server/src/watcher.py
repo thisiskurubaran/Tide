@@ -15,13 +15,16 @@
 import base64, hashlib, json, os, stat, sys, time
 
 ROOT = os.environ.get("TIDE_WATCH_ROOT", "/workspace")  # override for tests only
-# Keep in step with SyncSkipDir in shared/protocol.ts (a server test checks).
+# Keep in step with SyncSkipDir and SyncRootSkipDir in shared/protocol.ts (a
+# server test checks). SKIP_DIRS are skipped at any depth, ROOT_SKIP_DIRS only
+# as top-level folders (src/features/coverage/ is source).
 SKIP_DIRS = {
-    "node_modules", ".git", "__pycache__", ".pylibs", ".venv", "venv", ".cache",
+    "node_modules", ".git", "__pycache__", ".pylibs", ".venv",
     ".next", ".nuxt", ".svelte-kit", ".turbo", ".parcel-cache", ".angular", ".expo",
     ".gradle", ".dart_tool", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox",
-    ".nyc_output", "coverage", "target",
+    ".nyc_output",
 }
+ROOT_SKIP_DIRS = {"venv", ".cache", "coverage", "target"}
 MAX_BYTES = 2 * 1024 * 1024  # SyncLimits maxBytes in shared/protocol.ts
 INTERVAL = 0.5
 
@@ -45,8 +48,9 @@ def scan():
     seen = {}
     for dirpath, dirnames, filenames in os.walk(ROOT):
         keep = []
+        at_root = dirpath == ROOT
         for d in dirnames:
-            if d in SKIP_DIRS:
+            if d in SKIP_DIRS or (at_root and d in ROOT_SKIP_DIRS):
                 continue
             full = os.path.join(dirpath, d)
             if os.path.islink(full):

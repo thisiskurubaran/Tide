@@ -4,9 +4,9 @@ import { createMemoryFs } from '../files/memoryFs';
 import { createWorkspace } from '../files/workspace';
 import { previewUrl, socketUrl } from './api';
 import { RemotePty } from './pty';
-import { normalizeUrl, validateSettings } from './settings';
-import { INIT_BATCH_BYTES, RemoteSync } from './sync';
-import { isSyncSkipped, SYNC_SKIP_DIRS } from './syncRules';
+import { isInsecureUrl, normalizeUrl, validateSettings } from './settings';
+import { base64Bytes, INIT_BATCH_BYTES, MAX_SYNC_BYTES, RemoteSync } from './sync';
+import { isSyncSkipped, SYNC_ROOT_SKIP_DIRS, SYNC_SKIP_DIRS } from './syncRules';
 
 class FakeSocket {
   readyState = 0;
@@ -148,6 +148,42 @@ describe('RemoteSync', () => {
     expect(paths).toContain('src/target.rs');
     expect(paths.filter(isSyncSkipped)).toEqual([]);
     expect(SYNC_SKIP_DIRS.has('.next')).toBe(true);
+  });
+
+  it('skips generic build folder names only at the project root', async () => {
+    const { socket } = await setup(async (workspace) => {
+      await workspace.createFolder('demo', '', 'coverage');
+      await workspace.createFile('demo', 'coverage', 'lcov.info', 'report');
+      await workspace.createFolder('demo', '', 'target');
+      await workspace.createFile('demo', 'target', 'app', 'bin');
+      await workspace.createFolder('demo', '', 'src');
+      await workspace.createFolder('demo', 'src', 'target');
+      await workspace.createFile('demo', 'src/target', 'out.ts', 'o');
+      await workspace.createFolder('demo', 'src', 'features');
+      await workspace.createFolder('demo', 'src/features', 'coverage');
+      await workspace.createFile('demo', 'src/features/coverage', 'Coverage.tsx', 'x');
+      await workspace.createFolder('demo', 'src', 'node_modules');
+      await workspace.createFile('demo', 'src/node_modules', 'dep.js', 'd');
+    });
+    const init = sent(socket)[0];
+    const paths = init.type === 'init' ? init.files.map((f) => f.path) : [];
+    expect(paths).toEqual(expect.arrayContaining(['src/target/out.ts', 'src/features/coverage/Coverage.tsx']));
+    expect(paths).not.toEqual(expect.arrayContaining(['coverage/lcov.info']));
+    expect(paths.some((p) => p.startsWith('target/') || p.includes('node_modules/'))).toBe(false);
+    expect([...SYNC_ROOT_SKIP_DIRS].sort()).toEqual(['.cache', 'coverage', 'target', 'venv']);
+  });
+
+  it('agrees with the watcher on the size limit to the byte', async () => {
+    expect(base64Bytes(b64(''))).toBe(0);
+    for (const n of [1, 2, 3, 4, 5, MAX_SYNC_BYTES, MAX_SYNC_BYTES + 1]) expect(base64Bytes(Buffer.alloc(n).toString('base64'))).toBe(n);
+    const { socket } = await setup(async (workspace) => {
+      await workspace.createFile('demo', '', 'limit.bin', 'a'.repeat(MAX_SYNC_BYTES));
+      await workspace.createFile('demo', '', 'over.bin', 'a'.repeat(MAX_SYNC_BYTES + 1));
+    });
+    const init = sent(socket)[0];
+    const paths = init.type === 'init' ? init.files.map((f) => f.path) : [];
+    expect(paths).toContain('limit.bin');
+    expect(paths).not.toContain('over.bin');
   });
 
   it('splits a big project into init batches under the budget', async () => {
@@ -311,11 +347,39 @@ describe('RemotePty', () => {
 
 describe('settings', () => {
   it('normalizes and validates', () => {
-    expect(normalizeUrl(' 192.168.1.2:8787/ ')).toBe('http://192.168.1.2:8787');
+    // No scheme: https://, so the token never goes out in the clear by default.
+    expect(normalizeUrl(' tide.example.com/ ')).toBe('https://tide.example.com');
+    expect(normalizeUrl(' 192.168.1.2:8787/ ')).toBe('https://192.168.1.2:8787');
+    // An explicit http:// (and so every saved URL) is kept as it is.
+    expect(normalizeUrl('http://192.168.1.2:8787')).toBe('http://192.168.1.2:8787');
+    expect(normalizeUrl('HTTP://box.lan:8787')).toBe('HTTP://box.lan:8787');
     expect(normalizeUrl('https://tide.example.com')).toBe('https://tide.example.com');
     expect(validateSettings({ url: '', token: 'x'.repeat(16) })).toMatch(/URL/);
     expect(validateSettings({ url: 'http://a:1', token: 'short' })).toMatch(/16/);
     expect(validateSettings({ url: 'http://a:1', token: 'x'.repeat(16) })).toBeNull();
+  });
+
+  it('flags plain http:// only for hosts outside the local network', () => {
+    for (const url of ['http://tide.example.com', 'http://8.8.8.8:8787', 'http://172.32.0.1', 'http://user@203.0.113.5/', 'http://[2001:db8::1]:8787']) {
+      expect([url, isInsecureUrl(url)]).toEqual([url, true]);
+    }
+    for (const url of [
+      'https://tide.example.com',
+      'http://localhost:8787',
+      'http://127.0.0.1:8787',
+      'http://10.0.0.2',
+      'http://172.16.4.1:8787',
+      'http://192.168.1.20:8787',
+      'http://169.254.1.1',
+      'http://100.101.102.103:8787',
+      'http://mybox.local:8787',
+      'http://[::1]:8787',
+      'http://[fd12:3456::1]:8787',
+      'http://[fe80::1]',
+      '',
+    ]) {
+      expect([url, isInsecureUrl(url)]).toEqual([url, false]);
+    }
   });
 
   it('builds socket and preview URLs', () => {
