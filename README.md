@@ -2,8 +2,10 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="app/assets/brand/tide-logo-dark.svg">
-  <img src="app/assets/brand/tide-logo.svg" alt="Tide" width="140">
+  <img src="app/assets/brand/tide-logo.svg" alt="Tide" width="64">
 </picture>
+
+</br>
 
 **A full mobile IDE for iPhone, iPad and Android.**<br>
 Code editor, file manager and terminal, with Node.js, Python, Lua, Ruby and PHP running on the device, offline, and a real Linux shell in a container you host.
