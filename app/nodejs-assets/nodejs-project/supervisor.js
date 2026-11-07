@@ -4,9 +4,11 @@
 // Ctrl-C terminates the worker and Node keeps running for the next run.
 'use strict';
 
+const fs = require('fs');
 const path = require('path');
 const { Worker } = require('worker_threads');
 const { createDebugger } = require('./debugger');
+const { mapStack } = require('./typescript');
 
 const BOOTSTRAP = path.join(__dirname, 'worker.js');
 const DEFAULT_MAX_MEMORY_MB = 256;
@@ -74,10 +76,13 @@ function createSupervisor({ send, builtins = {} }) {
       return fail(req.id, String(/** @type {Error} */ (e).message));
     }
 
-    // Workers can't chdir, but they share the process cwd, so set it here.
-    // Runs share one cwd; the terminal only runs one program at a time.
+    // Runs overlap (terminal, Git Pro, the format/IntelliSense services, ssh...)
+    // and share one process, so the process cwd is never changed here: the
+    // worker gets its own cwd from workerData (see runcwd.js), which also
+    // makes fs calls and child processes started without a cwd use it rather
+    // than the real process cwd ('/' on Android).
     try {
-      process.chdir(cwd);
+      if (!fs.statSync(cwd).isDirectory()) throw new Error('not a directory');
     } catch (e) {
       return fail(req.id, `can't enter ${req.cwd}: ${/** @type {Error} */ (e).message}`);
     }
@@ -91,7 +96,7 @@ function createSupervisor({ send, builtins = {} }) {
     try {
       worker = new Worker(BOOTSTRAP, {
         argv: Array.isArray(req.args) ? req.args : [],
-        workerData: { entry },
+        workerData: { entry, cwd },
         env: { ...process.env, ...(req.env || {}), PWD: cwd, ...(projectDir ? { TIDE_PROJECT_DIR: projectDir } : {}) },
         stdout: true,
         stderr: true,
@@ -123,7 +128,7 @@ function createSupervisor({ send, builtins = {} }) {
     });
     worker.on('error', (err) => {
       // Uncaught exceptions arrive here instead of on stderr.
-      let text = err && err.stack ? err.stack : String(err);
+      let text = mapStack(err && err.stack ? err.stack : String(err));
       if (projectDir) text = text.split(`${projectDir}/`).join('/');
       const hint = /ERR_WORKER_OUT_OF_MEMORY/.test(String(err && /** @type {any} */ (err).code))
         ? `\nOut of memory (limit ${limits.maxMemoryMb || DEFAULT_MAX_MEMORY_MB} MB).`

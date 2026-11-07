@@ -43,7 +43,7 @@ export const STEPS: Step[] = [
   {
     icon: 'package',
     title: 'Make it yours',
-    body: 'Extensions add themes, formatting and linting, Git Pro, IntelliSense and a debugger.',
+    body: 'Extensions add themes, formatting and linting, Git Tools, IntelliSense and a debugger.',
     tips: ['Settings > Extensions'],
   },
 ];

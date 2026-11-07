@@ -3,36 +3,42 @@ import { Alert } from 'react-native';
 import { joinPath } from '../../features/files/fs';
 import { PROJECTS_DIR } from '../../features/files/workspace';
 import { localRunner } from '../../runtime';
-import { pythonRuntime } from '../../runtime/python';
-import { buffersStore } from '../../state';
+import { buffersStore, workspace } from '../../state';
 import { diagnosticsStore } from '../diagnostics';
-import { problemsCommand, problemsPanel } from '../ProblemsPanel';
-import { createPythonTools } from '../pythonTools';
 import { createService } from '../services';
 import { extensionsStore } from '../state';
 import type { ProjectContext, TideExtension } from '../types';
 import { LintMessage, toDiagnostics } from './lintMessages';
+import { findRuffSettings, RUFF_SOURCE, ruffDiagnostics } from './ruff';
+import { ruff } from './ruffClient';
 
+// Prettier and ESLint run in the Node service; Python goes to Ruff, which is
+// WebAssembly and so runs in a hidden web view (RuffHost).
 const service = createService(localRunner, { entry: 'tide:format' });
-const python = createPythonTools((code) => pythonRuntime.snippet(code));
 
-const FORMATTABLE = /\.(m?jsx?|cjs|m?tsx?|cts|json|css|scss|less|html?|vue|md|markdown|ya?ml|py)$/i;
-const LINTABLE = /\.(m?jsx?|cjs|py)$/i;
-const isPython = (path: string) => /\.py$/i.test(path);
-const sourceFor = (path: string) => (isPython(path) ? 'pyflakes' : 'eslint');
+const FORMATTABLE = /\.(m?jsx?|cjs|m?tsx?|cts|json|css|scss|less|html?|vue|md|markdown|ya?ml|pyi?)$/i;
+const LINTABLE = /\.(m?jsx?|cjs|pyi?)$/i;
+const isPython = (path: string) => /\.pyi?$/i.test(path);
 
 const documentsPath = (project: string, path: string) => joinPath(PROJECTS_DIR, project, path);
 
+// The project's ruff.toml or pyproject.toml [tool.ruff], read fresh each time
+// so edits to it apply on the next keystroke.
+const ruffSettings = (project: string, path: string) => findRuffSettings(path, (p) => workspace.readFile(project, p).catch(() => null));
+
 export async function formatText(project: string, path: string, content: string): Promise<string> {
-  if (isPython(path)) return python.request<string>('format', { path, content });
+  if (isPython(path)) return ruff.format(content, await ruffSettings(project, path));
   return service.request<string>('format', { path: documentsPath(project, path), content });
 }
 
 async function lint(project: string, path: string, content: string) {
-  const messages = isPython(path)
-    ? await python.request<LintMessage[]>('lint', { path, content })
-    : await service.request<LintMessage[]>('lint', { path: documentsPath(project, path), content });
-  diagnosticsStore.getState().set(project, path, sourceFor(path), toDiagnostics(content, messages, sourceFor(path)));
+  if (isPython(path)) {
+    const items = await ruff.check(content, await ruffSettings(project, path));
+    diagnosticsStore.getState().set(project, path, RUFF_SOURCE, ruffDiagnostics(content, items));
+    return;
+  }
+  const messages = await service.request<LintMessage[]>('lint', { path: documentsPath(project, path), content });
+  diagnosticsStore.getState().set(project, path, 'eslint', toDiagnostics(content, messages, 'eslint'));
 }
 
 async function formatActive(ctx: ProjectContext) {
@@ -56,7 +62,7 @@ async function formatActive(ctx: ProjectContext) {
 
 const clear = () => {
   diagnosticsStore.getState().clearSource('eslint');
-  diagnosticsStore.getState().clearSource('pyflakes');
+  diagnosticsStore.getState().clearSource(RUFF_SOURCE);
 };
 
 export const formatLintExtension: TideExtension = {
@@ -69,9 +75,7 @@ export const formatLintExtension: TideExtension = {
       icon: 'save',
       run: () => extensionsStore.getState().setPref('formatOnSave', !extensionsStore.getState().prefs.formatOnSave),
     },
-    problemsCommand(ctx),
   ],
-  panels: [problemsPanel],
   async beforeSave(ctx, path, content) {
     if (!extensionsStore.getState().prefs.formatOnSave || !FORMATTABLE.test(path)) return null;
     return formatText(ctx.project, path, content);

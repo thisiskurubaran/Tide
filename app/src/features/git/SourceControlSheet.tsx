@@ -5,11 +5,14 @@ import { Button } from '../../components/Button';
 import { Sheet } from '../../components/Sheet';
 import { Text } from '../../components/Text';
 import { localRunner } from '../../runtime';
-import { buffersStore, projectsStore, tabsStore } from '../../state';
-import { projectTabs } from '../../state/tabs';
+import { buffersStore, projectsStore } from '../../state';
+import { autoDeployer } from '../deploy';
 import { makeStyles, useColors } from '../../theme/theme';
 import { borderWidth, fonts, fontSizes, radius, spacing } from '../../theme/tokens';
 import { lastLines, runGit } from './runGit';
+import { createGitPro } from '../../extensions/gitPro/api';
+import type { ChangedFile } from '../ai/commitMessage';
+import { SuggestMessageButton } from '../ai/SuggestMessageButton';
 
 interface Change {
   code: string;
@@ -23,6 +26,21 @@ function describe(code: string) {
   if (code === '??') return 'new';
   const c = code.trim()[0];
   return c === 'M' ? 'modified' : c === 'A' ? 'added' : c === 'D' ? 'deleted' : code.trim();
+}
+
+// HEAD and the working tree (Commit all) or the index (staged changes) of
+// each path, for a suggested commit message.
+export async function changedFiles(project: string, paths: string[], side: 'work' | 'index'): Promise<ChangedFile[]> {
+  // Unsaved edits are part of what gets committed.
+  await buffersStore.getState().flushProject(project);
+  const git = createGitPro((args) => runGit(localRunner, project, args));
+  const out: ChangedFile[] = [];
+  for (const path of paths) {
+    const v = await git.show(path).catch(() => null);
+    if (!v) continue;
+    out.push(v.binary ? { path, before: null, after: null, binary: true } : { path, before: v.head, after: side === 'work' ? v.work : v.index });
+  }
+  return out;
 }
 
 export function SourceControlSheet({ visible, project, onClose }: { visible: boolean; project: string; onClose(): void }) {
@@ -60,27 +78,44 @@ export function SourceControlSheet({ visible, project, onClose }: { visible: boo
     setBusy(label);
     let text = '';
     let failed = false;
-    for (const args of steps) {
-      const r = await runGit(localRunner, project, args);
-      text += lastLines(r.stdout + r.stderr) + '\n';
-      if (r.code !== 0) {
-        failed = true;
-        break;
+    try {
+      // Git reads the disk: unsaved editor text goes there first. If that
+      // fails, git doesn't run (it would commit or overwrite stale files).
+      await buffersStore.getState().flushProject(project);
+      for (const args of steps) {
+        const r = await runGit(localRunner, project, args);
+        text += lastLines(r.stdout + r.stderr) + '\n';
+        if (r.code !== 0) {
+          failed = true;
+          break;
+        }
       }
+    } catch (e) {
+      failed = true;
+      text += `${e instanceof Error ? e.message : String(e)}\n`;
+    } finally {
+      // Never leave the sheet stuck busy.
+      setBusy(null);
     }
     setOutput({ text: text.trim(), failed });
-    setBusy(null);
-    // Pulls and checkouts change files under the editor.
-    await projectsStore.getState().loadTree(project);
-    for (const path of projectTabs(tabsStore.getState(), project).open) await buffersStore.getState().reload(project, path);
-    await refresh();
+    try {
+      // Pulls and checkouts change files under the editor.
+      await projectsStore.getState().loadTree(project);
+      // Every clean buffer, not only open tabs: a stale one would be autosaved back over the change.
+      await buffersStore.getState().reloadProject(project);
+      await refresh();
+    } catch {
+      // The tree and status catch up on the next refresh.
+    }
     return !failed;
   }
 
   async function commit() {
-    // Unsaved editor text would otherwise be left out of the commit.
-    await buffersStore.getState().flushProject(project);
-    if (await act('commit', [['add', '-A'], ['commit', '-m', message.trim()]])) setMessage('');
+    // act() flushes unsaved editor text before `git add`, so it is in the commit.
+    if (await act('commit', [['add', '-A'], ['commit', '-m', message.trim()]])) {
+      setMessage('');
+      autoDeployer.onCommit(project).catch(() => undefined);
+    }
   }
 
   const repo = status.state === 'repo' ? status : null;
@@ -132,6 +167,12 @@ export function SourceControlSheet({ visible, project, onClose }: { visible: boo
             selectionColor={colors.brand}
             multiline
             style={styles.input}
+          />
+          <SuggestMessageButton
+            changes={() => changedFiles(project, repo.changes.map((c) => c.path), 'work')}
+            onMessage={setMessage}
+            disabled={busy !== null || repo.changes.length === 0}
+            testID="sc-suggest"
           />
           <View style={styles.actions}>
             <Button title={busy === 'pull' ? 'Pulling...' : 'Pull'} variant="outline" icon="download" onPress={() => act('pull', [['pull']])} disabled={busy !== null} testID="sc-pull" />

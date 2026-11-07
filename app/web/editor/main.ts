@@ -36,10 +36,29 @@ import {
   lineNumbers,
 } from '@codemirror/view';
 
-import fontRegular from '../../assets/fonts/JetBrainsMono-Regular.ttf';
-import { EditorFeatures, EditorKey, EditorOptions, FromEditor, Language, NO_FEATURES, parseToEditor, SelectUnit, ToEditor } from '../../src/features/editor/bridge';
+import firaCode from '../../assets/fonts/FiraCode-Regular.ttf';
+import ibmPlexMono from '../../assets/fonts/IBMPlexMono-Regular.ttf';
+import jetbrainsMono from '../../assets/fonts/JetBrainsMono-Regular.ttf';
+import sourceCodePro from '../../assets/fonts/SourceCodePro-Regular.ttf';
+import {
+  CODE_FONTS,
+  CodeFont,
+  EditorDiagnostic,
+  EditorFeatures,
+  EditorGestures,
+  EditorKey,
+  EditorOptions,
+  FromEditor,
+  Language,
+  NO_FEATURES,
+  NO_GESTURES,
+  parseToEditor,
+  SelectUnit,
+  ToEditor,
+} from '../../src/features/editor/bridge';
 import type { EditorTheme } from '../../src/theme/editor';
-import { shortcutFor } from '../../src/features/project/shortcuts';
+import { shortcutFor, type Shortcut } from '../../src/features/project/shortcuts';
+import { insertLiteral, moveCursor } from './cursor';
 import {
   breakpointLines,
   completionSource,
@@ -50,22 +69,41 @@ import {
   minimalChange,
   setBreakpoints,
 } from './features';
-import { pinchToZoom } from '../pinch';
+import { attachGestures, createPullPill, PULL_PILL_CSS } from './gestures';
+import { languageServices, ServiceHost, serviceCompletions, serviceKind } from './langservices';
 import { languageExtension } from './languages';
 import { optionsExtension } from './options';
+import { snippetSource } from './snippets';
+import { a11yExtension, gotoProblem } from './a11y';
+import { closePeek, PeekConfig, peekAt, peekExtension, showPeek } from './peek';
+import { problemExtensions } from './problems';
+import { acceptCompletion as acceptGhost, dismissCompletion, ghostExtension, ghostOf, GhostHost, nextCompletion, setCompletions, setGhostTheme, showCompletion } from './ghost';
 import { buildTheme, FONT_FAMILY } from './theme';
 
 const CHANGE_DEBOUNCE_MS = 150;
 const CURSOR_DEBOUNCE_MS = 200;
 
+const FONT_FILES: Record<CodeFont, string> = {
+  'jetbrains-mono': jetbrainsMono,
+  'fira-code': firaCode,
+  'ibm-plex-mono': ibmPlexMono,
+  'source-code-pro': sourceCodePro,
+};
+const fontFaces = (Object.keys(FONT_FILES) as CodeFont[])
+  .map((id) => `@font-face { font-family: '${CODE_FONTS[id].family}'; src: url(${FONT_FILES[id]}) format('truetype'); }`)
+  .join('\n');
+
 const style = document.createElement('style');
 style.textContent = `
-  @font-face { font-family: '${FONT_FAMILY}'; src: url(${fontRegular}) format('truetype'); }
+  ${fontFaces}
   html, body { margin: 0; height: 100%; overscroll-behavior: none; -webkit-text-size-adjust: 100%; }
   #editor { height: 100%; }
   .cm-editor { height: 100%; font-size: 14px; }
   .cm-editor.cm-focused { outline: none; }
-  .cm-scroller { font-family: '${FONT_FAMILY}', monospace; line-height: 1.5; font-variant-ligatures: none; }
+  :root { --tide-liga: none; --tide-features: "liga" 0, "calt" 0; }
+  .cm-scroller { font-family: ${FONT_FAMILY}; line-height: 1.5; }
+  /* Ligatures are off by default: in code, => and != usually read better as typed. */
+  .cm-content { font-variant-ligatures: var(--tide-liga); font-feature-settings: var(--tide-features); }
 `;
 document.head.appendChild(style);
 
@@ -77,11 +115,14 @@ const languageConf = new Compartment();
 const themeConf = new Compartment();
 const featureConf = new Compartment();
 const optionsConf = new Compartment();
+// Gutter shapes and the error lens (problems.ts); the lens is a setting.
+const problemsConf = new Compartment();
 let themeExtension: Extension = [];
 let theme: EditorTheme | null = null;
 let features: EditorFeatures = NO_FEATURES;
-let options: EditorOptions = { wordWrap: true, folding: true, indentGuides: true, minimap: false };
-const optionExtension = () => optionsExtension(options, theme);
+let options: EditorOptions = { wordWrap: true, folding: true, indentGuides: true, minimap: false, keymap: 'standard' };
+let currentLang: Language = 'plain';
+const optionExtension = () => optionsExtension(options, theme, currentLang);
 
 let currentPath: string | null = null;
 let pendingChange: ReturnType<typeof setTimeout> | null = null;
@@ -90,9 +131,39 @@ let pendingCursor: ReturnType<typeof setTimeout> | null = null;
 const requests = createRequests(post);
 const currentFile = () => currentPath;
 const featureExtension = () => featureExtensions(features, currentFile, post, requests.ask);
+// "✦ Fix" in the lens, when the app says AI is set up ('setAiFix').
+let aiFix = false;
+const fixProblem = (line: number) => currentPath !== null && post({ type: 'fixProblem', path: currentPath, line });
+const problemExtension = () => problemExtensions({ errorLens: options.errorLens !== false, onFix: aiFix ? fixProblem : null });
+const peekConfig: PeekConfig = {
+  request: (offset) => currentPath !== null && post({ type: 'peek', path: currentPath, offset }),
+  open: (path, line) => post({ type: 'openAt', path, line }),
+  theme: () => themeExtension,
+};
 
 // Per-file state the app pushes that has to outlive tab switches.
-const diagnostics = new Map<string, Extract<ToEditor, { type: 'diagnostics' }>['items']>();
+const diagnostics = new Map<string, EditorDiagnostic[]>();
+// What the built-in CSS/HTML/JSON services found, shown alongside the app's.
+const serviceDiagnostics = new Map<string, EditorDiagnostic[]>();
+
+function showDiagnostics(path: string) {
+  if (path !== currentPath) return;
+  view.dispatch(lintDiagnostics(view.state, [...(diagnostics.get(path) ?? []), ...(serviceDiagnostics.get(path) ?? [])]));
+}
+
+const services: ServiceHost = {
+  kind: () => serviceKind(currentLang),
+  path: currentFile,
+  diagnostics(path, items) {
+    const before = serviceDiagnostics.get(path) ?? [];
+    if (!items.length && !before.length) return;
+    serviceDiagnostics.set(path, items);
+    showDiagnostics(path);
+    post({ type: 'serviceDiagnostics', path, items });
+  },
+};
+// AI inline completions (ghost.ts).
+const ghostHost: GhostHost = { post, path: currentFile };
 const breakpointsByPath = new Map<string, number[]>();
 let execLine: { path: string; line: number } | null = null;
 
@@ -101,6 +172,13 @@ function flushChange() {
   clearTimeout(pendingChange);
   pendingChange = null;
   post({ type: 'change', path: currentPath, content: view.state.doc.toString() });
+}
+
+// App shortcuts (close tab, switch tab, run...) act on the buffer, so the
+// last keystrokes go first: the app gets the change before the shortcut.
+function postShortcut(id: Shortcut) {
+  flushChange();
+  post({ type: 'shortcut', id });
 }
 
 const saveKeymap = keymap.of([
@@ -123,7 +201,7 @@ const appShortcuts = Prec.highest(
       const id = shortcutFor(e);
       if (!id || id === 'save') return false;
       e.preventDefault();
-      post({ type: 'shortcut', id });
+      postShortcut(id);
       return true;
     },
   }),
@@ -132,9 +210,13 @@ const appShortcuts = Prec.highest(
 function baseExtensions(lang: Language): Extension[] {
   return [
     appShortcuts,
+    ghostExtension(ghostHost),
     // Before lineNumbers so the breakpoint gutter sits on the outside.
     featureConf.of(featureExtension()),
     lineNumbers(),
+    problemsConf.of(problemExtension()),
+    peekExtension(peekConfig),
+    a11yExtension(currentFile, () => options.screenReader === true),
     optionsConf.of(optionExtension()),
     highlightActiveLine(),
     highlightActiveLineGutter(),
@@ -147,7 +229,13 @@ function baseExtensions(lang: Language): Extension[] {
     indentOnInput(),
     bracketMatching(),
     closeBrackets(),
-    autocompletion({ override: [completionSource(() => features.language, currentFile, requests.ask)] }),
+    autocompletion({
+      override: [
+        snippetSource(() => currentLang, () => options.snippets ?? []),
+        serviceCompletions(services, completionSource(() => features.language, currentFile, requests.ask)),
+      ],
+    }),
+    languageServices(services),
     EditorState.tabSize.of(2),
     indentUnit.of('  '),
     keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...completionKeymap]),
@@ -176,7 +264,7 @@ function baseExtensions(lang: Language): Extension[] {
 
 // Reapplies what the app pushed for this file: diagnostics, breakpoints and the paused line.
 function restoreFileState(path: string) {
-  view.dispatch(lintDiagnostics(view.state, diagnostics.get(path) ?? []));
+  showDiagnostics(path);
   view.dispatch({
     effects: [setBreakpoints(breakpointsByPath.get(path) ?? []), execLineEffect(execLine?.path === path ? execLine.line : null)],
   });
@@ -192,14 +280,23 @@ const view = new EditorView({
 
 function open(path: string, content: string, lang: Language) {
   flushChange();
+  // A suggestion belongs to the moment it was made, not to the cached state.
+  dismissCompletion(view);
   if (currentPath !== null) states.set(currentPath, view.state);
   currentPath = path;
+  currentLang = lang;
   const cached = states.get(path);
   if (cached && cached.doc.toString() === content) {
     view.setState(cached);
     // The theme and features may have changed while this file was in the background.
     view.dispatch({
-      effects: [themeConf.reconfigure(themeExtension), featureConf.reconfigure(featureExtension()), optionsConf.reconfigure(optionExtension())],
+      effects: [
+        themeConf.reconfigure(themeExtension),
+        featureConf.reconfigure(featureExtension()),
+        optionsConf.reconfigure(optionExtension()),
+        problemsConf.reconfigure(problemExtension()),
+        closePeek,
+      ],
     });
   } else {
     view.setState(EditorState.create({ doc: content, extensions: baseExtensions(lang) }));
@@ -255,6 +352,7 @@ function pressKey(key: EditorKey, select = false) {
     case 'end':
       return (select ? selectLineBoundaryForward : cursorLineBoundaryForward)(view);
     case 'tab':
+      if (ghostOf(view.state)) return acceptGhost(view, 'all');
       if (completionStatus(view.state) === 'active') return acceptCompletion(view);
       if (!view.state.selection.main.empty) return indentMore(view);
       typeText(view.state.facet(indentUnit));
@@ -295,6 +393,18 @@ function copy(cut: boolean) {
   if (cut) view.dispatch({ changes: parts.map(({ from, to }) => ({ from, to })), userEvent: 'delete.cut' });
 }
 
+function setFont(font: CodeFont, ligatures: boolean) {
+  const root = document.documentElement.style;
+  root.setProperty('--tide-code-font', `'${CODE_FONTS[font].family}'`);
+  root.setProperty('--tide-liga', ligatures ? 'normal' : 'none');
+  root.setProperty('--tide-features', ligatures ? '"liga" 1, "calt" 1' : '"liga" 0, "calt" 0');
+  // Glyph widths change with the font; remeasure once it has loaded.
+  document.fonts
+    .load(`14px '${CODE_FONTS[font].family}'`)
+    .catch(() => undefined)
+    .then(() => view.requestMeasure());
+}
+
 function handle(msg: ToEditor) {
   switch (msg.type) {
     case 'open':
@@ -302,11 +412,14 @@ function handle(msg: ToEditor) {
     case 'setTheme':
       theme = msg.theme;
       themeExtension = buildTheme(msg.theme, msg.dark);
+      setGhostTheme(msg.theme);
       document.body.style.backgroundColor = msg.theme.background;
       view.dom.style.fontSize = `${msg.fontSize}px`;
       // Indent guides take their colors from the theme.
       view.dispatch({ effects: [themeConf.reconfigure(themeExtension), optionsConf.reconfigure(optionExtension())] });
       return view.requestMeasure();
+    case 'setFont':
+      return setFont(msg.font, msg.ligatures);
     case 'undo':
       return undo(view);
     case 'redo':
@@ -319,6 +432,10 @@ function handle(msg: ToEditor) {
       return typeText(msg.text);
     case 'key':
       return pressKey(msg.key, msg.select);
+    case 'moveCursor':
+      return view.dispatch(moveCursor(view.state, msg.by, msg.select));
+    case 'insertLiteral':
+      return view.dispatch(insertLiteral(view.state, msg.text, msg.cursor));
     case 'select':
       return selectUnit(msg.unit);
     case 'copy':
@@ -329,7 +446,7 @@ function handle(msg: ToEditor) {
       return view.contentDOM.blur();
     case 'options':
       options = msg.options;
-      view.dispatch({ effects: optionsConf.reconfigure(optionExtension()) });
+      view.dispatch({ effects: [optionsConf.reconfigure(optionExtension()), problemsConf.reconfigure(problemExtension())] });
       return view.requestMeasure();
     case 'features':
       features = msg.features;
@@ -340,8 +457,7 @@ function handle(msg: ToEditor) {
       return setContent(msg.path, msg.content, msg.base);
     case 'diagnostics':
       diagnostics.set(msg.path, msg.items);
-      if (msg.path === currentPath) view.dispatch(lintDiagnostics(view.state, msg.items));
-      return;
+      return showDiagnostics(msg.path);
     case 'response':
       return requests.settle(msg.id, msg.result);
     case 'breakpoints':
@@ -357,6 +473,37 @@ function handle(msg: ToEditor) {
       return;
     case 'complete':
       return startCompletion(view);
+    case 'peek':
+      return peekConfig.request(view.state.selection.main.head);
+    case 'showPeek':
+      if (msg.path !== currentPath) return;
+      return view.dispatch({ effects: showPeek(peekAt(view.state, msg.offset, msg.target)) });
+    case 'gotoProblem': {
+      const text = gotoProblem(view, msg.direction);
+      // Said by the app: VoiceOver focus is on the app's action, not the page.
+      return post({ type: 'announce', text });
+    }
+    case 'setGestures':
+      gestures = msg.gestures;
+      return;
+    case 'setAiFix':
+      if (aiFix === msg.enabled) return;
+      aiFix = msg.enabled;
+      return view.dispatch({ effects: problemsConf.reconfigure(problemExtension()) });
+    case 'setCompletions':
+      return setCompletions(view, msg.enabled, msg.model);
+    case 'completion':
+      return showCompletion(view, msg.requestId, msg.text);
+    case 'acceptCompletion':
+      return acceptGhost(view, msg.part);
+    case 'dismissCompletion':
+      return dismissCompletion(view);
+    case 'flush':
+      // Messages arrive in order, so the app has the change before 'flushed'.
+      flushChange();
+      return post({ type: 'flushed', id: msg.id });
+    case 'nextCompletion':
+      return nextCompletion(view, ghostHost);
   }
 }
 
@@ -367,14 +514,58 @@ window.tide = {
   },
 };
 
-pinchToZoom(view.scrollDOM, {
-  get: () => parseFloat(view.dom.style.fontSize) || 14,
-  preview: (size) => {
-    view.dom.style.fontSize = `${size}px`;
-    view.requestMeasure();
+// Touch gestures (gestures.ts). Off until the app says which are on.
+let gestures: EditorGestures = NO_GESTURES;
+// iOS has its own three-finger undo swipe, which arrives as a historyUndo /
+// historyRedo beforeinput; when both fire for one swipe, only the first counts.
+const HISTORY_DEDUPE_MS = 600;
+let gestureHistoryAt = -Infinity;
+let systemHistoryAt = -Infinity;
+document.addEventListener(
+  'beforeinput',
+  (e) => {
+    if (e.inputType !== 'historyUndo' && e.inputType !== 'historyRedo') return;
+    if (performance.now() - gestureHistoryAt < HISTORY_DEDUPE_MS) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    } else systemHistoryAt = performance.now();
   },
-  // The app saves it, which sends it back with the theme.
-  commit: (fontSize) => post({ type: 'zoom', fontSize }),
+  true,
+);
+const pullStyle = document.createElement('style');
+pullStyle.textContent = PULL_PILL_CSS;
+document.head.appendChild(pullStyle);
+const pullPill = createPullPill(document.body);
+attachGestures(view.dom, {
+  flags: () => gestures,
+  fontSize: () => parseFloat(view.dom.style.fontSize) || 14,
+  scrollTop: () => view.scrollDOM.scrollTop,
+  inContent: (target) => target instanceof Node && view.contentDOM.contains(target),
+  onEvent(e) {
+    switch (e.type) {
+      case 'tab':
+        return postShortcut(e.direction === 'next' ? 'next-tab' : 'prev-tab');
+      case 'zoom':
+        view.dom.style.fontSize = `${e.fontSize}px`;
+        view.requestMeasure();
+        // The app saves it, which sends it back with the theme.
+        if (e.done) post({ type: 'zoom', fontSize: e.fontSize });
+        return;
+      case 'history':
+        if (performance.now() - systemHistoryAt < HISTORY_DEDUPE_MS) return;
+        gestureHistoryAt = performance.now();
+        (e.action === 'undo' ? undo : redo)(view);
+        return;
+      case 'pull':
+        return pullPill.update(e.distance, e.armed);
+      case 'pullEnd':
+        pullPill.hide();
+        if (e.open) postShortcut('palette');
+        return;
+      case 'actions':
+        return post({ type: 'actions' });
+    }
+  },
 });
 
 window.addEventListener('error', (e) => post({ type: 'error', message: String(e.message) }));

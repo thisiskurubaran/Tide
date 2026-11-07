@@ -3,6 +3,7 @@ import { createWorkspace } from '../features/files/workspace';
 import { createBuffersStore } from './buffers';
 import { createProjectsStore } from './projects';
 import { createRunnerStore } from './runner';
+import { hydrated } from './hydrated';
 import { createFsStorage } from './storage';
 import { createTabsStore, projectTabs } from './tabs';
 
@@ -54,6 +55,7 @@ describe('tabs store', () => {
 
   it('survives a restart', async () => {
     const { tabs, storage } = setup();
+    await hydrated(tabs);
     tabs.getState().openTab('p', 'index.js');
     tabs.getState().setLastProject('p');
     await flush();
@@ -70,6 +72,7 @@ describe('runner store', () => {
   it('defaults to local and persists the mode', async () => {
     const { storage } = setup();
     const runner = createRunnerStore(storage);
+    await hydrated(runner);
     expect(runner.getState().mode).toBe('local');
     runner.getState().setMode('remote');
     await flush();

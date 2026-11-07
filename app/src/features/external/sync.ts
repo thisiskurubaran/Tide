@@ -22,6 +22,9 @@ export interface SyncResult {
   removed: number;
   // Paths changed on both sides since the last sync; the side being synced from won.
   overwritten: string[];
+  // Paths over MAX_FILE_BYTES on either side: present but not synced. Neither
+  // copy is written or deleted because of them.
+  tooLarge: string[];
 }
 
 // Folders that are rebuilt rather than synced, as for snapshots.
@@ -40,70 +43,76 @@ export function hashBytes(bytes: Uint8Array): string {
   return `${bytes.length}:${(h >>> 0).toString(36)}`;
 }
 
-async function snapshotSide(paths: string[], read: (p: string) => Promise<Uint8Array>) {
+interface Side {
+  files: Map<string, { bytes: Uint8Array; hash: string }>;
+  // Present, but too large to sync.
+  tooLarge: Set<string>;
+}
+
+async function snapshotSide(paths: string[], read: (p: string) => Promise<Uint8Array>): Promise<Side> {
   const files = new Map<string, { bytes: Uint8Array; hash: string }>();
+  const tooLarge = new Set<string>();
   for (const path of paths) {
     if (skipped(path)) continue;
     const bytes = await read(path);
-    if (bytes.length > MAX_FILE_BYTES) continue;
-    files.set(path, { bytes, hash: hashBytes(bytes) });
+    if (bytes.length > MAX_FILE_BYTES) tooLarge.add(path);
+    else files.set(path, { bytes, hash: hashBytes(bytes) });
   }
-  return files;
+  return { files, tooLarge };
 }
 
 const projectSide = (workspace: Workspace, project: string) =>
   workspace.listFiles(project).then((paths) => snapshotSide(paths, async (p) => fromBase64(await workspace.readBase64(project, p))));
 
-// Folder -> project. Files deleted from the folder since the last sync are
-// deleted here too, unless they were changed here meanwhile.
-export async function pull(folder: Folder, workspace: Workspace, project: string, manifest: Manifest): Promise<SyncResult> {
-  const theirs = await snapshotSide(await folder.listFiles(), (p) => folder.read(p));
-  const ours = await projectSide(workspace, project);
-  const result: SyncResult = { manifest: {}, written: 0, removed: 0, overwritten: [] };
-  for (const [path, file] of theirs) {
+// Copies `from` onto `to`. Files deleted from `from` since the last sync are
+// deleted from `to` too, unless they were changed there meanwhile. A file too
+// large on either side is left alone on both: a file that grew past the limit
+// is still there, not deleted, and its manifest entry is kept for when it
+// shrinks again.
+async function syncSides(from: Side, to: Side, manifest: Manifest, write: (path: string, bytes: Uint8Array) => Promise<void>, remove: (path: string) => Promise<void>): Promise<SyncResult> {
+  const tooLarge = new Set([...from.tooLarge, ...to.tooLarge]);
+  const result: SyncResult = { manifest: {}, written: 0, removed: 0, overwritten: [], tooLarge: [...tooLarge].sort() };
+  for (const path of tooLarge) if (manifest[path]) result.manifest[path] = manifest[path];
+  for (const [path, file] of from.files) {
+    if (tooLarge.has(path)) continue;
     result.manifest[path] = file.hash;
-    const mine = ours.get(path);
-    if (mine?.hash === file.hash) continue;
-    if (mine && manifest[path] && mine.hash !== manifest[path] && file.hash !== manifest[path]) result.overwritten.push(path);
-    await workspace.writeBase64(project, path, toBase64(file.bytes));
+    const other = to.files.get(path);
+    if (other?.hash === file.hash) continue;
+    if (other && manifest[path] && other.hash !== manifest[path] && file.hash !== manifest[path]) result.overwritten.push(path);
+    await write(path, file.bytes);
     result.written++;
   }
-  for (const [path, mine] of ours) {
-    if (theirs.has(path) || !manifest[path]) continue;
-    if (mine.hash !== manifest[path]) {
-      // Deleted there but changed here: keep it, and remember it as ours.
-      result.manifest[path] = mine.hash;
+  for (const [path, other] of to.files) {
+    if (from.files.has(path) || tooLarge.has(path) || !manifest[path]) continue;
+    if (other.hash !== manifest[path]) {
+      // Deleted on the other side but changed on this one: keep it, and remember it as this side's.
+      result.manifest[path] = other.hash;
       continue;
     }
-    await workspace.removeIfPresent(project, path);
+    await remove(path);
     result.removed++;
   }
   return result;
+}
+
+// Folder -> project.
+export async function pull(folder: Folder, workspace: Workspace, project: string, manifest: Manifest): Promise<SyncResult> {
+  const theirs = await snapshotSide(await folder.listFiles(), (p) => folder.read(p));
+  const ours = await projectSide(workspace, project);
+  return syncSides(
+    theirs,
+    ours,
+    manifest,
+    (path, bytes) => workspace.writeBase64(project, path, toBase64(bytes)),
+    (path) => workspace.removeIfPresent(project, path),
+  );
 }
 
 // Project -> folder, the mirror of pull.
 export async function push(folder: Folder, workspace: Workspace, project: string, manifest: Manifest): Promise<SyncResult> {
   const ours = await projectSide(workspace, project);
   const theirs = await snapshotSide(await folder.listFiles(), (p) => folder.read(p));
-  const result: SyncResult = { manifest: {}, written: 0, removed: 0, overwritten: [] };
-  for (const [path, file] of ours) {
-    result.manifest[path] = file.hash;
-    const other = theirs.get(path);
-    if (other?.hash === file.hash) continue;
-    if (other && manifest[path] && other.hash !== manifest[path] && file.hash !== manifest[path]) result.overwritten.push(path);
-    await folder.write(path, file.bytes);
-    result.written++;
-  }
-  for (const [path, other] of theirs) {
-    if (ours.has(path) || !manifest[path]) continue;
-    if (other.hash !== manifest[path]) {
-      result.manifest[path] = other.hash;
-      continue;
-    }
-    await folder.remove(path);
-    result.removed++;
-  }
-  return result;
+  return syncSides(ours, theirs, manifest, (path, bytes) => folder.write(path, bytes), (path) => folder.remove(path));
 }
 
 // One file, after a save: written to the folder and noted in the manifest.

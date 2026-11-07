@@ -1,4 +1,5 @@
 # Host tests for tide_runner.py: `python3 -m unittest discover -s tests`.
+import json
 import os
 import sys
 import tempfile
@@ -31,18 +32,20 @@ class Harness:
         with self.lock:
             return "".join(t for i, k, t in self.output if i == run_id and k == kind)
 
-    def start(self, run_id, rel, args=()):
+    def start(self, run_id, rel, args=(), cwd="", env=None):
         result = {}
+        if env is not None:
+            args = ["--tide-env", json.dumps(env), *args]
 
         def target():
-            result["value"] = tide_runner.run(self.emit, run_id, os.path.join(self.root, rel), self.root, list(args), purge_root=self.root)
+            result["value"] = tide_runner.run(self.emit, run_id, os.path.join(self.root, rel), os.path.join(self.root, cwd), list(args), purge_root=self.root)
 
         thread = threading.Thread(target=target)
         thread.start()
         return thread, result
 
-    def run(self, run_id, rel, args=()):
-        thread, result = self.start(run_id, rel, args)
+    def run(self, run_id, rel, args=(), cwd="", env=None):
+        thread, result = self.start(run_id, rel, args, cwd, env)
         thread.join(10)
         assert not thread.is_alive(), "run did not finish"
         return result["value"]
@@ -64,6 +67,16 @@ class RunnerTest(unittest.TestCase):
         self.h.file("app/main.py", "import os, sys\nif __name__ == '__main__':\n    print(sys.argv[1:], os.path.basename(os.getcwd()))\n")
         self.assertEqual(self.h.run("r1", "app/main.py", ["a", "b"]), (0, False))
         self.assertEqual(self.h.text("r1"), f"['a', 'b'] {os.path.basename(self.h.root)}\n")
+
+    def test_env_is_set_for_the_run_and_restored(self):
+        os.environ.pop("TIDE_TEST_KEY", None)
+        os.environ["TIDE_TEST_KEEP"] = "before"
+        self.h.file("env.py", "import os\nprint(os.environ['TIDE_TEST_KEY'], os.environ['TIDE_TEST_KEEP'], __import__('sys').argv[1:])\n")
+        env = json.dumps({"TIDE_TEST_KEY": "secret", "TIDE_TEST_KEEP": "during"})
+        self.assertEqual(self.h.run("r1", "env.py", ["--tide-env", env, "x"]), (0, False))
+        self.assertEqual(self.h.text("r1"), "secret during ['x']\n")
+        self.assertNotIn("TIDE_TEST_KEY", os.environ)
+        self.assertEqual(os.environ["TIDE_TEST_KEEP"], "before")
 
     def test_input_reads_fed_lines(self):
         self.h.file("ask.py", "name = input('Name? ')\nprint(f'Hi {name}')\n")
@@ -141,7 +154,9 @@ class RunnerTest(unittest.TestCase):
         self.h.file("util.py", "VALUE = 1\n")
         self.h.file("main.py", "import util\nprint(util.VALUE)\n")
         self.h.run("r1", "main.py")
-        self.h.file("util.py", "VALUE = 2\n")
+        path = self.h.file("util.py", "VALUE = 2\n")
+        # A cached .pyc is checked against the source's mtime (in seconds) and size.
+        os.utime(path, (time.time() + 5, time.time() + 5))
         self.h.run("r2", "main.py")
         self.assertEqual(self.h.text("r1"), "1\n")
         self.assertEqual(self.h.text("r2"), "2\n")
@@ -163,11 +178,240 @@ class RunnerTest(unittest.TestCase):
         self.assertEqual(len([t for i, k, t in self.h.output if k == "port" and i == "r2"]), 1)
 
     def test_restores_interpreter_state(self):
+        # sys.stdout and friends are thread-aware proxies, installed once.
+        with tide_runner._lock:
+            tide_runner._install_streams()
         before = (sys.stdout, sys.stderr, sys.stdin, list(sys.argv), list(sys.path), os.getcwd())
-        self.h.file("main.py", "import os, sys\nsys.path.append('/x')\nos.chdir('/')\n")
+        self.h.file("main.py", "import os, sys\nsys.path.append('/x')\nos.chdir('/')\nsys.stdout = None\n")
         self.h.run("r1", "main.py")
         self.assertEqual((sys.stdout, sys.stderr, sys.stdin, list(sys.argv), list(sys.path), os.getcwd()), before)
+        # Outside a run the proxies write to the host's own streams.
+        self.assertIs(sys.stdout.target(), tide_runner._streams["stdout"].original)
 
+    def test_overlapping_runs_keep_their_own_output_and_input(self):
+        # a waits for input while b runs to the end; neither sees the other's output.
+        self.h.file("a.py", "import threading\nprint('a1')\nname = input()\nt = threading.Thread(target=lambda: print('a-thread', name))\nt.start(); t.join()\n")
+        self.h.file("b.py", "import sys\nprint('b1')\nprint('b-err', file=sys.stderr)\n")
+        thread_a, result_a = self.h.start("a", "a.py")
+        self.h.wait_for("a", "a1")
+        self.assertEqual(self.h.run("b", "b.py"), (0, False))
+        tide_runner.feed("a", "x\n")
+        thread_a.join(10)
+        self.assertEqual(result_a["value"], (0, False))
+        self.assertEqual(self.h.text("a"), "a1\na-thread x\n")
+        self.assertEqual(self.h.text("b"), "b1\n")
+        self.assertEqual(self.h.text("b", "stderr"), "b-err\n")
+
+    def test_overlapping_runs_in_another_folder_are_refused(self):
+        cwd_before = os.getcwd()
+        self.h.file("p1/wait.py", "import os\ninput()\nopen('out.txt', 'w').write('1')\nprint(os.path.basename(os.getcwd()))\n")
+        self.h.file("p2/main.py", "print('should not run')\n")
+        self.h.file("p1/join.py", "import os\nprint('joined', os.path.basename(os.getcwd()))\n")
+        result = {}
+        p1 = os.path.join(self.h.root, "p1")
+
+        def target():
+            result["value"] = tide_runner.run(self.h.emit, "a", os.path.join(p1, "wait.py"), p1, [])
+
+        thread = threading.Thread(target=target)
+        thread.start()
+        time.sleep(0.2)
+        p2 = os.path.join(self.h.root, "p2")
+        self.assertEqual(tide_runner.run(self.h.emit, "b", os.path.join(p2, "main.py"), p2, []), (1, False))
+        self.assertIn("Another Python program is running", self.h.text("b", "stderr"))
+        self.assertEqual(self.h.text("b"), "")
+        # A run in the same folder joins it, and leaving doesn't undo the first run's state.
+        self.assertEqual(tide_runner.run(self.h.emit, "c", os.path.join(p1, "join.py"), p1, []), (0, False))
+        self.assertEqual(self.h.text("c"), "joined p1\n")
+        tide_runner.feed("a", "\n")
+        thread.join(10)
+        self.assertEqual(result["value"], (0, False))
+        self.assertEqual(self.h.text("a"), "p1\n")
+        self.assertTrue(os.path.exists(os.path.join(p1, "out.txt")))
+        self.assertEqual(os.getcwd(), cwd_before)
+
+
+    def assert_idle(self):
+        self.assertIsNone(tide_runner._shared)
+        self.assertEqual(tide_runner._runs, {})
+
+    def test_a_joined_run_ending_keeps_the_first_runs_modules_and_argv(self):
+        # The server keeps state in a module; a client joins and exits.
+        self.h.file("db.py", "items = []\n")
+        self.h.file("server.py", "import sys, db\ndb.items.append('s')\ninput()\nimport db as again\nprint(again is db, again.items, sys.argv[1:])\n")
+        self.h.file("client.py", "import sys, db\ndb.items.append('c')\nprint(sys.argv[1:], sys.argv[0].endswith('client.py'), len(sys.argv))\n")
+        thread, result = self.h.start("s", "server.py", ["--port", "1"])
+        time.sleep(0.2)
+        self.assertEqual(self.h.run("c", "client.py", ["x"]), (0, False))
+        self.assertEqual(self.h.text("c"), "['x'] True 2\n")
+        tide_runner.feed("s", "\n")
+        thread.join(10)
+        self.assertEqual(result["value"], (0, False))
+        self.assertEqual(self.h.text("s"), "True ['s', 'c'] ['--port', '1']\n")
+        # Once the last run ends the project's modules are dropped and argv is the host's.
+        self.assertNotIn("db", sys.modules)
+        self.assertIsNot(sys.argv, tide_runner._argv)
+        self.assert_idle()
+
+    def test_threads_started_from_script_threads_keep_the_run(self):
+        code = (
+            "import threading\n"
+            "def inner():\n    print('inner')\n"
+            "def outer():\n    t = threading.Thread(target=inner)\n    t.start()\n    t.join()\n"
+            "t = threading.Thread(target=outer)\nt.start()\nt.join()\n"
+        )
+        self.h.file("nested.py", code)
+        self.assertEqual(self.h.run("r1", "nested.py"), (0, False))
+        self.assertEqual(self.h.text("r1"), "inner\n")
+
+    def test_threading_http_server_request_logs_reach_the_run(self):
+        code = (
+            "import threading, urllib.request\n"
+            "from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler\n"
+            "class H(BaseHTTPRequestHandler):\n"
+            "    def do_GET(self):\n"
+            "        print('handled', self.path)\n"
+            "        self.send_response(200)\n        self.end_headers()\n        self.wfile.write(b'ok')\n"
+            "s = ThreadingHTTPServer(('127.0.0.1', 0), H)\n"
+            "threading.Thread(target=s.serve_forever, daemon=True).start()\n"
+            "print(urllib.request.urlopen(f'http://127.0.0.1:{s.server_address[1]}/hi').read())\n"
+            "s.shutdown()\n"
+        )
+        self.h.file("web.py", code)
+        self.assertEqual(self.h.run("r1", "web.py"), (0, False))
+        self.assertIn("handled /hi\n", self.h.text("r1"))
+        self.assertIn("b'ok'\n", self.h.text("r1"))
+        self.assertIn('"GET /hi HTTP/1.1" 200', self.h.text("r1", "stderr"))
+
+    def test_runs_in_a_subfolder_and_with_other_env_join_a_running_project(self):
+        cwd_before = os.getcwd()
+        os.environ.pop("TIDE_PORT", None)
+        os.environ.pop("TIDE_ONLY_SERVER", None)
+        self.h.file("projects/demo/root.txt", "root")
+        self.h.file("projects/demo/nb/data.txt", "data")
+        self.h.file(
+            "projects/demo/server.py",
+            "import os\nprint('up', flush=True)\ninput()\n"
+            "print(os.path.basename(os.getcwd()), open('root.txt').read(), os.environ['TIDE_PORT'], os.environ['TIDE_ONLY_SERVER'])\n",
+        )
+        # Like a notebook cell: runs in the notebook's folder.
+        self.h.file(
+            "projects/demo/nb/cell.py",
+            "import os, pathlib, glob, threading\n"
+            "print(os.path.basename(os.getcwd()), open('data.txt').read(), pathlib.Path('data.txt').read_text())\n"
+            "print(os.path.abspath('x') == os.path.join(os.getcwd(), 'x'), pathlib.Path('data.txt').resolve().parent.name)\n"
+            "print(sorted(os.listdir()), glob.glob('*.txt'), os.path.exists('data.txt'), os.path.exists('root.txt'))\n"
+            "with open('out.txt', 'w') as f:\n    f.write('cell')\n"
+            "os.makedirs('made/deep', exist_ok=True)\n"
+            "os.chdir('..')\n"
+            "t = threading.Thread(target=lambda: print(os.path.basename(os.getcwd()), open('root.txt').read()))\n"
+            "t.start(); t.join()\n"
+            "print(os.environ.get('TIDE_PORT'), os.environ.get('TIDE_ONLY_SERVER'), 'TIDE_PORT' in os.environ)\n",
+        )
+        self.h.file(
+            "projects/demo/client.py",
+            "import os, threading\nos.environ['TIDE_SET_BY_CLIENT'] = '1'\n"
+            "t = threading.Thread(target=lambda: print(os.getenv('TIDE_PORT'), dict(os.environ).get('TIDE_PORT'), os.environ.get('TIDE_SET_BY_CLIENT')))\n"
+            "t.start(); t.join()\n",
+        )
+        project = os.path.join(self.h.root, "projects", "demo")
+        thread, result = self.h.start("s", "projects/demo/server.py", cwd="projects/demo", env={"TIDE_PORT": "8000", "TIDE_ONLY_SERVER": "yes"})
+        self.h.wait_for("s", "up")
+        self.assertEqual(self.h.run("nb", "projects/demo/nb/cell.py", cwd="projects/demo/nb", env={"TIDE_PORT": "8000"}), (0, False), self.h.text("nb", "stderr"))
+        self.assertEqual(
+            self.h.text("nb"),
+            "nb data data\nTrue nb\n['cell.py', 'data.txt'] ['data.txt'] True False\ndemo root\n8000 None True\n",
+        )
+        with open(os.path.join(project, "nb", "out.txt")) as f:
+            self.assertEqual(f.read(), "cell")
+        self.assertTrue(os.path.isdir(os.path.join(project, "nb", "made", "deep")))
+        # `PORT=9000 python client.py` from the project root.
+        self.assertEqual(self.h.run("c", "projects/demo/client.py", cwd="projects/demo", env={"TIDE_PORT": "9000", "TIDE_ONLY_SERVER": "yes"}), (0, False))
+        self.assertEqual(self.h.text("c"), "9000 9000 1\n")
+        self.assertNotIn("TIDE_SET_BY_CLIENT", os.environ)
+        # The server still has its own folder and environment.
+        self.assertEqual(os.environ["TIDE_PORT"], "8000")
+        tide_runner.feed("s", "\n")
+        thread.join(10)
+        self.assertEqual(result["value"], (0, False))
+        self.assertEqual(self.h.text("s"), "up\ndemo root 8000 yes\n")
+        self.assertNotIn("TIDE_PORT", os.environ)
+        self.assertNotIn("TIDE_ONLY_SERVER", os.environ)
+        self.assertEqual(os.getcwd(), cwd_before)
+        self.assert_idle()
+
+    def test_runs_in_another_project_are_refused_with_what_to_do(self):
+        self.h.file("projects/one/wait.py", "input()\n")
+        self.h.file("projects/two/main.py", "print('should not run')\n")
+        thread, result = self.h.start("a", "projects/one/wait.py", cwd="projects/one")
+        time.sleep(0.2)
+        self.assertEqual(self.h.run("b", "projects/two/main.py", cwd="projects/two"), (1, False))
+        err = self.h.text("b", "stderr")
+        self.assertIn(os.path.join(self.h.root, "projects", "one"), err)
+        self.assertIn("stop it first", err)
+        self.assertIn("then run this again", err)
+        self.assertEqual(self.h.text("b"), "")
+        tide_runner.feed("a", "\n")
+        thread.join(10)
+        self.assertEqual(result["value"], (0, False))
+        self.assert_idle()
+
+    def test_bad_env_is_refused_without_changing_anything(self):
+        os.environ.pop("TIDE_GOOD", None)
+        self.h.file("main.py", "print('ran')\n")
+        self.assertEqual(self.h.run("r1", "main.py", env={"TIDE_GOOD": "1", "TIDE_BAD": "a\x00b"}), (1, False))
+        self.assertIn("ValueError", self.h.text("r1", "stderr"))
+        self.assertEqual(self.h.text("r1"), "")
+        self.assertNotIn("TIDE_GOOD", os.environ)
+        self.assert_idle()
+        # The next run is not stuck behind it.
+        self.assertEqual(self.h.run("r2", "main.py"), (0, False))
+        self.assertEqual(self.h.text("r2"), "ran\n")
+
+    def test_kill_does_nothing_once_the_run_is_finishing(self):
+        state = tide_runner._Run()
+        state.finishing = True
+        tide_runner._runs["fin"] = state
+        try:
+            tide_runner.kill("fin")
+        finally:
+            del tide_runner._runs["fin"]
+        self.assertFalse(state.killed)
+        self.assertTrue(state.queue.empty())
+
+    def test_an_interrupt_sent_as_the_run_finishes_does_not_skip_cleanup(self):
+        import ctypes
+
+        # A kill() that got past its check just before run() started cleaning up.
+        real = tide_runner._drop_interrupt
+
+        def late_kill(state):
+            # Raised at the next bytecode, inside run()'s cleanup.
+            ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(state.ident), ctypes.py_object(KeyboardInterrupt))
+            real(state)
+
+        self.h.file("main.py", "print('ok')\n")
+        tide_runner._drop_interrupt = late_kill
+        try:
+            self.assertEqual(self.h.run("r1", "main.py", env={"TIDE_LATE": "1"}), (0, False))
+        finally:
+            tide_runner._drop_interrupt = real
+        self.assert_idle()
+        self.assertNotIn("TIDE_LATE", os.environ)
+
+    def test_kills_at_any_moment_never_leave_shared_state_behind(self):
+        cwd_before = os.getcwd()
+        self.h.file("short.py", "total = 0\nfor i in range(20000):\n    total += i\nprint(total)\n")
+        for i in range(60):
+            thread, result = self.h.start(f"k{i}", "short.py", env={"TIDE_K": str(i)})
+            time.sleep((i % 12) * 0.0005)
+            tide_runner.kill(f"k{i}")
+            thread.join(10)
+            self.assertFalse(thread.is_alive())
+            self.assertIn(result["value"][0], (0, 130))
+            self.assert_idle()
+        self.assertNotIn("TIDE_K", os.environ)
+        self.assertEqual(os.getcwd(), cwd_before)
 
 if __name__ == "__main__":
     unittest.main()

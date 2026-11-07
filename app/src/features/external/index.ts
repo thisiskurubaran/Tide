@@ -4,10 +4,9 @@ import { buffersStore, onProjectChange, projectsStore, snapshots, storage, tabsS
 import { projectTabs } from '../../state/tabs';
 import { folderAt, pickFolder } from './folder';
 import { createLinkedStore, createLinkedSync, LinkedState } from './linked';
-import { currentlyPro } from '../pro';
 
 export const linkedStore = createLinkedStore(storage);
-export const linkedSync = createLinkedSync(linkedStore, workspace, folderAt, currentlyPro);
+export const linkedSync = createLinkedSync(linkedStore, workspace, folderAt);
 export const useLinked = <T>(selector: (s: LinkedState) => T) => useStore(linkedStore, selector);
 
 linkedSync.watch(buffersStore);

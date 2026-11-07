@@ -1,0 +1,377 @@
+// Publishing a folder of the project as a website. Each provider talks to its
+// service's HTTP API with the user's own token; Tide has no server of its own.
+import { blake3 } from '@noble/hashes/blake3.js';
+import { sha1 } from '@noble/hashes/legacy.js';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex } from '@noble/hashes/utils.js';
+import { gzipSync, zipSync } from 'fflate';
+
+import { fromBase64 } from '../backup/zip';
+
+export type ProviderId = 'github' | 'netlify' | 'vercel' | 'cloudflare' | 'firebase' | 'render';
+
+export interface SiteFile {
+  // Relative to the published folder, with forward slashes.
+  path: string;
+  base64: string;
+}
+
+// Saved in tide.json under "deploy"; no secrets.
+export interface DeployConfig {
+  provider: ProviderId;
+  folder: string;
+  // Deploy on its own: after saving (once it goes quiet) or after each commit.
+  auto?: 'off' | 'save' | 'commit';
+  github?: { owner: string; repo: string; branch: string };
+  netlify?: { siteId: string };
+  vercel?: { project: string };
+  cloudflare?: { accountId: string; project: string };
+  // The Hosting site, usually the Firebase project ID.
+  firebase?: { site: string };
+}
+
+export interface DeployResult {
+  url: string;
+  // A preview deploy: the live site was left alone.
+  preview?: boolean;
+  // Settings the provider created (a new site's id); merged back into tide.json.
+  config?: Partial<DeployConfig>;
+}
+
+export type Progress = (message: string) => void;
+
+// A preview's name, from the git branch: what Netlify aliases and Firebase
+// channels accept (lowercase letters, digits and hyphens).
+export function previewSlug(branch: string): string {
+  const slug = branch
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 37)
+    .replace(/-+$/, '');
+  return !slug || slug === 'live' ? 'preview' : slug;
+}
+
+const json = async (res: Response, service: string) => {
+  const text = await res.text();
+  let data: any;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { message: text };
+  }
+  if (!res.ok) {
+    const detail = data?.errors?.[0]?.message ?? data?.error?.message ?? data?.message ?? data?.error ?? res.statusText;
+    throw new Error(`${service}: ${typeof detail === 'string' ? detail : JSON.stringify(detail)} (${res.status})`);
+  }
+  return data;
+};
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+const MIME: Record<string, string> = {
+  html: 'text/html',
+  htm: 'text/html',
+  css: 'text/css',
+  js: 'text/javascript',
+  mjs: 'text/javascript',
+  json: 'application/json',
+  svg: 'image/svg+xml',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  ico: 'image/x-icon',
+  txt: 'text/plain',
+  xml: 'application/xml',
+  woff: 'font/woff',
+  woff2: 'font/woff2',
+  wasm: 'application/wasm',
+  pdf: 'application/pdf',
+};
+export const contentType = (path: string) => MIME[path.split('.').pop()!.toLowerCase()] ?? 'application/octet-stream';
+
+// Runs `fn` over items, a few at a time.
+async function pool<T>(items: T[], size: number, fn: (item: T, i: number) => Promise<void>) {
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(size, items.length) }, async () => {
+      while (next < items.length) {
+        const i = next++;
+        await fn(items[i], i);
+      }
+    }),
+  );
+}
+
+// GitHub Pages: the folder becomes the whole of a branch (gh-pages by default),
+// committed through the Git Data API, then Pages is switched on for it.
+export async function deployGitHubPages(
+  files: SiteFile[],
+  target: { owner: string; repo: string; branch: string },
+  token: string,
+  progress: Progress,
+  fetchImpl: typeof fetch = (...a) => fetch(...a),
+): Promise<DeployResult> {
+  const base = `https://api.github.com/repos/${encodeURIComponent(target.owner)}/${encodeURIComponent(target.repo)}`;
+  const call = async (method: string, path: string, body?: unknown, okStatuses: number[] = []) => {
+    const res = await fetchImpl(`${base}${path}`, {
+      method,
+      headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'X-GitHub-Api-Version': '2022-11-28' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    if (okStatuses.includes(res.status)) return null;
+    if (res.status === 409) throw new Error('GitHub: the repository is empty. Push a first commit to it, then deploy.');
+    return json(res, 'GitHub');
+  };
+  const existing = await call('GET', `/git/ref/heads/${encodeURIComponent(target.branch)}`, undefined, [404]);
+  // .nojekyll so folders starting with _ (like _next) are served as they are.
+  const all = files.some((f) => f.path === '.nojekyll') ? files : [...files, { path: '.nojekyll', base64: '' }];
+  const tree: { path: string; mode: string; type: string; sha: string }[] = new Array(all.length);
+  let done = 0;
+  await pool(all, 4, async (f, i) => {
+    const blob = await call('POST', '/git/blobs', { content: f.base64, encoding: 'base64' });
+    tree[i] = { path: f.path, mode: '100644', type: 'blob', sha: blob.sha };
+    progress(`Uploading files (${++done}/${all.length})`);
+  });
+  progress('Committing');
+  const t = await call('POST', '/git/trees', { tree });
+  const commit = await call('POST', '/git/commits', { message: 'Deploy from Tide', tree: t.sha, parents: existing ? [existing.object.sha] : [] });
+  if (existing) await call('PATCH', `/git/refs/heads/${encodeURIComponent(target.branch)}`, { sha: commit.sha, force: true });
+  else await call('POST', '/git/refs', { ref: `refs/heads/${target.branch}`, sha: commit.sha });
+  progress('Turning on GitHub Pages');
+  let pages = await call('GET', '/pages', undefined, [404]);
+  if (!pages) pages = await call('POST', '/pages', { source: { branch: target.branch, path: '/' } });
+  else if (pages.source?.branch !== target.branch) await call('PUT', '/pages', { source: { branch: target.branch, path: '/' } });
+  return { url: pages.html_url ?? `https://${target.owner}.github.io/${target.repo}/` };
+}
+
+// Netlify: a new site the first time, then the folder as one zip upload.
+export async function deployNetlify(
+  files: SiteFile[],
+  siteId: string | undefined,
+  token: string,
+  progress: Progress,
+  fetchImpl: typeof fetch = (...a) => fetch(...a),
+  preview?: string,
+): Promise<DeployResult> {
+  const api = 'https://api.netlify.com/api/v1';
+  const auth = { Authorization: `Bearer ${token}` };
+  let id = siteId;
+  if (!id) {
+    progress('Creating a Netlify site');
+    const site = await json(await fetchImpl(`${api}/sites`, { method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' }, body: '{}' }), 'Netlify');
+    id = site.id as string;
+  }
+  let deploy: any;
+  if (preview) {
+    // A draft deploy at <branch>--<site>.netlify.app. Drafts take a file
+    // digest, then only the files Netlify doesn't have yet.
+    const bytes = new Map(files.map((f) => [`/${f.path}`, fromBase64(f.base64)]));
+    const digest = Object.fromEntries([...bytes].map(([path, b]) => [path, bytesToHex(sha1(b))]));
+    deploy = await json(
+      await fetchImpl(`${api}/sites/${id}/deploys`, {
+        method: 'POST',
+        headers: { ...auth, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files: digest, draft: true, branch: preview }),
+      }),
+      'Netlify',
+    );
+    const required = new Set<string>(deploy.required ?? []);
+    const uploads = [...new Map([...bytes].filter(([path]) => required.has(digest[path])).map(([path, b]) => [digest[path], { path, b }])).values()];
+    let done = 0;
+    await pool(uploads, 4, async ({ path, b }) => {
+      const encoded = path.split('/').map(encodeURIComponent).join('/');
+      await json(await fetchImpl(`${api}/deploys/${deploy.id}/files${encoded}`, { method: 'PUT', headers: { ...auth, 'Content-Type': 'application/octet-stream' }, body: b as unknown as BodyInit }), 'Netlify');
+      progress(`Uploading files (${++done}/${uploads.length})`);
+    });
+  } else {
+    progress('Uploading');
+    const zip = zipSync(Object.fromEntries(files.map((f) => [f.path, fromBase64(f.base64)])));
+    deploy = await json(await fetchImpl(`${api}/sites/${id}/deploys`, { method: 'POST', headers: { ...auth, 'Content-Type': 'application/zip' }, body: zip as unknown as BodyInit }), 'Netlify');
+  }
+  for (let i = 0; i < 60 && !['ready', 'error'].includes(deploy.state); i++) {
+    progress(`Netlify is processing (${deploy.state})`);
+    await sleep(2000);
+    deploy = await json(await fetchImpl(`${api}/deploys/${deploy.id}`, { headers: auth }), 'Netlify');
+  }
+  if (deploy.state === 'error') throw new Error(`Netlify: ${deploy.error_message ?? 'the deploy failed'}`);
+  const config = { netlify: { siteId: id! } };
+  if (preview) return { url: deploy.deploy_ssl_url ?? deploy.deploy_url, preview: true, config };
+  return { url: deploy.ssl_url ?? deploy.url ?? deploy.deploy_ssl_url, config };
+}
+
+// Vercel: the files go inline in one deployment request; no build step runs.
+export async function deployVercel(
+  files: SiteFile[],
+  project: string,
+  token: string,
+  progress: Progress,
+  fetchImpl: typeof fetch = (...a) => fetch(...a),
+  preview?: string,
+): Promise<DeployResult> {
+  const auth = { Authorization: `Bearer ${token}` };
+  progress('Uploading');
+  let d = await json(
+    await fetchImpl('https://api.vercel.com/v13/deployments?skipAutoDetectionConfirmation=1', {
+      method: 'POST',
+      headers: { ...auth, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: project,
+        // Without a target, Vercel makes a preview deployment.
+        ...(preview ? { meta: { branch: preview } } : { target: 'production' }),
+        files: files.map((f) => ({ file: f.path, data: f.base64, encoding: 'base64' })),
+        projectSettings: { framework: null, buildCommand: null, installCommand: null, outputDirectory: null },
+      }),
+    }),
+    'Vercel',
+  );
+  for (let i = 0; i < 60 && !['READY', 'ERROR', 'CANCELED'].includes(d.readyState); i++) {
+    progress(`Vercel is processing (${String(d.readyState).toLowerCase()})`);
+    await sleep(2000);
+    d = await json(await fetchImpl(`https://api.vercel.com/v13/deployments/${d.id}`, { headers: auth }), 'Vercel');
+  }
+  if (d.readyState !== 'READY') throw new Error(`Vercel: the deployment ended as ${String(d.readyState).toLowerCase()}`);
+  if (preview) return { url: `https://${d.url}`, preview: true };
+  const alias = (d.alias as string[] | undefined)?.find((a) => a.endsWith('.vercel.app') && !a.includes('-git-')) ?? d.url;
+  return { url: `https://${alias}` };
+}
+
+// Cloudflare Pages Direct Upload, the same steps `wrangler pages deploy` takes:
+// hash each file, upload the ones Cloudflare doesn't have, then create the
+// deployment from a manifest of path → hash.
+export const cloudflareHash = (base64: string, path: string) => {
+  const ext = path.includes('.') ? path.slice(path.lastIndexOf('.') + 1) : '';
+  return bytesToHex(blake3(new TextEncoder().encode(base64 + ext))).slice(0, 32);
+};
+
+export async function deployCloudflare(
+  files: SiteFile[],
+  target: { accountId: string; project: string },
+  token: string,
+  progress: Progress,
+  fetchImpl: typeof fetch = (...a) => fetch(...a),
+  preview?: string,
+): Promise<DeployResult> {
+  const api = 'https://api.cloudflare.com/client/v4';
+  const account = `${api}/accounts/${encodeURIComponent(target.accountId)}/pages/projects`;
+  const auth = { Authorization: `Bearer ${token}` };
+  const call = async (url: string, init: RequestInit = {}, okStatuses: number[] = []) => {
+    const res = await fetchImpl(url, init);
+    if (okStatuses.includes(res.status)) return null;
+    return (await json(res, 'Cloudflare')).result;
+  };
+  const exists = await call(`${account}/${encodeURIComponent(target.project)}`, { headers: auth }, [404]);
+  if (!exists) {
+    progress('Creating the Pages project');
+    await call(account, { method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: target.project, production_branch: 'main' }) });
+  }
+  const { jwt } = await call(`${account}/${encodeURIComponent(target.project)}/upload-token`, { headers: auth });
+  const asJwt = { Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' };
+  const hashed = files.map((f) => ({ ...f, hash: cloudflareHash(f.base64, f.path) }));
+  const unique = [...new Map(hashed.map((f) => [f.hash, f])).values()];
+  const missing: string[] = await call(`${api}/pages/assets/check-missing`, { method: 'POST', headers: asJwt, body: JSON.stringify({ hashes: unique.map((f) => f.hash) }) });
+  const toUpload = unique.filter((f) => missing.includes(f.hash));
+  for (let i = 0; i < toUpload.length; i += 20) {
+    progress(`Uploading files (${Math.min(i + 20, toUpload.length)}/${toUpload.length})`);
+    const batch = toUpload.slice(i, i + 20).map((f) => ({ key: f.hash, value: f.base64, metadata: { contentType: contentType(f.path) }, base64: true }));
+    await call(`${api}/pages/assets/upload`, { method: 'POST', headers: asJwt, body: JSON.stringify(batch) });
+  }
+  await call(`${api}/pages/assets/upsert-hashes`, { method: 'POST', headers: asJwt, body: JSON.stringify({ hashes: unique.map((f) => f.hash) }) });
+  progress('Creating the deployment');
+  const form = new FormData();
+  form.append('manifest', JSON.stringify(Object.fromEntries(hashed.map((f) => [`/${f.path}`, f.hash]))));
+  // Any branch other than the production one ("main") is a preview.
+  if (preview) form.append('branch', preview === 'main' ? 'preview' : preview);
+  const deployment = await call(`${account}/${encodeURIComponent(target.project)}/deployments`, { method: 'POST', headers: auth, body: form });
+  if (preview) return { url: deployment?.url ?? `https://${target.project}.pages.dev`, preview: true };
+  return { url: `https://${target.project}.pages.dev` };
+}
+
+// Firebase Hosting through its REST API: a new version, the files listed by
+// the SHA-256 of their gzipped bytes, only the ones Firebase lacks uploaded,
+// then the version finalized and released. `accessToken` is a Google OAuth
+// token for a service account with Firebase Hosting Admin.
+export async function deployFirebase(
+  files: SiteFile[],
+  site: string,
+  accessToken: string,
+  progress: Progress,
+  fetchImpl: typeof fetch = (...a) => fetch(...a),
+  preview?: string,
+): Promise<DeployResult> {
+  const api = `https://firebasehosting.googleapis.com/v1beta1/sites/${encodeURIComponent(site)}`;
+  const auth = { Authorization: `Bearer ${accessToken}` };
+  const call = async (url: string, init: RequestInit = {}) => json(await fetchImpl(url, { ...init, headers: { ...auth, 'Content-Type': 'application/json', ...init.headers } }), 'Firebase');
+  progress('Creating a version');
+  const version = await call(`${api}/versions`, { method: 'POST', body: '{}' });
+  const gzipped = files.map((f) => {
+    const gz = gzipSync(fromBase64(f.base64), { level: 9, mtime: 0 });
+    return { path: `/${f.path}`, gz, hash: bytesToHex(sha256(gz)) };
+  });
+  const populated = await call(`https://firebasehosting.googleapis.com/v1beta1/${version.name}:populateFiles`, {
+    method: 'POST',
+    body: JSON.stringify({ files: Object.fromEntries(gzipped.map((f) => [f.path, f.hash])) }),
+  });
+  const required = new Set<string>(populated.uploadRequiredHashes ?? []);
+  const uploads = [...new Map(gzipped.filter((f) => required.has(f.hash)).map((f) => [f.hash, f])).values()];
+  let done = 0;
+  await pool(uploads, 4, async (f) => {
+    await json(
+      await fetchImpl(`${populated.uploadUrl}/${f.hash}`, { method: 'POST', headers: { ...auth, 'Content-Type': 'application/octet-stream' }, body: f.gz as unknown as BodyInit }),
+      'Firebase',
+    );
+    progress(`Uploading files (${++done}/${uploads.length})`);
+  });
+  progress('Releasing');
+  await call(`https://firebasehosting.googleapis.com/v1beta1/${version.name}?update_mask=status`, { method: 'PATCH', body: JSON.stringify({ status: 'FINALIZED' }) });
+  if (preview) {
+    // A preview channel: its own URL, which Firebase deletes after a week.
+    const channelUrl = `${api}/channels/${encodeURIComponent(preview)}`;
+    const existing = await fetchImpl(channelUrl, { headers: auth });
+    const channel =
+      existing.status === 404 ? await call(`${api}/channels?channelId=${encodeURIComponent(preview)}`, { method: 'POST', body: JSON.stringify({ ttl: '604800s' }) }) : await json(existing, 'Firebase');
+    await call(`${channelUrl}/releases?versionName=${encodeURIComponent(version.name)}`, { method: 'POST', body: '{}' });
+    return { url: channel.url ?? `https://${site}--${preview}.web.app`, preview: true };
+  }
+  await call(`${api}/releases?versionName=${encodeURIComponent(version.name)}`, { method: 'POST', body: '{}' });
+  return { url: `https://${site}.web.app` };
+}
+
+// A service account key (the JSON file from Google Cloud) for Firebase Hosting.
+export interface ServiceAccount {
+  client_email: string;
+  private_key: string;
+  project_id?: string;
+}
+
+export function parseServiceAccount(text: string): ServiceAccount {
+  let key: Partial<ServiceAccount> & { type?: string };
+  try {
+    key = JSON.parse(text);
+  } catch {
+    throw new Error('Firebase: paste the whole service account key file (JSON).');
+  }
+  if (key.type !== 'service_account' || !key.client_email || !key.private_key) throw new Error('Firebase: that isn’t a service account key. Create one in Project settings → Service accounts.');
+  return key as ServiceAccount;
+}
+
+// Trades the signed JWT for an hour-long access token.
+export async function googleAccessToken(signedJwt: string, fetchImpl: typeof fetch = (...a) => fetch(...a)): Promise<string> {
+  const res = await fetchImpl('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: `grant_type=${encodeURIComponent('urn:ietf:params:oauth:grant-type:jwt-bearer')}&assertion=${encodeURIComponent(signedJwt)}`,
+  });
+  const data = await json(res, 'Google sign-in');
+  return data.access_token as string;
+}
+
+// Render builds from the connected Git repository; Tide asks it to deploy now.
+export async function deployRender(hookUrl: string, progress: Progress, fetchImpl: typeof fetch = (...a) => fetch(...a)): Promise<DeployResult> {
+  if (!/^https:\/\/api\.render\.com\/deploy\//.test(hookUrl)) throw new Error('Render: that isn’t a deploy hook URL. Copy it from your service’s Settings → Deploy Hook.');
+  progress('Asking Render to deploy');
+  await json(await fetchImpl(hookUrl, { method: 'POST' }), 'Render');
+  return { url: 'https://dashboard.render.com' };
+}

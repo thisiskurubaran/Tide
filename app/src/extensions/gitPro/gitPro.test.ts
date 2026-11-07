@@ -2,7 +2,7 @@
  * @jest-environment node
  */
 /// <reference types="node" />
-// Git Pro against the built-in git CLI on the host's Node, checked with real git.
+// Git Tools against the built-in git CLI on the host's Node, checked with real git.
 import { execFileSync, spawnSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
@@ -57,7 +57,7 @@ withGit('git pro', () => {
     r.write('f.txt', lines.join('\n'));
 
     const status = await r.api.status();
-    expect(status).toEqual({ branch: 'main', merging: null, changes: [{ path: 'f.txt', code: ' M' }] });
+    expect(status).toEqual({ branch: 'main', merging: null, operation: null, changes: [{ path: 'f.txt', code: ' M' }] });
     const v = await r.api.show('f.txt');
     if (v.binary) throw new Error('binary');
     const hs = diffText(v.index!, v.work!)!;
@@ -165,7 +165,7 @@ withGit('git pro', () => {
     await r.api.merge('b');
     await r.api.abortMerge();
     expect(r.read('f.txt')).toBe('main\n');
-    expect(await r.api.status()).toEqual({ branch: 'main', merging: null, changes: [] });
+    expect(await r.api.status()).toEqual({ branch: 'main', merging: null, operation: null, changes: [] });
   });
 
   it('lists history and what each commit changed', async () => {

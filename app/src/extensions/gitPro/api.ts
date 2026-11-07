@@ -1,4 +1,4 @@
-// Git Pro talks to the built-in git through `git __tide <command>`, which
+// Git Tools talks to the built-in git through `git __tide <command>`, which
 // prints JSON (nodejs-project/git/ui.js).
 import type { GitResult } from '../../features/git/runGit';
 import { lastLines } from '../../features/git/runGit';
@@ -13,6 +13,8 @@ export interface Status {
   branch: string | null;
   // The merge message while a merge waits for its commit.
   merging: string | null;
+  // A rebase or cherry-pick that stopped on a conflict, or is between steps.
+  operation: Operation | null;
   changes: FileChange[];
 }
 
@@ -31,6 +33,55 @@ export interface CommitInfo {
   author: string;
   timestamp: number;
   parents: string[];
+}
+
+// Runs of lines by the commit that last changed them; oid null is uncommitted.
+export type Blame =
+  | { binary: true }
+  | {
+      binary: false;
+      runs: { oid: string | null; start: number; count: number }[];
+      commits: Record<string, Omit<CommitInfo, 'parents'>>;
+      // Older lines were given to the oldest commit looked at.
+      truncated: boolean;
+    };
+
+export interface PickInfo {
+  oid: string;
+  subject: string;
+}
+
+export type Operation =
+  | { kind: 'rebase'; onto: string; branch: string; step: number; total: number; current: PickInfo | null }
+  | { kind: 'cherry-pick'; current: PickInfo };
+
+// What a cherry-pick or rebase (or one more step of it) did.
+export type PickResult =
+  | { status: 'done'; commit: string | null; skipped: PickInfo[] }
+  | { status: 'conflict'; conflicts: string[]; current: PickInfo; step?: number; total?: number }
+  | { status: 'empty'; current: PickInfo }
+  | { status: 'up-to-date' | 'fast-forward' };
+
+export interface StashEntry {
+  index: number;
+  oid: string;
+  message: string;
+  timestamp: number;
+  parents: string[];
+}
+
+export interface StashApplied {
+  conflicts: string[];
+  files: string[];
+  dropped?: boolean;
+}
+
+export interface Tag {
+  name: string;
+  // The commit it points at.
+  oid: string;
+  annotated: boolean;
+  message: string | null;
 }
 
 export interface MergeResult {
@@ -88,7 +139,26 @@ export function createGitPro(run: RunGit) {
     log: (n = 50) => call<CommitInfo[]>('log', String(n)),
     commitFiles: (oid: string) => call<{ path: string; status: 'added' | 'deleted' | 'modified' }[]>('commit-files', oid),
     commitFile: (oid: string, path: string) => call<CommitFileVersions>('commit-file', oid, path),
+    fileLog: (path: string, n = 100) => call<CommitInfo[]>('file-log', path, String(n)),
+    blame: (path: string) => call<Blame>('blame', path),
     push: () => call<null>('push'),
+    stashes: () => call<StashEntry[]>('stashes'),
+    stashPush: (message = '', untracked = false) => call<{ oid: string; message: string } | null>('stash-push', base64(message), untracked ? '1' : '0'),
+    stashApply: (n: number) => call<StashApplied>('stash-apply', String(n)),
+    stashPop: (n: number) => call<StashApplied>('stash-pop', String(n)),
+    stashDrop: (n: number) => call<null>('stash-drop', String(n)),
+    tags: () => call<Tag[]>('tags'),
+    // A message makes an annotated tag.
+    createTag: (name: string, message = '', target = 'HEAD') => call<null>('create-tag', name, base64(message), target),
+    deleteTag: (name: string) => call<null>('delete-tag', name),
+    pushTag: (name: string) => call<null>('push-tag', name),
+    cherryPick: (oid: string) => call<PickResult>('cherry-pick', oid),
+    cherryPickContinue: () => call<PickResult>('cherry-pick-continue'),
+    cherryPickAbort: () => call<null>('cherry-pick-abort'),
+    rebase: (upstream: string) => call<PickResult>('rebase', upstream),
+    rebaseContinue: () => call<PickResult>('rebase-continue'),
+    rebaseSkip: () => call<PickResult>('rebase-skip'),
+    rebaseAbort: () => call<null>('rebase-abort'),
     // Pull prints progress, not JSON; it's the porcelain command.
     async pull() {
       const r = await run(['pull']);

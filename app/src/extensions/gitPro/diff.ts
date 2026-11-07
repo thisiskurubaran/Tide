@@ -1,4 +1,4 @@
-// Line diffs for Git Pro: Myers' algorithm, grouped into hunks with context,
+// Line diffs for Git Tools: Myers' algorithm, grouped into hunks with context,
 // and the edits that stage, unstage or discard one hunk.
 export type LineOp = { kind: 'same' | 'add' | 'del'; text: string; oldLine?: number; newLine?: number };
 

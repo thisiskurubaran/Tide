@@ -10,11 +10,12 @@ import { spacing } from '../../theme/tokens';
 import { linkedStore, linkFolder, pullFolder, pushFolder, regrantFolder, useLinked } from './index';
 import type { SyncResult } from './sync';
 import { haptic } from '../../components/haptics';
-import { requirePro } from '../pro';
 
 const summary = (r: SyncResult, verb: string) => {
   const parts = [`${r.written} ${r.written === 1 ? 'file' : 'files'} ${verb}`];
   if (r.removed) parts.push(`${r.removed} deleted`);
+  // Kept on both sides, just not copied.
+  if (r.tooLarge.length) parts.push(`${r.tooLarge.length} too large to sync (over 20 MB), left as they are: ${r.tooLarge.join(', ')}`);
   return parts.join(', ');
 };
 
@@ -31,12 +32,7 @@ export function LinkedFolderSheet({ project, onClose }: { project: string | null
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Linking and syncing are Pro; unlinking isn't, so a lapsed link can be removed.
   async function run(step: () => Promise<string | void>) {
-    if (!requirePro('linked-folders')) {
-      onClose();
-      return;
-    }
     setBusy(true);
     setError(null);
     setStatus(null);

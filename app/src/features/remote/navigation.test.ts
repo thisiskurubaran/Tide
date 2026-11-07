@@ -23,3 +23,15 @@ describe('previewNavigation', () => {
     expect(previewNavigation('itms-apps://x', local)).toBe('block');
   });
 });
+
+describe('previews of project HTML files', () => {
+  const start = 'file:///var/mobile/Documents/projects/site/index.html';
+  it('stays inside the project folder', () => {
+    expect(previewNavigation('file:///var/mobile/Documents/projects/site/about.html', start)).toBe('allow');
+    expect(previewNavigation('file:///var/mobile/Documents/projects/site/blog/post.html#top', start)).toBe('allow');
+    expect(previewNavigation('file:///var/mobile/Documents/projects/other/index.html', start)).toBe('block');
+    expect(previewNavigation('file:///var/mobile/Documents/projects/site/../other/x.html', start)).toBe('block');
+    expect(previewNavigation('file:///etc/passwd', start)).toBe('block');
+    expect(previewNavigation('https://example.com/', start)).toBe('external');
+  });
+});

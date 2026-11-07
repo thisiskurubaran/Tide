@@ -4,16 +4,6 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 
 jest.mock('expo-router', () => ({ router: { back: jest.fn(), push: jest.fn() } }));
 jest.mock('@expo/vector-icons/Feather', () => 'Feather');
-// Pro is on unless a test turns it off; the paywall records what it was opened for.
-let mockPro = true;
-const mockPaywall: string[] = [];
-jest.mock('../pro', () => ({
-  requirePro: (feature: string) => {
-    if (!mockPro) mockPaywall.push(feature);
-    return mockPro;
-  },
-  currentlyPro: () => mockPro,
-}));
 jest.mock('react-native-safe-area-context', () => require('react-native-safe-area-context/jest/mock').default);
 jest.mock('react-native/Libraries/Utilities/useWindowDimensions', () => ({ __esModule: true, default: () => ({ width: 1024, height: 768, scale: 2, fontScale: 1 }) }));
 jest.mock('../../state', () => {
@@ -41,6 +31,7 @@ jest.mock('../../state', () => {
     useProjects: (sel: (s: unknown) => unknown) => useStore(projectsStore, sel),
     useSettings: (sel: (s: unknown) => unknown) => useStore(settings, sel),
     useRunner: (sel: (s: unknown) => unknown) => useStore(runnerStore, sel),
+    onProjectChange: () => undefined,
   };
 });
 jest.mock('../../extensions/host', () => ({
@@ -52,8 +43,17 @@ jest.mock('../../extensions/host', () => ({
   saveWithHooks: async () => undefined,
 }));
 jest.mock('../../extensions/gitPro', () => ({ GIT_PRO_PANEL: 'git-pro' }));
+jest.mock('../git/status', () => {
+  const { createGitStatusStore } = jest.requireActual('../git/status');
+  const { useStore } = jest.requireActual('zustand');
+  const gitStatusStore = createGitStatusStore(async () => ({ code: 128, stdout: '' }));
+  return { gitStatusStore, useGitStatus: (sel: (s: unknown) => unknown) => useStore(gitStatusStore, sel) };
+});
+jest.mock('../../state/recents', () => ({ recentsStore: { getState: () => ({ touchProject: () => undefined }) } }));
 jest.mock('./TerminalPanel', () => ({ TerminalPanel: () => null }));
 jest.mock('../git/SourceControlSheet', () => ({ SourceControlSheet: () => null }));
+jest.mock('../ai/AiSheet', () => ({ AiSheet: () => null }));
+jest.mock('../notebook/NotebookBar', () => ({ NotebookBar: () => null }));
 jest.mock('../search/SearchPanel', () => ({ SearchPanel: () => null }));
 jest.mock('../packages/PackagesSheet', () => ({ PackagesSheet: () => null }));
 jest.mock('../tests/TestsSheet', () => ({ TestsSheet: () => null }));
@@ -79,19 +79,21 @@ jest.mock('../search/CommandPalette', () => ({
     return null;
   },
 }));
+// What a pane's flush() does: by default nothing, like an editor with no typing pending.
+let mockFlush: () => Promise<void> = async () => undefined;
 // Each editor pane shows its file and can report focus, like the WebView does.
 jest.mock('../editor/EditorPane', () => {
   const React = jest.requireActual('react');
   const { Pressable, Text } = jest.requireActual('react-native');
   return {
     EditorPane: React.forwardRef(function Fake(props: { path: string | null; onFocusChange(f: boolean): void }, ref: React.Ref<unknown>) {
-      React.useImperativeHandle(ref, () => ({ send: () => undefined, reveal: () => undefined }));
+      React.useImperativeHandle(ref, () => ({ send: () => undefined, reveal: () => undefined, flush: () => mockFlush() }));
       return React.createElement(Pressable, { onPress: () => props.onFocusChange(true), testID: 'pane' }, React.createElement(Text, null, `file:${props.path}`));
     }),
   };
 });
 
-import { tabsStore } from '../../state';
+import { buffersStore, tabsStore, workspace } from '../../state';
 import { ProjectScreen } from './ProjectScreen';
 
 it('splits the editor and sends opened files to the focused pane', async () => {
@@ -173,19 +175,19 @@ it('offers the merge editor for files with conflicts', async () => {
   expect(mockCompare).toEqual({ path: 'a.txt', with: 'merge' });
 });
 
-it('sends free accounts to the paywall for Pro features', async () => {
-  mockPro = false;
-  mockCompare = null;
+it('saves the keystrokes the editor still held back when a tab closes', async () => {
+  await workspace.createEmptyProject('closing');
+  await workspace.createFile('closing', '', 'x.js', 'old');
+  await buffersStore.getState().load('closing', 'x.js');
+  tabsStore.getState().openTab('closing', 'x.js');
+  // The editor's debounced change arrives in answer to the flush.
+  mockFlush = async () => buffersStore.getState().edit('closing', 'x.js', 'typed just now');
   try {
-    tabsStore.getState().openTab('free', 'a.js');
-    await render(<ProjectScreen project="free" />);
-    await act(async () => mockCommands.find((c) => c.id === 'split')!.run());
-    expect(screen.queryByTestId('split-divider')).toBeNull();
-    await act(async () => mockCommands.find((c) => c.id === 'compare.head')!.run());
-    expect(mockCompare).toBeNull();
-    await act(async () => mockCommands.find((c) => c.id === 'tests')!.run());
-    expect(mockPaywall).toEqual(['split-editor', 'compare', 'tests']);
+    await render(<ProjectScreen project="closing" />);
+    await act(async () => mockCommands.find((c) => c.id === 'close-tab')!.run());
   } finally {
-    mockPro = true;
+    mockFlush = async () => undefined;
   }
+  expect(await workspace.readFile('closing', 'x.js')).toBe('typed just now');
+  expect(tabsStore.getState().byProject.closing.open).toEqual([]);
 });

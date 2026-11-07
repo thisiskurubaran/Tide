@@ -1,6 +1,6 @@
 {
   "name": "tide-server",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -20,6 +20,6 @@
     "@types/dockerode": "^4.0.2",
     "@types/node": "^24.19.2",
     "@types/ws": "^8.18.2",
-    "typescript": "^6.0.3"
+    "typescript": "^7.0.2"
   }
 }

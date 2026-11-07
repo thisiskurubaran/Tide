@@ -1,10 +1,20 @@
-import { localImages, markdownToHtml, notebookToHtml, previewKind } from './render';
+import { jsonToHtml, localImages, markdownToHtml, notebookToHtml, previewKind, svgToHtml, viewerOnly, viewerFirst } from './render';
 
 describe('preview rendering', () => {
   it('knows which files it previews', () => {
     expect(previewKind('README.md')).toBe('markdown');
     expect(previewKind('nb/analysis.ipynb')).toBe('notebook');
     expect(previewKind('index.js')).toBeNull();
+  });
+
+  it('shows SVG files as an image, so their scripts never run', () => {
+    expect(previewKind('assets/Logo.SVG')).toBe('svg');
+    expect(viewerFirst('svg')).toBe(false);
+    const html = svgToHtml('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script><circle r="4"/></svg>');
+    expect(html).toMatch(/^<div[^>]*><img src="data:image\/svg\+xml;charset=utf-8,%3Csvg/);
+    expect(html).not.toContain('<script');
+    expect(html).not.toContain('<svg');
+    expect(svgToHtml('not an image')).toContain('no &lt;svg&gt;');
   });
 
   it('renders GitHub-flavoured Markdown', () => {
@@ -51,5 +61,33 @@ describe('preview rendering', () => {
       { src: './img/a.png', path: 'docs/img/a.png' },
       { src: '../logo.svg', path: 'logo.svg' },
     ]);
+  });
+});
+
+describe('JSON preview', () => {
+  it('knows JSON and database files', () => {
+    expect(previewKind('package.json')).toBe('json');
+    expect(previewKind('data/app.db')).toBe('sqlite');
+    expect(previewKind('notes.sqlite3')).toBe('sqlite');
+    expect(viewerOnly(previewKind('a.db'))).toBe(true);
+    expect(viewerOnly(previewKind('a.json'))).toBe(false);
+  });
+
+  it('renders a collapsible tree, open two levels deep', () => {
+    const html = jsonToHtml('{"name":"tide","tags":["a","<b>"],"deep":{"x":{"y":1}},"none":null,"ok":true}');
+    expect(html).toContain('<span class="j-key">name</span>: <span class="j-str">"tide"</span>');
+    expect(html).toContain('&lt;b&gt;');
+    expect(html).toContain('<span class="j-null">null</span>');
+    expect(html.match(/<details open>/g)).toHaveLength(3);
+    expect(html).toContain('<details><summary><span class="j-key">x</span>');
+  });
+
+  it('explains JSON it cannot parse', () => {
+    expect(jsonToHtml('{"a": }')).toContain("This JSON can't be parsed");
+  });
+
+  it('stops after a few thousand values', () => {
+    const html = jsonToHtml(JSON.stringify(Array.from({ length: 6000 }, (_, i) => i)));
+    expect(html).toContain('Showing the first 5,000 values');
   });
 });

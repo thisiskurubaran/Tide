@@ -10,6 +10,8 @@ type Output = { id: string; kind: 'stdout' | 'stderr' | 'debug' | 'port'; data: 
 // native modules need no new function.
 export const DEBUG_PREFIX = '\u0000tide-debug:';
 export const DEBUG_ARG = '--tide-debug';
+// The run's environment variables, as JSON; tide_runner sets os.environ for the run.
+export const ENV_ARG = '--tide-env';
 type Exit = { id: string; code: number; killed: boolean };
 
 export interface PythonHost {
@@ -52,7 +54,9 @@ export function createPythonRunner(host: PythonHost, root: () => string): Runner
       const base = root();
       // "projects/<name>/..." -> pure-Python packages from pip live in <project>/.pylibs.
       const project = req.cwd.split('/').slice(0, 2).join('/');
-      const args = req.debug ? [DEBUG_ARG, JSON.stringify(req.debug), ...req.args] : req.args;
+      const debug = req.debug ? [DEBUG_ARG, JSON.stringify(req.debug)] : [];
+      const env = req.env && Object.keys(req.env).length ? [ENV_ARG, JSON.stringify(req.env)] : [];
+      const args = [...env, ...debug, ...req.args];
       host
         .run(req.id, join(base, req.entry), join(base, req.cwd), args, [join(base, project, '.pylibs')], base)
         .catch((e: Error) => {

@@ -1,7 +1,7 @@
 // Run configurations and tasks, from tide.json:
 //
 //   {
-//     "runtime": "node", "entry": "index.js",          // the default run
+//     "runtime": "node", "entry": "index.js",          // the default run (.ts works too)
 //     "configurations": [
 //       { "name": "Server", "entry": "server.js", "args": ["--port", "3000"] },
 //       { "name": "Script", "runtime": "python", "entry": "tools/gen.py" }
@@ -14,7 +14,7 @@
 //
 // ⌘R runs the chosen configuration. Tasks are command lines typed into the
 // terminal; `local` and `remote` replace `command` for that terminal mode.
-// In remote mode, package.json scripts are offered as tasks as well.
+// package.json scripts are offered as tasks as well.
 import type { RunnerMode } from '../../state/runner';
 import type { Runtime } from '@shared/protocol';
 
@@ -43,7 +43,8 @@ export interface ProjectTasks {
   error: string | null;
 }
 
-const isRuntime = (v: unknown): v is Runtime => v === 'node' || v === 'python';
+const RUNTIMES: Runtime[] = ['node', 'python', 'lua', 'ruby', 'php'];
+const isRuntime = (v: unknown): v is Runtime => RUNTIMES.includes(v as Runtime);
 const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
 const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v : undefined);
 
@@ -74,13 +75,14 @@ export function parseTasks(tideJson: string | null, packageJson: string | null =
     const task: Task = { name, command: str(t.command), local: str(t.local), remote: str(t.remote), newTerminal: t.newTerminal === true };
     if (taskLine(task, mode) !== null) out.tasks.push(task);
   }
-  // The local shell has no npm run, so scripts are only offered remotely.
-  if (mode === 'remote' && packageJson) {
+  // Both shells run npm scripts; Local mode runs the ones made of commands it
+  // has (see terminal/shell/npmRun.ts) and explains the rest.
+  if (packageJson) {
     try {
       const scripts = JSON.parse(packageJson).scripts;
       for (const name of Object.keys(scripts ?? {})) {
         if (typeof scripts[name] !== 'string' || out.tasks.some((x) => x.name === `npm: ${name}`)) continue;
-        out.tasks.push({ name: `npm: ${name}`, remote: `npm run ${quote(name)}`, newTerminal: /^(dev|start|serve|watch)/.test(name) });
+        out.tasks.push({ name: `npm: ${name}`, command: `npm run ${quote(name)}`, newTerminal: /^(dev|start|serve|watch)/.test(name) });
       }
     } catch {
       // A broken package.json just has no scripts to offer.
@@ -97,6 +99,7 @@ const quote = (s: string) => (/^[\w./:=@%+-]+$/.test(s) ? s : `'${s.replace(/'/g
 // itself (by name); remote bash gets the command spelled out.
 export function configLine(config: NamedConfig, mode: RunnerMode): string {
   if (mode === 'local') return config.name === DEFAULT_CONFIG ? 'run\r' : `run ${quote(config.name)}\r`;
-  const program = config.runtime === 'python' ? 'python3' : 'node';
-  return `${[program, config.entry, ...config.args].map(quote).join(' ')}\r`;
+  // A remote machine's node may not run TypeScript itself; tsx does on any version.
+  const program = config.runtime === 'python' ? 'python3' : config.runtime === 'node' && /\.(ts|tsx|mts|cts)$/i.test(config.entry) ? 'npx tsx' : config.runtime;
+  return `${[program, ...[config.entry, ...config.args].map(quote)].join(' ')}\r`;
 }

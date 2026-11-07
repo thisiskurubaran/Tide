@@ -3,7 +3,7 @@ import { GitProPanel } from './GitProPanel';
 
 export const GIT_PRO_PANEL = 'git-pro';
 
-// Git Pro replaces the Source Control sheet (see ProjectScreen) and switches on
+// Git Tools replaces the Source Control sheet (see ProjectScreen) and switches on
 // the editor's merge conflict actions.
 export const gitProExtension: TideExtension = {
   id: 'git-pro',

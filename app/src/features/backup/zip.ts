@@ -1,6 +1,6 @@
 // Projects to and from .zip files, for export, import and snapshots. Uses
 // fflate (pure JS), since React Native has no zlib.
-import { unzipSync, zipSync, Zippable } from 'fflate';
+import { strToU8, unzipSync, zipSync, Zippable } from 'fflate';
 
 import type { Workspace } from '../files/workspace';
 
@@ -35,9 +35,24 @@ export function toBase64(bytes: Uint8Array): string {
   return out;
 }
 
+// A snapshot's own record of what it left out, so a restore never deletes
+// files that were too big to keep. Not a project file; restore skips it.
+export const SNAPSHOT_MANIFEST = '.tide-snapshot.json';
+
+export interface SnapshotManifest {
+  version: 1;
+  // Project files left out of the snapshot for being over SNAPSHOT_FILE_LIMIT.
+  skipped: string[];
+}
+
 // Every project file except node_modules, .git, .pylibs and __pycache__,
-// which can be rebuilt (npm install, pip install, git clone).
-export async function zipProject(workspace: Workspace, project: string, { maxFileBytes = Infinity } = {}): Promise<{ zip: Uint8Array; files: number; skipped: string[] }> {
+// which can be rebuilt (npm install, pip install, git clone). `manifest` adds
+// a SNAPSHOT_MANIFEST entry listing the files left out for their size.
+export async function zipProject(
+  workspace: Workspace,
+  project: string,
+  { maxFileBytes = Infinity, manifest = false } = {},
+): Promise<{ zip: Uint8Array; files: number; skipped: string[] }> {
   const entries: Zippable = {};
   const skipped: string[] = [];
   let files = 0;
@@ -50,12 +65,18 @@ export async function zipProject(workspace: Workspace, project: string, { maxFil
     entries[path] = bytes;
     files++;
   }
+  if (manifest) {
+    const record: SnapshotManifest = { version: 1, skipped };
+    entries[SNAPSHOT_MANIFEST] = strToU8(JSON.stringify(record));
+  }
   return { zip: zipSync(entries, { level: 6 }), files, skipped };
 }
 
-// The files in a zip, with a single top folder taken off (GitHub's
-// "repo-main/" downloads) and macOS metadata skipped.
-export function zipEntries(zip: Uint8Array): { path: string; bytes: Uint8Array }[] {
+// The files in a zip, macOS metadata skipped. `stripTopFolder` takes off a
+// single top folder shared by every file (GitHub's "repo-main/" downloads);
+// it is for imports only, since a snapshot of a project whose files all live
+// under one folder must come back with that folder.
+export function zipEntries(zip: Uint8Array, { stripTopFolder = false } = {}): { path: string; bytes: Uint8Array }[] {
   let raw: Record<string, Uint8Array>;
   try {
     raw = unzipSync(zip);
@@ -64,7 +85,7 @@ export function zipEntries(zip: Uint8Array): { path: string; bytes: Uint8Array }
   }
   const paths = Object.keys(raw).filter((p) => !p.endsWith('/') && !p.startsWith('__MACOSX/') && !p.split('/').includes('.DS_Store'));
   const tops = new Set(paths.map((p) => p.split('/')[0]));
-  const strip = tops.size === 1 && paths.every((p) => p.includes('/')) ? `${[...tops][0]}/` : '';
+  const strip = stripTopFolder && tops.size === 1 && paths.every((p) => p.includes('/')) ? `${[...tops][0]}/` : '';
   return paths
     .map((p) => ({ path: p.slice(strip.length), bytes: raw[p] }))
     .filter(({ path }) => path && !path.split('/').some((part) => part === '..' || part === '')); // No escaping the project.

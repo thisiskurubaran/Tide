@@ -29,7 +29,8 @@ export async function pickZip(): Promise<{ name: string; entries: ReturnType<typ
 
 // The files in a .zip at `uri`, e.g. one picked or handed over by another app.
 export async function readZip(uri: string): Promise<ReturnType<typeof zipEntries>> {
-  const entries = zipEntries(await new File(uri).bytes());
+  // Zips from elsewhere are often GitHub downloads wrapped in one "repo-main/" folder.
+  const entries = zipEntries(await new File(uri).bytes(), { stripTopFolder: true });
   if (!entries.length) throw new BackupError('The zip has no files in it');
   return entries;
 }

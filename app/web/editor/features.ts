@@ -1,7 +1,7 @@
 // Editor behavior that paid extensions switch on: answers from the app for
-// completions, hover and go to definition (IntelliSense Pro), gutter
+// completions, hover and go to definition (IntelliSense), gutter
 // breakpoints and the paused line (Debugger), and merge conflict actions
-// (Git Pro). Everything is driven by messages; the logic lives in the app.
+// (Git Tools). Everything is driven by messages; the logic lives in the app.
 import { Completion, CompletionContext, CompletionResult, completeAnyWord } from '@codemirror/autocomplete';
 import { Diagnostic, setDiagnostics } from '@codemirror/lint';
 import { EditorState, Extension, RangeSet, StateEffect, StateField, Text } from '@codemirror/state';

@@ -16,8 +16,14 @@ delete globalThis.DecompressionStream;
 
 const { git, http } = require('./isogit');
 const { porcelainCode } = require('./status');
+const { conflicts: unresolved, readGitFile, setConflicts, assertNoOperation } = require('./state');
 const { lineStat } = require('./diffstat');
 const { createUi } = require('./ui');
+const { createTree, readWork } = require('./tree');
+const { createStash } = require('./stash');
+const { createSequencer } = require('./sequencer');
+const { createCommands } = require('./commands');
+const { createAuth } = require('./auth');
 
 const USAGE = `usage: git <command>
 
@@ -26,7 +32,11 @@ const USAGE = `usage: git <command>
   log [--oneline] [-n N]                      diff [--stat]
   branch [name]         checkout [-b] <branch>
   remote [-v] | remote add <name> <url>
-  push [remote] [branch]                      pull [remote] [branch]
+  push [remote] [branch|tag] [--tags]         pull [remote] [branch]
+  stash [push [-u] [-m msg] | list | show | apply | pop | drop | clear] [n]
+  tag [-l] | tag [-a] <name> [-m msg] [commit] | tag -d <name>
+  cherry-pick <commit> | --continue | --abort
+  rebase <upstream> | --continue | --skip | --abort
 
 Anything else needs Remote mode, which has the real git.`;
 
@@ -41,11 +51,9 @@ function author() {
   return { name: env.TIDE_GIT_NAME, email: env.TIDE_GIT_EMAIL };
 }
 
-// GitHub, GitLab and Gitea accept a personal access token as the password.
-function onAuth() {
-  if (!env.TIDE_GIT_TOKEN) throw new GitError('this remote needs a token: add one in Settings, Git');
-  return { username: 'x-access-token', password: env.TIDE_GIT_TOKEN };
-}
+// The GitHub token from Settings goes to github.com only, and accounts saved
+// for other hosts only to that host; nothing is sent over plain http (auth.js).
+const { canAuth, onAuth } = createAuth({ env, GitError });
 
 function onAuthFailure() {
   throw new GitError('the remote rejected the token (check it has access to this repository)');
@@ -79,6 +87,32 @@ function repoPath(dir, p) {
   return rel === '' ? '.' : rel;
 }
 
+/**
+ * A git pathspec glob, already relative to the repo root (repoPath), as a
+ * RegExp over repo paths. As in git (without :(glob)), * and ? match any
+ * characters, / included, and [...] is a character class.
+ * @param {string} p
+ */
+function pathspecRegExp(p) {
+  let out = '';
+  for (let i = 0; i < p.length; i++) {
+    const ch = p[i];
+    if (ch === '*') out += '.*';
+    else if (ch === '?') out += '.';
+    else if (ch === '[') {
+      const close = p.indexOf(']', i + 2);
+      if (close === -1) out += '\\[';
+      else {
+        let body = p.slice(i + 1, close);
+        if (body.startsWith('!')) body = `^${body.slice(1)}`;
+        out += `[${body.replace(/\\/g, '\\\\')}]`;
+        i = close;
+      }
+    } else out += ch.replace(/[.+^${}()|\\\]]/g, '\\$&');
+  }
+  return new RegExp(`^${out}$`);
+}
+
 /** @param {string[]} args */
 function takeFlag(args, ...names) {
   const i = args.findIndex((a) => names.includes(a));
@@ -101,7 +135,8 @@ async function changes(dir, filepaths) {
   return rows.map((row) => ({ path: row[0], code: porcelainCode(row), row })).filter((c) => c.code !== null);
 }
 
-const seconds = (p) => Math.floor(fs.statSync(p).mtimeMs / 1000);
+// lstat: a symlink's own mtime, not its target's (real git tracks the link text).
+const seconds = (p) => Math.floor(fs.lstatSync(p).mtimeMs / 1000);
 
 // statusMatrix trusts size and mtime in whole seconds, so a same-size edit made
 // in the same second as the last index write looks unchanged (autosave, then
@@ -134,7 +169,9 @@ async function recheckRacy(dir, rows) {
     },
   });
   for (const row of suspects) {
-    const { oid } = await git.hashBlob({ object: fs.readFileSync(path.join(dir, row[0])) });
+    const work = readWork(dir, row[0]);
+    if (!work) continue;
+    const { oid } = await git.hashBlob({ object: work });
     if (oid !== staged.get(row[0])) row[2] = 2;
   }
   return rows;
@@ -158,7 +195,7 @@ const commands = {
       singleBranch: true,
       depth: 50,
       onProgress,
-      onAuth: env.TIDE_GIT_TOKEN ? onAuth : undefined,
+      onAuth: canAuth() ? onAuth : undefined,
       onAuthFailure,
     });
     endProgress();
@@ -181,6 +218,7 @@ const commands = {
     }
     const branch = await git.currentBranch({ fs, dir });
     console.log(branch ? `On branch ${branch}` : 'HEAD detached');
+    for (const line of await extra.progressLines(dir)) console.log(line);
     const staged = list.filter((c) => c.code[0] !== ' ' && c.code !== '??');
     const unstaged = list.filter((c) => c.code[1] !== ' ' && c.code !== '??');
     const untracked = list.filter((c) => c.code === '??');
@@ -225,12 +263,93 @@ const commands = {
 
   async rm(args) {
     const dir = await findRoot();
-    const cached = takeFlag(args, '--cached');
-    for (const p of args.filter((a) => !a.startsWith('-'))) {
+    // Like real git: only files in the index are removed (untracked files and
+    // .git are never touched), folders need -r, and a file whose staged or
+    // working copy isn't committed needs -f, so rm can't lose work.
+    const usage = 'usage: git rm [-r] [-f] [-n] [-q] [--cached] [--] <pathspec>...';
+    let cached = false;
+    let force = false;
+    let recursive = false;
+    let quiet = false;
+    let dryRun = false;
+    let ignoreUnmatch = false;
+    const specs = [];
+    let onlyPaths = false;
+    for (const a of args) {
+      if (onlyPaths) specs.push(a);
+      else if (a === '--') onlyPaths = true;
+      else if (a === '--cached') cached = true;
+      else if (a === '--force') force = true;
+      else if (a === '--quiet') quiet = true;
+      else if (a === '--recursive') recursive = true;
+      else if (a === '--dry-run') dryRun = true;
+      else if (a === '--ignore-unmatch') ignoreUnmatch = true;
+      else if (/^-[rRfqn]+$/.test(a)) {
+        if (/[rR]/.test(a)) recursive = true;
+        if (a.includes('f')) force = true;
+        if (a.includes('q')) quiet = true;
+        if (a.includes('n')) dryRun = true;
+      } else if (a.startsWith('-')) throw new GitError(`unknown option ${a} (${usage})`);
+      else specs.push(a);
+    }
+    if (!specs.length) throw new GitError(usage);
+    const indexed = [...(await tree.indexFiles(dir)).keys()];
+    const targets = new Set();
+    for (const p of specs) {
+      // A glob matches tracked paths as git's pathspecs do: * and ? also match
+      // a /, so '*.log' finds logs in every folder below the current one.
       const filepath = repoPath(dir, p);
+      const glob = /[*?[]/.test(p) ? pathspecRegExp(filepath) : null;
+      const exact = indexed.includes(filepath);
+      const matched = glob ? indexed.filter((f) => glob.test(f)) : [];
+      const inside = indexed.filter((f) => filepath === '.' || f.startsWith(`${filepath}/`));
+      if (!exact && !inside.length && !matched.length) {
+        if (ignoreUnmatch) continue;
+        throw new GitError(`pathspec '${p}' did not match any files`);
+      }
+      if (!exact && !matched.length && !recursive) throw new GitError(`not removing '${p}' recursively without -r`);
+      if (exact) targets.add(filepath);
+      for (const f of matched) targets.add(f);
+      if (recursive || !matched.length) for (const f of inside) targets.add(f);
+    }
+    const list = [...targets].sort();
+    // A file with a merge conflict goes without -f, as in real git: deleting
+    // it is how a conflict is resolved by deletion.
+    const unmerged = new Set(unresolved(dir));
+    if (!force) {
+      const wanted = new Set(list.filter((p) => !unmerged.has(p)));
+      const rows = wanted.size ? (await changes(dir, [...wanted])).filter((c) => wanted.has(c.path)) : [];
+      // A deleted working copy loses nothing, so it doesn't count as an edit.
+      const staged = rows.filter((c) => c.code[0] !== ' ').map((c) => c.path);
+      const edited = rows.filter((c) => c.code[1] === 'M').map((c) => c.path);
+      const both = staged.filter((p) => edited.includes(p));
+      const refuse = (/** @type {string[]} */ paths, /** @type {string} */ what, /** @type {string} */ hint) => {
+        const one = paths.length === 1;
+        throw new GitError(`the following file${one ? ' has' : 's have'} ${what}:\n${paths.map((p) => `    ${p}`).join('\n')}\n(${hint})`);
+      };
+      if (both.length) refuse(both, 'staged content different from both the file and the HEAD', 'use -f to force removal');
+      if (!cached && staged.length) refuse(staged, 'changes staged in the index', 'use --cached to keep the file, or -f to force removal');
+      if (!cached && edited.length) refuse(edited, 'local modifications', 'use --cached to keep the file, or -f to force removal');
+    }
+    for (const filepath of list) {
+      if (!quiet) console.log(`rm '${filepath}'`);
+      if (dryRun) continue;
       await git.remove({ fs, dir, filepath });
-      if (!cached) fs.rmSync(path.join(dir, filepath), { force: true, recursive: true });
-      console.log(`rm '${filepath}'`);
+      if (!cached) {
+        let st = null;
+        try {
+          st = fs.lstatSync(path.join(dir, filepath));
+        } catch {
+          // Already gone from the working tree.
+        }
+        if (st && !st.isDirectory()) tree.removeFile(dir, filepath);
+      }
+    }
+    // Removing a conflicted file resolves its conflict (staged as deleted),
+    // like git add does for an edited one; Git Pro stops showing it as UU.
+    if (!dryRun && list.some((p) => unmerged.has(p))) {
+      const removed = new Set(list);
+      setConflicts(dir, [...unmerged].filter((p) => !removed.has(p)));
     }
     return 0;
   },
@@ -243,6 +362,11 @@ const commands = {
     const all = takeFlag(args, '-a', '--all');
     const message = takeValue(args, '-m', '--message');
     if (!message) throw new GitError('usage: git commit [-a] -m <message>');
+    // As in real git, even with -a: conflict markers mustn't be committed by accident.
+    const left = unresolved(dir);
+    if (left.length) throw new GitError(`committing is not possible because you have unmerged files: ${left.join(', ')} (fix them, then git add each one)`);
+    // A merge started from Git Pro makes this a merge commit, as in real git.
+    const merging = readGitFile(dir, 'MERGE_HEAD');
     if (all) {
       for (const c of await changes(dir)) {
         if (c.code === '??') continue;
@@ -251,20 +375,16 @@ const commands = {
       }
     }
     const staged = (await changes(dir)).filter((c) => c.code[0] !== ' ' && c.code !== '??');
-    if (!staged.length) {
+    // A merge whose result matches HEAD (conflicts resolved to ours) still
+    // records that the branch was merged.
+    if (!staged.length && !merging) {
       console.log('nothing to commit (use git add)');
       return 1;
     }
-    // A merge started from Git Pro makes this a merge commit, as in real git.
-    let parent;
-    try {
-      const merging = fs.readFileSync(path.join(dir, '.git', 'MERGE_HEAD'), 'utf8').trim();
-      parent = [await git.resolveRef({ fs, dir, ref: 'HEAD' }), merging];
-    } catch {
-      parent = undefined;
-    }
+    const parent = merging ? [await git.resolveRef({ fs, dir, ref: 'HEAD' }), merging] : undefined;
     const oid = await git.commit({ fs, dir, message, author: author(), parent });
     if (parent) for (const f of ['MERGE_HEAD', 'MERGE_MSG', 'TIDE_CONFLICTS']) fs.rmSync(path.join(dir, '.git', f), { force: true });
+    sequencer.committed(dir);
     const branch = (await git.currentBranch({ fs, dir })) ?? 'HEAD';
     console.log(`[${branch} ${oid.slice(0, 7)}] ${message.split('\n')[0]}`);
     console.log(` ${staged.length} file${staged.length === 1 ? '' : 's'} changed`);
@@ -309,7 +429,7 @@ const commands = {
       /** @param {'head' | 'index' | 'work'} where */
       const read = async (where) => {
         try {
-          if (where === 'work') return fs.readFileSync(path.join(dir, c.path), 'utf8');
+          if (where === 'work') return (readWork(dir, c.path) ?? Buffer.alloc(0)).toString('utf8');
           const { blob } =
             where === 'head'
               ? await git.readBlob({ fs, dir, oid: await git.resolveRef({ fs, dir, ref: 'HEAD' }), filepath: c.path })
@@ -353,7 +473,13 @@ const commands = {
     const ref = args.find((a) => !a.startsWith('-'));
     if (!ref) throw new GitError('usage: git checkout [-b] <branch>');
     if (create) await git.branch({ fs, dir, ref, checkout: true });
-    else await git.checkout({ fs, dir, ref });
+    else {
+      assertNoOperation(dir, 'checkout', GitError);
+      // A branch only on origin becomes a local one tracking it (isomorphic-git does that part).
+      const to = (await tree.resolveCommit(dir, ref).catch(() => null)) ?? (await tree.resolveCommit(dir, `refs/remotes/origin/${ref}`).catch(() => null));
+      if (!to) throw new GitError(`pathspec '${ref}' did not match any branch`);
+      await tree.checkoutSafely(dir, { ref, to });
+    }
     console.log(`Switched to ${create ? 'a new ' : ''}branch '${ref}'`);
     return 0;
   },
@@ -375,7 +501,9 @@ const commands = {
 
   async push(args) {
     const dir = await findRoot();
-    takeFlag(args, '-u', '--set-upstream');
+    const setUpstream = takeFlag(args, '-u', '--set-upstream');
+    const tags = takeFlag(args, '--tags');
+    if (tags) return extra.pushTags(dir, args.find((a) => !a.startsWith('-')) ?? 'origin');
     const [remote = 'origin', ref = (await git.currentBranch({ fs, dir })) ?? undefined] = args.filter((a) => !a.startsWith('-'));
     let result;
     try {
@@ -392,29 +520,119 @@ const commands = {
       console.log(r.ok ? `${name}: pushed to ${remote}` : `${name}: rejected (${r.error})`);
       if (!r.ok) rejected = true;
     }
+    // -u: later pulls (and pushes) of this branch go to the same place.
+    const branch = await git.currentBranch({ fs, dir });
+    if (setUpstream && !rejected && branch && ref && ref.replace(/^refs\/heads\//, '') === branch) {
+      await git.setConfig({ fs, dir, path: `branch.${branch}.remote`, value: remote });
+      await git.setConfig({ fs, dir, path: `branch.${branch}.merge`, value: `refs/heads/${branch}` });
+      console.log(`branch '${branch}' set up to track '${remote}/${branch}'.`);
+    }
     return rejected ? 1 : 0;
   },
 
   async pull(args) {
     const dir = await findRoot();
-    const [remote = 'origin', ref] = args.filter((a) => !a.startsWith('-'));
-    await git.pull({
+    const [remoteArg, ref] = args.filter((a) => !a.startsWith('-'));
+    const branch = await git.currentBranch({ fs, dir });
+    if (!branch) throw new GitError('check out a branch before pulling');
+    assertNoOperation(dir, 'pull', GitError);
+    const config = async (/** @type {string} */ key) => {
+      const v = await git.getConfig({ fs, dir, path: key }).catch(() => undefined);
+      return typeof v === 'string' && v ? v : undefined;
+    };
+    // Like real git: the branch's upstream (branch.<name>.remote and .merge)
+    // says where to pull from when the command line doesn't.
+    const upstream = await config(`branch.${branch}.merge`);
+    const upstreamRemote = await config(`branch.${branch}.remote`);
+    const remote = remoteArg ?? upstreamRemote ?? 'origin';
+    let remoteRef = ref ?? (upstream && (!remoteArg || remoteArg === (upstreamRemote ?? 'origin')) ? upstream.replace(/^refs\/heads\//, '') : undefined);
+    if (!remoteRef) {
+      const unborn = !(await git.resolveRef({ fs, dir, ref: 'HEAD' }).catch(() => null));
+      if (unborn) remoteRef = await remoteDefaultBranch(dir, remote, branch);
+      else if (remoteArg) {
+        throw new GitError(
+          `You asked to pull from the remote '${remoteArg}', but did not specify a branch. Because this is not the default configured remote for your current branch, you must specify a branch on the command line.`,
+        );
+      } else {
+        throw new GitError(
+          `There is no tracking information for the current branch.\nPlease specify which branch you want to merge with.\n\n    git pull <remote> <branch>\n\nTo pull from the same place from now on, push this branch with -u once:\n\n    git push -u ${remote} ${branch}`,
+        );
+      }
+    }
+    // Fetch first; nothing local changes until the result is known to be safe
+    // to check out (isomorphic-git's pull moves the branch, then checks out,
+    // and a checkout that fails leaves the branch on the new commit with the
+    // old files).
+    const fetched = await git.fetch({
       fs,
       http,
       dir,
       remote,
-      ref,
+      ref: remoteRef,
       singleBranch: true,
-      author: author(),
-      onAuth: env.TIDE_GIT_TOKEN ? onAuth : undefined,
+      onAuth: canAuth() ? onAuth : undefined,
       onAuthFailure,
       onProgress,
     });
     endProgress();
-    console.log('Already up to date or merged.');
+    const theirs = fetched.fetchHead;
+    if (!theirs) throw new GitError(`couldn't find remote ref ${remoteRef}`);
+    const ours = await git.resolveRef({ fs, dir, ref: 'HEAD' }).catch(() => null);
+    let to = theirs;
+    let how = 'Fast-forward';
+    if (ours) {
+      const [base] = await git.findMergeBase({ fs, dir, oids: [ours, theirs] });
+      if (ours === theirs || base === theirs) {
+        console.log('Already up to date.');
+        return 0;
+      }
+      if (base !== ours) {
+        const url = (await git.getConfig({ fs, dir, path: `remote.${remote}.url` }).catch(() => undefined)) ?? remote;
+        try {
+          // Writes the merge commit but leaves the branch where it is.
+          const merged = await git.merge({
+            fs,
+            dir,
+            ours: branch,
+            theirs,
+            author: author(),
+            message: `Merge branch '${remoteRef}' of ${url} into ${branch}`,
+            noUpdateBranch: true,
+          });
+          to = merged.oid;
+        } catch (e) {
+          const err = /** @type {any} */ (e);
+          if (err && err.code === 'MergeConflictError') {
+            const files = (err.data && err.data.filepaths) || [];
+            throw new GitError(`merging ${remote}/${remoteRef} conflicts in ${files.join(', ') || 'some files'}; nothing was changed. Merge ${remote}/${remoteRef} from Git Pro to resolve the conflicts.`);
+          }
+          throw e;
+        }
+        how = 'Merge made';
+      }
+    }
+    await tree.checkoutSafely(dir, { ref: branch, to, what: 'pull', move: `refs/heads/${branch}` });
+    console.log(`${how}: ${branch} is now at ${to.slice(0, 7)}`);
     return 0;
   },
 };
+
+/**
+ * What to pull into an unborn branch with no upstream: the remote's branch of
+ * the same name, which must be its default branch. When the remote's default
+ * is named differently (master and main), says so instead of failing to find
+ * a branch the remote doesn't have.
+ */
+async function remoteDefaultBranch(dir, remote, branch) {
+  const url = await git.getConfig({ fs, dir, path: `remote.${remote}.url` }).catch(() => undefined);
+  if (!url) throw new GitError(`'${remote}' does not appear to be a git repository (add it with git remote add ${remote} <url>)`);
+  const info = await git.getRemoteInfo({ http, url, onAuth: canAuth() ? onAuth : undefined, onAuthFailure });
+  const head = typeof info.HEAD === 'string' ? info.HEAD.replace(/^refs\/heads\//, '') : null;
+  if (!head || head === branch) return branch;
+  throw new GitError(
+    `your branch '${branch}' has no commits yet, and ${remote}'s default branch is '${head}', not '${branch}'.\nRun git pull ${remote} ${head} to start ${branch} from it.`,
+  );
+}
 
 // The index stores blob ids; readBlob needs one to read a staged version.
 async function indexOid(dir, filepath) {
@@ -432,6 +650,13 @@ async function indexOid(dir, filepath) {
   return found;
 }
 
+const tree = createTree({ git, changes, GitError });
+const stash = createStash({ git, author, changes, GitError, tree });
+const sequencer = createSequencer({ git, author, changes, GitError, tree });
+const extra = createCommands({ git, http, author, onAuth, onAuthFailure, GitError, findRoot, takeFlag, takeValue, stash, sequencer, tree });
+const { stash: stashCommand, tag, 'cherry-pick': cherryPick, rebase } = extra;
+Object.assign(commands, { stash: stashCommand, tag, 'cherry-pick': cherryPick, rebase });
+
 async function main(args) {
   const [command, ...rest] = args;
   if (!command || command === 'help' || command === '--help' || command === '-h') {
@@ -443,7 +668,7 @@ async function main(args) {
     return 0;
   }
   // JSON commands for Git Pro's screens; see ui.js.
-  if (command === '__tide') return createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure, GitError })(rest);
+  if (command === '__tide') return createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure, GitError, tree, stash, sequencer })(rest);
   const run = Object.prototype.hasOwnProperty.call(commands, command) ? commands[command] : null;
   if (!run) {
     console.error(`git ${command}: not available locally.\n\n${USAGE}`);

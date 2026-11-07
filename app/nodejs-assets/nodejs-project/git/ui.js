@@ -5,38 +5,26 @@
 'use strict';
 
 const fs = require('fs');
+const { blame } = require('./blame');
 const path = require('path');
+const { CONFLICTS, assertNoOperation, conflicts, gitFile, readGitFile, setConflicts } = require('./state');
+const { lstatWork, readWork, sameEntry } = require('./tree');
 
 // Merge state isomorphic-git doesn't keep: the commit being merged (as real
-// git does) and which files had conflicts, until they are staged.
+// git does) and which files had conflicts, until they are staged (state.js).
 const MERGE_HEAD = 'MERGE_HEAD';
 const MERGE_MSG = 'MERGE_MSG';
-const CONFLICTS = 'TIDE_CONFLICTS';
 
 /** @param {Buffer | Uint8Array} buf */
 const isBinary = (buf) => buf.subarray(0, 8000).includes(0);
 
 /**
  * @param {{ git: any, http: any, findRoot(): Promise<string>, changes(dir: string, paths?: string[]): Promise<any[]>,
- *   author(): { name: string, email: string }, onAuth: any, onAuthFailure: any, GitError: any }} deps
+ *   author(): { name: string, email: string }, onAuth: any, onAuthFailure: any, GitError: any,
+ *   tree: ReturnType<typeof import('./tree').createTree>, stash: ReturnType<typeof import('./stash').createStash>,
+ *   sequencer: ReturnType<typeof import('./sequencer').createSequencer> }} deps
  */
-function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure, GitError }) {
-  const gitFile = (dir, name) => path.join(dir, '.git', name);
-  const readGitFile = (dir, name) => {
-    try {
-      return fs.readFileSync(gitFile(dir, name), 'utf8').trim();
-    } catch {
-      return null;
-    }
-  };
-  const conflicts = (dir) => {
-    const raw = readGitFile(dir, CONFLICTS);
-    return raw ? /** @type {string[]} */ (JSON.parse(raw)) : [];
-  };
-  const setConflicts = (dir, list) => {
-    if (list.length) fs.writeFileSync(gitFile(dir, CONFLICTS), JSON.stringify(list));
-    else fs.rmSync(gitFile(dir, CONFLICTS), { force: true });
-  };
+function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure, GitError, tree, stash, sequencer }) {
   const clearMerge = (dir) => {
     for (const name of [MERGE_HEAD, MERGE_MSG, CONFLICTS]) fs.rmSync(gitFile(dir, name), { force: true });
   };
@@ -81,9 +69,38 @@ function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure,
 
   // Stage or unstage the whole file, like `git add` / `git restore --staged`.
   async function stagePath(dir, filepath) {
-    if (fs.existsSync(path.join(dir, filepath))) await git.add({ fs, dir, filepath });
+    if (lstatWork(dir, filepath)) await git.add({ fs, dir, filepath });
     else await git.remove({ fs, dir, filepath });
     setConflicts(dir, conflicts(dir).filter((p) => p !== filepath));
+  }
+
+  /**
+   * After a merge with conflicts, makes the index hold the merge result for
+   * every path that isn't conflicted, as real git does, so only conflicted
+   * paths are left to resolve. isomorphic-git (abortOnConflict: false) stages
+   * only paths both sides changed: a file changed or added only on their side
+   * was left unstaged or untracked, and one deleted only on their side wasn't
+   * deleted, so committing the merge dropped those changes.
+   * @param {string} dir @param {string} oursOid @param {string} theirsOid @param {string[]} unmerged
+   */
+  async function stageMergeResult(dir, oursOid, theirsOid, unmerged) {
+    const [base] = await git.findMergeBase({ fs, dir, oids: [oursOid, theirsOid] });
+    const [b, o, t] = await Promise.all([base ? tree.files(dir, base) : new Map(), tree.files(dir, oursOid), tree.files(dir, theirsOid)]);
+    const skip = new Set(unmerged);
+    for (const filepath of new Set([...b.keys(), ...o.keys(), ...t.keys()])) {
+      if (skip.has(filepath)) continue;
+      const [be, oe, te] = [b.get(filepath) ?? null, o.get(filepath) ?? null, t.get(filepath) ?? null];
+      // Ours already is the result.
+      if (sameEntry(oe, te) || sameEntry(be, te)) continue;
+      // Only their side changed it: take theirs, in the working tree and index.
+      if (sameEntry(be, oe)) {
+        await tree.setFile(dir, filepath, te);
+        continue;
+      }
+      // Both changed it and it merged cleanly: stage what the merge wrote.
+      if (lstatWork(dir, filepath)) await git.add({ fs, dir, filepath });
+      else await git.remove({ fs, dir, filepath });
+    }
   }
 
   /** @type {Record<string, (dir: string, args: string[]) => Promise<unknown>>} */
@@ -94,6 +111,7 @@ function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure,
       return {
         branch: await git.currentBranch({ fs, dir }),
         merging: readGitFile(dir, MERGE_HEAD) ? readGitFile(dir, MERGE_MSG) || 'a merge' : null,
+        operation: await sequencer.progress(dir),
         changes: list.map((c) => ({ path: c.path, code: unmerged.has(c.path) ? 'UU' : c.code })),
       };
     },
@@ -102,7 +120,7 @@ function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure,
     async show(dir, [filepath]) {
       const head = await headOid(dir);
       const entry = await indexEntry(dir, filepath);
-      const work = fs.existsSync(path.join(dir, filepath)) ? fs.readFileSync(path.join(dir, filepath)) : null;
+      const work = readWork(dir, filepath);
       const index = entry ? Buffer.from((await git.readBlob({ fs, dir, oid: entry.oid })).blob) : null;
       const r = texts([head ? await blobAt(dir, head, filepath) : null, index, work]);
       return r.binary ? { binary: true } : { binary: false, head: r.sides[0], index: r.sides[1], work: r.sides[2] };
@@ -155,6 +173,7 @@ function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure,
       const parent = merging && head ? [head, merging] : undefined;
       const oid = await git.commit({ fs, dir, message, author: author(), parent });
       clearMerge(dir);
+      sequencer.committed(dir);
       return { oid, files: staged.length };
     },
 
@@ -175,18 +194,21 @@ function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure,
     },
 
     async checkout(dir, [ref]) {
+      assertNoOperation(dir, 'checkout', GitError);
       const local = await git.listBranches({ fs, dir });
       // origin/feature becomes a local feature branch tracking it.
       if (!local.includes(ref) && ref.includes('/')) {
         const [remote, ...rest] = ref.split('/');
         const name = rest.join('/');
-        if (!local.includes(name)) {
-          await git.branch({ fs, dir, ref: name, object: await git.resolveRef({ fs, dir, ref: `refs/remotes/${remote}/${name}` }) });
-        }
-        await git.checkout({ fs, dir, ref: name });
+        const to = await tree.resolveCommit(dir, local.includes(name) ? name : `refs/remotes/${remote}/${name}`);
+        // Checked before the branch is made, so a refused switch leaves nothing behind.
+        await tree.assertCanSwitch(dir, await headOid(dir), to);
+        if (!local.includes(name)) await git.branch({ fs, dir, ref: name, object: to });
+        await tree.checkoutSafely(dir, { ref: name, to });
         return null;
       }
-      await git.checkout({ fs, dir, ref });
+      // Refuses, like real git, when the switch would overwrite local changes.
+      await tree.checkoutSafely(dir, { ref, to: await tree.resolveCommit(dir, ref) });
       return null;
     },
 
@@ -203,6 +225,13 @@ function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure,
       if (!ours) throw new GitError('check out a branch before merging');
       if ((await changes(dir)).some((c) => c.code !== '??')) throw new GitError('commit or discard your changes before merging');
       const theirsOid = await git.resolveRef({ fs, dir, ref: theirs });
+      const oursOid = await git.resolveRef({ fs, dir, ref: ours });
+      // The forced checkout below would overwrite untracked files at paths the
+      // merge brings in; refuse first, as real git does. Only paths their side
+      // changed since the merge base count: the merge keeps ours everywhere else.
+      const theirsCommit = await tree.resolveCommit(dir, theirsOid);
+      const [base] = await git.findMergeBase({ fs, dir, oids: [oursOid, theirsCommit] });
+      await tree.assertCanSwitch(dir, oursOid, theirsCommit, 'merge', { base: base ?? null });
       const message = `Merge branch '${theirs}' into ${ours}`;
       try {
         const result = await git.merge({ fs, dir, ours, theirs, author: author(), message, abortOnConflict: false });
@@ -213,6 +242,7 @@ function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure,
         const err = /** @type {any} */ (e);
         if (err && err.code === 'MergeConflictError') {
           const files = err.data && err.data.filepaths ? err.data.filepaths : [];
+          await stageMergeResult(dir, oursOid, theirsOid, files);
           fs.writeFileSync(gitFile(dir, MERGE_HEAD), `${theirsOid}\n`);
           fs.writeFileSync(gitFile(dir, MERGE_MSG), `${message}\n`);
           setConflicts(dir, files);
@@ -223,6 +253,14 @@ function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure,
     },
 
     async 'abort-merge'(dir) {
+      // Like `git merge --abort`: every path the merge staged or left
+      // conflicted goes back to HEAD, so files it added are removed again.
+      const head = await headOid(dir);
+      if (head) {
+        const [inHead, inIndex] = await Promise.all([tree.files(dir, head), tree.indexFiles(dir)]);
+        const staged = [...new Set([...inHead.keys(), ...inIndex.keys()])].filter((p) => !sameEntry(inHead.get(p) ?? null, inIndex.get(p) ?? null));
+        await tree.restore(dir, head, [...new Set([...staged, ...conflicts(dir)])]);
+      }
       await git.abortMerge({ fs, dir });
       clearMerge(dir);
       return null;
@@ -273,6 +311,133 @@ function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure,
       const parent = commit.parent[0];
       const r = texts([parent ? await blobAt(dir, parent, filepath) : null, await blobAt(dir, oid, filepath)]);
       return r.binary ? { binary: true } : { binary: false, before: r.sides[0], after: r.sides[1] };
+    },
+
+    // Commits that changed a file, newest first.
+    async 'file-log'(dir, [filepath, n]) {
+      let entries;
+      try {
+        entries = await git.log({ fs, dir, filepath, depth: Number(n) || 100 });
+      } catch {
+        return [];
+      }
+      return entries.map((/** @type {any} */ { oid, commit }) => ({
+        oid,
+        message: commit.message.trimEnd(),
+        author: commit.author.name,
+        timestamp: commit.author.timestamp,
+        parents: commit.parent,
+      }));
+    },
+
+    // Who last changed each line of the working copy: runs of lines with their
+    // commit, oid null for changes not committed yet. Lines older than the
+    // last `n` commits that touched the file are given to the oldest one.
+    async blame(dir, [filepath, n]) {
+      const work = readWork(dir, filepath);
+      if (!work) throw new GitError(`${filepath} isn't in the working tree`);
+      if (isBinary(work)) return { binary: true };
+      let entries = [];
+      try {
+        entries = await git.log({ fs, dir, filepath, depth: Number(n) || 200 });
+      } catch {
+        // No commits yet: everything is uncommitted.
+      }
+      /** @type {{ oid: string | null, text: string }[]} */
+      const versions = [{ oid: null, text: work.toString('utf8') }];
+      for (const e of entries) {
+        const blob = await blobAt(dir, e.oid, filepath);
+        if (blob && !isBinary(blob)) versions.push({ oid: e.oid, text: blob.toString('utf8') });
+      }
+      const commits = Object.fromEntries(
+        entries.map((/** @type {any} */ { oid, commit }) => [oid, { oid, message: commit.message.trimEnd(), author: commit.author.name, timestamp: commit.author.timestamp }]),
+      );
+      return { binary: false, runs: blame(versions), commits, truncated: entries.length >= (Number(n) || 200) };
+    },
+
+    // Stashes, newest first, with when each was made.
+    async stashes(dir) {
+      const out = [];
+      for (const s of stash.list(dir)) {
+        const { commit } = await git.readCommit({ fs, dir, oid: s.oid });
+        out.push({ ...s, timestamp: commit.author.timestamp, parents: commit.parent });
+      }
+      return out;
+    },
+
+    async 'stash-push'(dir, [base64, untracked]) {
+      return stash.push(dir, { message: Buffer.from(base64 ?? '', 'base64').toString('utf8'), untracked: untracked === '1' });
+    },
+
+    async 'stash-apply'(dir, [n]) {
+      return stash.apply(dir, Number(n) || 0);
+    },
+
+    async 'stash-pop'(dir, [n]) {
+      return stash.pop(dir, Number(n) || 0);
+    },
+
+    async 'stash-drop'(dir, [n]) {
+      await stash.drop(dir, Number(n) || 0);
+      return null;
+    },
+
+    // Tags with the commit each points at; annotated ones with their message.
+    async tags(dir) {
+      const out = [];
+      for (const name of await git.listTags({ fs, dir })) {
+        const oid = await git.resolveRef({ fs, dir, ref: `refs/tags/${name}` });
+        const { type, object } = await git.readObject({ fs, dir, oid });
+        out.push(
+          type === 'tag'
+            ? { name, oid: await tree.resolveCommit(dir, oid), annotated: true, message: String(object.message).trimEnd() }
+            : { name, oid, annotated: false, message: null },
+        );
+      }
+      return out.sort((a, b) => (a.name < b.name ? -1 : 1));
+    },
+
+    // An empty message makes a lightweight tag.
+    async 'create-tag'(dir, [name, base64, target]) {
+      const message = Buffer.from(base64 ?? '', 'base64').toString('utf8').trim();
+      const object = await tree.resolveCommit(dir, target || 'HEAD');
+      try {
+        if (message) {
+          const me = author();
+          await git.annotatedTag({ fs, dir, ref: name, object, message: `${message}\n`, tagger: { name: me.name, email: me.email } });
+        } else await git.tag({ fs, dir, ref: name, object });
+      } catch (e) {
+        const code = e && /** @type {any} */ (e).code;
+        if (code === 'AlreadyExistsError') throw new GitError(`tag ${name} already exists`);
+        if (code === 'InvalidRefNameError') throw new GitError(`${name} is not a valid tag name`);
+        throw e;
+      }
+      return null;
+    },
+
+    async 'delete-tag'(dir, [name]) {
+      await git.deleteTag({ fs, dir, ref: name });
+      return null;
+    },
+
+    async 'push-tag'(dir, [name]) {
+      const result = await git.push({ fs, http, dir, remote: 'origin', ref: `refs/tags/${name}`, onAuth, onAuthFailure });
+      if (!result.ok) throw new GitError(result.error || 'push failed');
+      return null;
+    },
+
+    'cherry-pick': (dir, [oid]) => sequencer.cherryPick(dir, oid),
+    'cherry-pick-continue': (dir) => sequencer.cherryPickContinue(dir),
+    async 'cherry-pick-abort'(dir) {
+      await sequencer.cherryPickAbort(dir);
+      return null;
+    },
+    rebase: (dir, [upstream]) => sequencer.rebase(dir, upstream),
+    'rebase-continue': (dir) => sequencer.rebaseContinue(dir),
+    'rebase-skip': (dir) => sequencer.rebaseSkip(dir),
+    async 'rebase-abort'(dir) {
+      await sequencer.rebaseAbort(dir);
+      return null;
     },
 
     async push(dir) {

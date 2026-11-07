@@ -58,8 +58,7 @@ export type LinkedStore = ReturnType<typeof createLinkedStore>;
 
 // Pull, push and push-on-save for linked projects, with the folder access
 // passed in so tests can use a folder in memory.
-// `active` says whether syncing is allowed right now (it's a Pro feature).
-export function createLinkedSync(store: LinkedStore, workspace: Workspace, open: (uri: string) => Folder, active: () => boolean = () => true) {
+export function createLinkedSync(store: LinkedStore, workspace: Workspace, open: (uri: string) => Folder) {
   const run = async (project: string, sync: typeof pull): Promise<SyncResult> => {
     const link = store.getState().links[project];
     if (!link) throw new Error(`${project} isn't linked to a folder`);
@@ -73,7 +72,7 @@ export function createLinkedSync(store: LinkedStore, workspace: Workspace, open:
   const queues = new Map<string, Promise<unknown>>();
   const saved = (project: string, path: string) => {
     const link = store.getState().links[project];
-    if (!link?.pushOnSave || !active()) return;
+    if (!link?.pushOnSave) return;
     const next = (queues.get(project) ?? Promise.resolve())
       .then(async () => {
         const current = store.getState().links[project];

@@ -1,13 +1,75 @@
-// Turns Markdown and Jupyter notebooks into an HTML page for the preview
+// Turns Markdown, Jupyter notebooks and JSON into an HTML page for the preview
 // WebView. The page runs no scripts; local images are inlined by the caller.
-import { marked } from 'marked';
+import { Marked } from 'marked';
 
-export type PreviewKind = 'markdown' | 'notebook';
+import { mathExtensions } from './math';
+
+export type PreviewKind = 'markdown' | 'notebook' | 'json' | 'sqlite' | 'http' | 'openapi' | 'table' | 'parquet' | 'html' | 'svg';
 
 export function previewKind(path: string): PreviewKind | null {
   if (/\.(md|markdown|mdx)$/i.test(path)) return 'markdown';
+  // Opens as source; the eye button shows the page.
+  if (/\.html?$/i.test(path)) return 'html';
+  if (/\.svg$/i.test(path)) return 'svg';
+  // API specs by their usual names: openapi.yaml, swagger.json, petstore.openapi.yml…
+  if (/(^|\/|\.)(openapi|swagger)[^/]*\.(ya?ml|json)$/i.test(path)) return 'openapi';
   if (/\.ipynb$/i.test(path)) return 'notebook';
+  if (/\.(json|geojson|webmanifest)$/i.test(path)) return 'json';
+  if (/\.(db|sqlite|sqlite3|db3)$/i.test(path)) return 'sqlite';
+  if (/\.(http|rest)$/i.test(path)) return 'http';
+  if (/\.(csv|tsv)$/i.test(path)) return 'table';
+  if (/\.parquet$/i.test(path)) return 'parquet';
   return null;
+}
+
+// An SVG drawn as an image, which never runs its scripts or loads anything,
+// on a checkerboard so transparent parts show.
+export function svgToHtml(source: string): string {
+  if (!/<svg[\s>]/i.test(source)) return '<p class="note">This file has no &lt;svg&gt; element to show.</p>';
+  const src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(source)}`;
+  return `<div style="display:flex;justify-content:center;padding:16px;border-radius:8px;background:repeating-conic-gradient(#8882 0 25%,transparent 0 50%) 0 0/16px 16px"><img src="${src}" alt="" style="max-width:100%;min-width:32px;height:auto"></div>`;
+}
+
+// Files that only make sense in their viewer (binary), so there's no source to switch to.
+export const viewerOnly = (kind: PreviewKind | null) => kind === 'sqlite' || kind === 'parquet';
+
+// Files that open in their viewer first; the rest open as source.
+export const viewerFirst = (kind: PreviewKind | null) => kind === 'notebook' || kind === 'http' || kind === 'openapi' || kind === 'table' || viewerOnly(kind);
+
+// Big documents are cut off after this many values, so the page stays responsive.
+const JSON_MAX_NODES = 5000;
+// Levels open when the tree first shows.
+const JSON_OPEN_DEPTH = 2;
+
+// A collapsible tree for JSON, built from <details> so it works without scripts.
+export function jsonToHtml(source: string): string {
+  let value: unknown;
+  try {
+    value = JSON.parse(source);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return `<p class="err">This JSON can't be parsed: ${escapeHtml(message)}</p><p class="note">Switch to the source to fix it.</p>`;
+  }
+  let nodes = 0;
+  const scalar = (v: unknown) => {
+    if (v === null) return '<span class="j-null">null</span>';
+    if (typeof v === 'string') return `<span class="j-str">"${escapeHtml(v)}"</span>`;
+    if (typeof v === 'number') return `<span class="j-num">${v}</span>`;
+    return `<span class="j-bool">${String(v)}</span>`;
+  };
+  const render = (v: unknown, key: string | null, depth: number): string => {
+    if (++nodes > JSON_MAX_NODES) return '';
+    const label = key === null ? '' : `<span class="j-key">${escapeHtml(key)}</span>: `;
+    if (v === null || typeof v !== 'object') return `<div class="j-row">${label}${scalar(v)}</div>`;
+    const entries = Array.isArray(v) ? v.map((x, i) => [String(i), x] as const) : Object.entries(v as Record<string, unknown>);
+    const summary = Array.isArray(v) ? `[${entries.length}]` : `{${entries.length}}`;
+    if (entries.length === 0) return `<div class="j-row">${label}<span class="j-meta">${Array.isArray(v) ? '[]' : '{}'}</span></div>`;
+    const children = entries.map(([k, x]) => render(x, k, depth + 1)).join('');
+    return `<details${depth < JSON_OPEN_DEPTH ? ' open' : ''}><summary>${label}<span class="j-meta">${summary}</span></summary><div class="j-kids">${children}</div></details>`;
+  };
+  const tree = render(value, null, 0);
+  const cut = nodes > JSON_MAX_NODES ? `<p class="note">Showing the first ${JSON_MAX_NODES.toLocaleString('en-US')} values. Switch to the source for the rest.</p>` : '';
+  return `<div class="json">${tree}</div>${cut}`;
 }
 
 export const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -15,7 +77,27 @@ export const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, 
 // Tracebacks carry terminal colors.
 const stripAnsi = (s: string) => s.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '');
 
-export const markdownToHtml = (source: string) => marked.parse(source, { async: false, gfm: true }) as string;
+// ```mermaid blocks become <pre class="mermaid">, which the preview draws as
+// diagrams (see mermaidScripts); elsewhere they stay code.
+// Math becomes placeholders KaTeX renders (see math.ts).
+const markdown = new Marked({ gfm: true }, { extensions: mathExtensions });
+
+export const markdownToHtml = (source: string) =>
+  (markdown.parse(source, { async: false }) as string).replace(/<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g, '<pre class="mermaid">$1</pre>');
+
+export const hasMermaid = (html: string) => html.includes('<pre class="mermaid">');
+
+// The page runs only scripts carrying this page's nonce: Mermaid and the line
+// that starts it, never scripts written in the document.
+export interface PageScripts {
+  nonce: string;
+  scripts: string[];
+}
+
+export function mermaidScripts(library: string, dark: boolean, nonce: string): PageScripts {
+  const init = `mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: ${dark ? "'dark'" : "'default'"} }); mermaid.run({ querySelector: 'pre.mermaid' }).catch(function () {});`;
+  return { nonce, scripts: [library, init] };
+}
 
 type Multiline = string | string[];
 const text = (v: Multiline | undefined) => (Array.isArray(v) ? v.join('') : (v ?? ''));
@@ -86,10 +168,12 @@ export interface PreviewColors {
   error: string;
 }
 
-export function previewPage(body: string, c: PreviewColors, fontSize: number): string {
+// css: extra styles, e.g. KaTeX's when the document has math.
+export function previewPage(body: string, c: PreviewColors, fontSize: number, run?: PageScripts, css?: string): string {
+  const scripts = run ? run.scripts.map((s) => `<script nonce="${run.nonce}">${s.replace(/<\/script/gi, '<\\/script')}</script>`).join('') : '';
   return `<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: https:; style-src 'unsafe-inline'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: https:; style-src 'unsafe-inline'; font-src data:${run ? `; script-src 'nonce-${run.nonce}'` : ''}">
 <style>
 body{margin:0;padding:16px 16px 48px;background:${c.background};color:${c.foreground};font:${fontSize}px/1.6 -apple-system,system-ui,sans-serif;word-wrap:break-word}
 a{color:${c.link}}
@@ -109,7 +193,19 @@ hr{border:0;border-top:1px solid ${c.border}}
 pre.out{background:none;border-left:3px solid ${c.border};border-radius:0}
 .err{color:${c.error}}
 .note{color:${c.muted}}
-</style></head><body>${body}</body></html>`;
+.json{font:.9em/1.7 ui-monospace,Menlo,monospace}
+.json details>summary{cursor:pointer;list-style:none}
+.json details>summary::-webkit-details-marker{display:none}
+.json details>summary::before{content:'\\25B8';display:inline-block;width:1em;color:${c.muted}}
+.json details[open]>summary::before{content:'\\25BE'}
+.j-kids{padding-left:1.1em;border-left:1px solid ${c.border};margin-left:.35em}
+.j-row{padding-left:1em;white-space:pre-wrap;word-break:break-all}
+.j-key{color:${c.link}}
+.j-str{color:${c.foreground}}
+.j-num,.j-bool,.j-null,.j-meta{color:${c.muted}}
+pre.mermaid{background:none;text-align:center}
+${css ?? ''}
+</style></head><body>${body}${scripts}</body></html>`;
 }
 
 // Relative image paths in the rendered HTML, resolved against the file's folder.

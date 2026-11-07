@@ -21,7 +21,9 @@ export type Shortcut =
   | 'keyboard-shortcuts'
   | 'new-terminal'
   | 'split'
-  | 'preview';
+  | 'preview'
+  | 'symbols'
+  | 'docs';
 
 type KeyEvent = { key: string; code?: string; metaKey: boolean; shiftKey: boolean; altKey: boolean };
 
@@ -37,7 +39,7 @@ export function shortcutFor(e: KeyEvent): Shortcut | null {
     if (e.code === 'BracketLeft') return 'prev-tab';
     if (e.code === 'BracketRight') return 'next-tab';
     if (e.code === 'Slash' || key === '?') return 'keyboard-shortcuts';
-    return key === 'p' ? 'palette' : key === 'f' ? 'search' : key === 'v' ? 'preview' : null;
+    return key === 'p' ? 'palette' : key === 'f' ? 'search' : key === 'v' ? 'preview' : key === 'o' ? 'symbols' : key === 'd' ? 'docs' : null;
   }
   if (/^[1-9]$/.test(key)) return `tab-${Number(key) as TabNumber}`;
   switch (key) {
@@ -75,6 +77,8 @@ export const SHORTCUT_HELP: { group: string; items: [keys: string, title: string
       ['⌘P', 'Open file'],
       ['⇧⌘P', 'Command palette'],
       ['⇧⌘F', 'Search in project'],
+      ['⇧⌘O', 'Go to a symbol in the file'],
+      ['⇧⌘D', 'Look up the word at the cursor in offline docs'],
       ['⌘S', 'Save'],
       ['⌘W', 'Close file'],
       ['⇧⌘[  ⇧⌘]', 'Previous / next file'],
@@ -98,7 +102,8 @@ export const SHORTCUT_HELP: { group: string; items: [keys: string, title: string
       ['⌘D', 'Select the next occurrence'],
       ['⇧⌘L', 'Select all occurrences'],
       ['⌥ drag', 'Column selection, one cursor per line'],
-      ['⌘ click', 'Add a cursor (go to definition with IntelliSense Pro)'],
+      ['⌘ click', 'Add a cursor (go to definition with IntelliSense)'],
+      ['⌥F12', 'Peek definition'],
       ['⌥↑  ⌥↓', 'Move line up / down'],
       ['⇧⌥↑  ⇧⌥↓', 'Copy line up / down'],
       ['⇧⌘K', 'Delete line'],

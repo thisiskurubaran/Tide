@@ -31,14 +31,15 @@ describe('tasks and run configurations', () => {
     expect(taskLine(remote[1], 'local')).toBe('node lint.js');
   });
 
-  it('offers package.json scripts remotely', () => {
+  it('offers package.json scripts in both terminals', () => {
     const pkg = JSON.stringify({ scripts: { dev: 'vite', 'test:unit': 'jest' } });
-    expect(parseTasks(null, pkg, 'local').tasks).toEqual([]);
-    const tasks = parseTasks(null, pkg, 'remote').tasks;
-    expect(tasks).toEqual([
-      { name: 'npm: dev', remote: 'npm run dev', newTerminal: true },
-      { name: 'npm: test:unit', remote: 'npm run test:unit', newTerminal: false },
-    ]);
+    const expected = [
+      { name: 'npm: dev', command: 'npm run dev', newTerminal: true },
+      { name: 'npm: test:unit', command: 'npm run test:unit', newTerminal: false },
+    ];
+    expect(parseTasks(null, pkg, 'local').tasks).toEqual(expected);
+    expect(parseTasks(null, pkg, 'remote').tasks).toEqual(expected);
+    expect(taskLine(expected[1], 'local')).toBe('npm run test:unit');
   });
 
   it('builds the run line for each mode', () => {
@@ -47,6 +48,7 @@ describe('tasks and run configurations', () => {
     expect(configLine(server, 'local')).toBe('run Server\r');
     expect(configLine(server, 'remote')).toBe('node server.js --port 3000\r');
     expect(configLine(gen, 'remote')).toBe("python3 'tools/gen data.py'\r");
+    expect(configLine({ name: 'TS', runtime: 'node', entry: 'src/main.ts', args: ['a b'] }, 'remote')).toBe("npx tsx src/main.ts 'a b'\r");
   });
 
   it('reports a broken tide.json', () => {

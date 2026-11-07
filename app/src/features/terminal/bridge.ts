@@ -2,13 +2,18 @@
 // with the web bundle. The terminal only renders and collects keystrokes; the
 // shell runs on the React Native side.
 import type { TerminalTheme } from '../../theme/terminal';
+import type { CodeFont } from '../editor/bridge';
 import type { Shortcut } from '../project/shortcuts';
 
 export type ToTerminal =
   | { type: 'write'; data: string }
-  | { type: 'setTheme'; theme: TerminalTheme; fontSize: number }
+  // `font` follows the editor's code font; ligatures stay off (xterm draws cell by cell).
+  | { type: 'setTheme'; theme: TerminalTheme; fontSize: number; font?: CodeFont }
   | { type: 'focus' }
-  | { type: 'blur' };
+  | { type: 'blur' }
+  // Finds text in the output and scrollback, from the current match.
+  | { type: 'find'; query: string; backwards: boolean; caseSensitive: boolean }
+  | { type: 'clearFind' };
 
 export type FromTerminal =
   | { type: 'ready'; cols: number; rows: number }
@@ -16,12 +21,16 @@ export type FromTerminal =
   | { type: 'resize'; cols: number; rows: number }
   | { type: 'focus'; focused: boolean }
   | { type: 'link'; url: string }
+  // A file:line reference in the output was tapped (see fileRefs.ts).
+  | { type: 'openFile'; path: string; line: number; column?: number }
   | { type: 'shortcut'; id: Shortcut }
   // A pinch changed the font size.
-  | { type: 'zoom'; fontSize: number };
+  | { type: 'zoom'; fontSize: number }
+  // Search results: `index` is -1 when there are too many to number.
+  | { type: 'found'; index: number; count: number };
 
-const TO = new Set<ToTerminal['type']>(['write', 'setTheme', 'focus', 'blur']);
-const FROM = new Set<FromTerminal['type']>(['ready', 'input', 'resize', 'focus', 'link', 'shortcut', 'zoom']);
+const TO = new Set<ToTerminal['type']>(['write', 'setTheme', 'focus', 'blur', 'find', 'clearFind']);
+const FROM = new Set<FromTerminal['type']>(['ready', 'input', 'resize', 'focus', 'link', 'openFile', 'shortcut', 'zoom', 'found']);
 
 function parse<T extends { type: string }>(raw: string, types: Set<string>): T | null {
   try {

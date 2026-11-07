@@ -64,10 +64,16 @@ export const useDiagnostics = <T>(selector: (s: DiagnosticsState) => T) => useSt
 const EMPTY: Diagnostic[] = [];
 const order: Record<Severity, number> = { error: 0, warning: 1, info: 2 };
 
-export function fileDiagnostics(s: DiagnosticsState, project: string, path: string): Diagnostic[] {
+// The source the editor's own CSS/HTML/JSON services report under. The editor
+// shows those itself, so they aren't sent back to it.
+export const EDITOR_SOURCE = 'editor';
+
+export function fileDiagnostics(s: DiagnosticsState, project: string, path: string, exclude?: string): Diagnostic[] {
   const sources = s.byProject[project]?.[path];
   if (!sources) return EMPTY;
-  return Object.values(sources)
+  const kept = exclude ? Object.entries(sources).filter(([k]) => k !== exclude).map(([, v]) => v) : Object.values(sources);
+  if (!kept.length) return EMPTY;
+  return kept
     .flat()
     .sort((a, b) => a.from - b.from || order[a.severity] - order[b.severity]);
 }

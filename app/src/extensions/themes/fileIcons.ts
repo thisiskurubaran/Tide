@@ -9,7 +9,7 @@ const icon = (name: string, color: string): FileIcon => ({ kind: 'icon', name, c
 const BY_NAME: Record<string, FileIcon> = {
   'package.json': icon('package', '#cb3837'),
   'package-lock.json': icon('lock', '#cb3837'),
-  'tide.json': icon('settings', '#7c9bff'),
+  'tide.json': icon('settings', '#2dd4bf'),
   'tsconfig.json': icon('settings', '#3178c6'),
   'requirements.txt': icon('list', '#3776ab'),
   'dockerfile': icon('box', '#2496ed'),

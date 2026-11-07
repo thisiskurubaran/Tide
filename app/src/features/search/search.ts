@@ -33,6 +33,8 @@ export interface SearchOptions {
   // matches the file name in any folder.
   include?: string;
   exclude?: string;
+  // Stop after this many matches (default 500); the palette only shows a few.
+  limit?: number;
 }
 
 const MAX_MATCHES = 500;
@@ -106,6 +108,7 @@ const searchable = (content: string | null): content is string => content !== nu
 export async function searchProject(files: SearchFiles, project: string, query: string, options: SearchOptions = {}): Promise<SearchResult> {
   const result: SearchResult = { files: [], total: 0, truncated: false };
   if (!query) return result;
+  const max = options.limit ?? MAX_MATCHES;
   const matcher = buildMatcher(query, options);
   const wanted = pathFilter(options.include, options.exclude);
   const paths = (await files.listFiles(project)).filter(wanted).sort();
@@ -115,7 +118,7 @@ export async function searchProject(files: SearchFiles, project: string, query: 
     if (!searchable(content)) continue;
     const matches: SearchMatch[] = [];
     const lines = content.split('\n');
-    for (let i = 0; i < lines.length && result.total < MAX_MATCHES; i++) {
+    for (let i = 0; i < lines.length && result.total < max; i++) {
       const line = lines[i].replace(/\r$/, '');
       matcher.lastIndex = 0;
       const m = matcher.exec(line);
@@ -125,7 +128,7 @@ export async function searchProject(files: SearchFiles, project: string, query: 
       result.total++;
     }
     if (matches.length) result.files.push({ path, matches });
-    if (result.total >= MAX_MATCHES) {
+    if (result.total >= max) {
       result.truncated = true;
       break;
     }

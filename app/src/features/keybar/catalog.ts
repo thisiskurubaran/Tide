@@ -118,7 +118,53 @@ const SYMBOL_NAMES: Record<string, string> = {
   '%': 'Percent',
   '+': 'Plus',
   '?': 'Question mark',
+  '()': 'Parentheses',
+  '{}': 'Braces',
+  '[]': 'Brackets',
+  '<>': 'Angle brackets',
+  '""': 'Double quotes',
+  "''": 'Single quotes',
+  '``': 'Backticks',
+  '=>': 'Arrow',
+  '==': 'Equals equals',
+  '===': 'Triple equals',
+  '!=': 'Not equals',
+  '<=': 'Less than or equal',
+  '</': 'Closing tag',
+  '//': 'Line comment',
+  '/*  */': 'Block comment',
+  ':=': 'Colon equals',
+  '::': 'Double colon',
+  '->': 'Thin arrow',
+  '&&': 'And and',
+  '||': 'Or or',
+  '$()': 'Command substitution',
 };
+
+// What holding a symbol key offers. `cursor` puts the caret inside a pair,
+// counted from the start; without it the caret goes after the text.
+export interface SymbolVariant {
+  text: string;
+  cursor?: number;
+}
+
+const pair = (text: string): SymbolVariant => ({ text, cursor: text.length / 2 });
+const plain = (...texts: string[]) => texts.map((t): SymbolVariant => ({ text: t }));
+
+export const KEY_VARIANTS: Record<string, SymbolVariant[]> = {
+  '(': [pair('()'), ...plain('(', ')', '=>')],
+  '{': [pair('{}'), ...plain('{', '}')],
+  '[': [pair('[]'), ...plain('[', ']')],
+  '"': [pair('""'), ...plain("'", '`')],
+  "'": [pair("''"), ...plain('"', '`')],
+  '`': [pair('``'), ...plain("'", '"')],
+  '<': [pair('<>'), ...plain('</', '<=')],
+  '=': plain('==', '===', '!=', '=>'),
+  '/': [...plain('//'), { text: '/*  */', cursor: 3 }, ...plain('\\')],
+  ';': plain(':', ';'),
+};
+
+export const symbolName = (chars: string) => SYMBOL_NAMES[chars] ?? `Type ${chars}`;
 
 const chars = (s: string) => [...s].map(text);
 
@@ -127,11 +173,28 @@ const EDIT = ['undo', 'redo', 'find', 'expand', 'copy', PASTE];
 export const DEFAULT_EDITOR_KEYS = [TRACKPAD, SELECT_MODE, 'left', 'up', 'down', 'right', 'tab', ...chars('{}()[];:"\'=<>/\\'), ...EDIT];
 export const DEFAULT_TERMINAL_KEYS = [TRACKPAD, 'esc', 'tab', 'ctrl-c', 'ctrl-l', 'left', 'up', 'down', 'right', ...chars('/-~.|>"\'*_'), PASTE];
 
+const NAV = [TRACKPAD, SELECT_MODE, 'left', 'up', 'down', 'right', 'tab'];
+
 // Starting points per language; users can change them in Settings.
 export const LANGUAGE_PRESETS: Partial<Record<Language, string[]>> = {
   python: [TRACKPAD, SELECT_MODE, 'left', 'up', 'down', 'right', 'tab', ...chars(':()[]{}=_\'".#'), text('self.'), ...EDIT],
   javascript: [TRACKPAD, SELECT_MODE, 'left', 'up', 'down', 'right', 'tab', ...chars('{}()[];=<>\'"`'), text('=>'), text('const '), ...EDIT],
   html: [TRACKPAD, SELECT_MODE, 'left', 'up', 'down', 'right', 'tab', ...chars('<>/="\''), text('</'), ...EDIT],
+  go: [...NAV, ...chars('{}()[]:=.*&"`'), text(':='), ...EDIT],
+  rust: [...NAV, ...chars("{}()[];:&<>'\"!"), text('::'), text('->'), text('let '), ...EDIT],
+  c: [...NAV, ...chars('{}()[];*&<>"#'), text('->'), ...EDIT],
+  cpp: [...NAV, ...chars('{}()[];*&<>"#'), text('->'), text('::'), ...EDIT],
+  java: [...NAV, ...chars('{}()[];.<>="@'), text('->'), ...EDIT],
+  csharp: [...NAV, ...chars('{}()[];.<>="'), text('=>'), ...EDIT],
+  kotlin: [...NAV, ...chars('{}()[]:.<>="?'), text('->'), text('val '), ...EDIT],
+  swift: [...NAV, ...chars('{}()[]:.<>="?!'), text('->'), text('let '), ...EDIT],
+  dart: [...NAV, ...chars('{}()[];.<>="\''), text('=>'), ...EDIT],
+  shell: [...NAV, ...chars('$|>&"\'{}[]-#'), text('&&'), text('$()'), ...EDIT],
+  powershell: [...NAV, ...chars('$|{}()[]-"\'@'), ...EDIT],
+  makefile: [...NAV, ...chars(':=$()@%#'), ...EDIT],
+  yaml: [...NAV, ...chars(':-"\'#|>[]{}&*'), ...EDIT],
+  toml: [...NAV, ...chars('[]="\'.#{}'), ...EDIT],
+  xml: [TRACKPAD, SELECT_MODE, 'left', 'up', 'down', 'right', 'tab', ...chars('<>/="\''), text('</'), ...EDIT],
 };
 
 export interface KeyFace {
@@ -146,7 +209,7 @@ export function keyFace(id: string, bar: 'editor' | 'terminal'): KeyFace | null 
   if (id.startsWith('text:')) {
     const value = id.slice(5);
     if (!value) return null;
-    return { id, label: value.length > 8 ? `${value.slice(0, 7)}…` : value, a11y: SYMBOL_NAMES[value] ?? `Type ${value}` };
+    return { id, label: value.length > 8 ? `${value.slice(0, 7)}…` : value, a11y: symbolName(value) };
   }
   const found = (bar === 'editor' ? EDITOR_KEYS : TERMINAL_KEYS).find((k) => k.id === id);
   return found ? { id, label: found.label, icon: found.icon, a11y: found.a11y } : null;

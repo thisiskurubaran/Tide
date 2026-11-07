@@ -12,8 +12,12 @@ import { haptic } from '../../components/haptics';
 
 interface NewProjectSheetProps {
   visible: boolean;
+  // Opens on "Clone from Git" instead of the first template, for the home screen's Clone repo button.
+  initialMode?: 'template' | 'clone';
   onCreate(name: string, templateId: string): Promise<void>;
   onClone(name: string, url: string): Promise<void>;
+  // Picks a repository from the user's GitHub account instead of typing a URL.
+  onBrowseGitHub(): void;
   // Asks for a .zip; the name defaults to the zip's.
   onImport(name: string): Promise<void>;
   // Asks for a folder in Files and links the project to it; the name defaults to the folder's.
@@ -22,10 +26,11 @@ interface NewProjectSheetProps {
 }
 
 const CLONE = 'clone';
+const GITHUB = 'github';
 const IMPORT = 'import';
 const FOLDER = 'folder';
 
-export function NewProjectSheet({ visible, onCreate, onClone, onImport, onOpenFolder, onClose }: NewProjectSheetProps) {
+export function NewProjectSheet({ visible, initialMode = 'template', onCreate, onClone, onBrowseGitHub, onImport, onOpenFolder, onClose }: NewProjectSheetProps) {
   const styles = useStyles();
   const colors = useColors();
   const [name, setName] = useState('');
@@ -38,10 +43,10 @@ export function NewProjectSheet({ visible, onCreate, onClone, onImport, onOpenFo
     if (visible) {
       setName('');
       setUrl('');
-      setTemplateId(templates[0].id);
+      setTemplateId(initialMode === 'clone' ? CLONE : templates[0].id);
       setError(null);
     }
-  }, [visible]);
+  }, [visible, initialMode]);
 
   async function create() {
     setBusy(true);
@@ -60,7 +65,7 @@ export function NewProjectSheet({ visible, onCreate, onClone, onImport, onOpenFo
 
   return (
     <Sheet visible={visible} onClose={onClose} scrollable>
-      <Text variant="title">New project</Text>
+      <Text variant="title">{initialMode === 'clone' ? 'Clone repository' : 'New project'}</Text>
       <View style={styles.field}>
         <TextInput
           testID="project-name"
@@ -103,6 +108,7 @@ export function NewProjectSheet({ visible, onCreate, onClone, onImport, onOpenFo
       <View style={styles.templates} accessibilityRole="radiogroup">
         {[
           ...templates,
+          { id: GITHUB, label: 'Clone from GitHub', description: 'Pick one of your repositories, after signing in to GitHub.' },
           { id: CLONE, label: 'Clone from Git', description: 'Clone a repository over HTTPS. Private ones need a token in Settings, Git.' },
           { id: FOLDER, label: 'Open a folder', description: 'Work on a folder from Files, iCloud Drive or another app, and sync changes back to it.' },
           { id: IMPORT, label: 'Import a .zip', description: 'Pick a .zip, from Files or iCloud Drive; its files become the project.' },
@@ -114,7 +120,7 @@ export function NewProjectSheet({ visible, onCreate, onClone, onImport, onOpenFo
               testID={`template-${t.id}`}
               accessibilityRole="radio"
               accessibilityState={{ selected }}
-              onPress={() => setTemplateId(t.id)}
+              onPress={() => (t.id === GITHUB ? onBrowseGitHub() : setTemplateId(t.id))}
               style={[styles.template, selected && styles.selected]}
             >
               <Text variant="label">{t.label}</Text>

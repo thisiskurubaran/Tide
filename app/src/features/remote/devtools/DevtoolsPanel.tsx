@@ -6,21 +6,23 @@ import { Segmented } from '../../../components/Segmented';
 import { Text } from '../../../components/Text';
 import { makeStyles, useColors } from '../../../theme/theme';
 import { borderWidth, fonts, fontSizes, spacing } from '../../../theme/tokens';
+import { ChecksView } from './ChecksView';
 import { ConsoleEntry, DevtoolsState, Request, shortUrl } from './devtools';
 
 interface DevtoolsPanelProps {
   state: DevtoolsState;
   onEval(code: string): void;
   onClear(): void;
+  onAudit(): void;
 }
 
 const size = (n: number | null) => (n === null ? '' : n < 1024 ? `${n} B` : `${(n / 1024).toFixed(1)} KB`);
 
 // Console and network for the preview, docked under the page.
-export function DevtoolsPanel({ state, onEval, onClear }: DevtoolsPanelProps) {
+export function DevtoolsPanel({ state, onEval, onClear, onAudit }: DevtoolsPanelProps) {
   const styles = useStyles();
   const colors = useColors();
-  const [tab, setTab] = useState<'console' | 'network'>('console');
+  const [tab, setTab] = useState<'console' | 'network' | 'checks'>('console');
   const [code, setCode] = useState('');
   const [open, setOpen] = useState<string | null>(null);
 
@@ -64,19 +66,22 @@ export function DevtoolsPanel({ state, onEval, onClear }: DevtoolsPanelProps) {
   return (
     <View style={styles.panel} testID="devtools">
       <View style={styles.bar}>
-        <Segmented<'console' | 'network'>
+        <Segmented<'console' | 'network' | 'checks'>
           testID="devtools-tab"
           value={tab}
           onChange={setTab}
           options={[
             { value: 'console', label: state.errors ? `Console (${state.errors})` : 'Console' },
             { value: 'network', label: `Network (${state.requests.length})` },
+            { value: 'checks', label: 'Checks' },
           ]}
         />
         <View style={styles.flex} />
         {tab === 'console' && <IconButton icon="slash" label="Clear console" onPress={onClear} testID="devtools-clear" />}
       </View>
-      {tab === 'console' ? (
+      {tab === 'checks' ? (
+        <ChecksView report={state.audit} onRun={onAudit} />
+      ) : tab === 'console' ? (
         <>
           <FlatList
             data={state.console}

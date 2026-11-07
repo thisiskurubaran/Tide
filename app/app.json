@@ -2,7 +2,7 @@
   "expo": {
     "name": "Tide",
     "slug": "tide",
-    "version": "1.0.1",
+    "version": "2.0.0",
     "orientation": "portrait",
     "icon": "./assets/icons/ios-light.png",
     "userInterfaceStyle": "automatic",
@@ -58,6 +58,7 @@
       },
       "appleTeamId": "9CYJBSWY2X",
       "infoPlist": {
+        "CADisableMinimumFrameDurationOnPhone": true,
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
         },
@@ -88,6 +89,12 @@
               "public.zip-archive"
             ]
           }
+        ],
+        "NSSupportsLiveActivities": true
+      },
+      "entitlements": {
+        "com.apple.security.application-groups": [
+          "group.com.thisiskurubaran.tide"
         ]
       }
     },
@@ -145,7 +152,7 @@
         "expo-splash-screen",
         {
           "image": "./assets/icons/splash.png",
-          "backgroundColor": "#0d0f0e",
+          "backgroundColor": "#0a1115",
           "imageWidth": 120
         }
       ],
@@ -159,7 +166,10 @@
             "./assets/fonts/Inter-Regular.ttf",
             "./assets/fonts/Inter-SemiBold.ttf",
             "./assets/fonts/JetBrainsMono-Regular.ttf",
-            "./assets/fonts/JetBrainsMono-SemiBold.ttf"
+            "./assets/fonts/JetBrainsMono-SemiBold.ttf",
+            "./assets/fonts/FiraCode-Regular.ttf",
+            "./assets/fonts/IBMPlexMono-Regular.ttf",
+            "./assets/fonts/SourceCodePro-Regular.ttf"
           ]
         }
       ],
@@ -170,25 +180,26 @@
           "faceIDPermission": false
         }
       ],
-      "expo-iap",
       "./plugins/withLocalPreview.js",
       [
         "expo-alternate-app-icons",
         [
           {
-            "name": "Pro",
+            "name": "Midnight",
             "ios": {
-              "light": "./assets/icons/ios-pro.png",
-              "dark": "./assets/icons/ios-pro-dark.png",
-              "tinted": "./assets/icons/ios-pro-tinted.png"
+              "light": "./assets/icons/ios-midnight.png",
+              "dark": "./assets/icons/ios-midnight-dark.png",
+              "tinted": "./assets/icons/ios-midnight-tinted.png"
             },
             "android": {
-              "foregroundImage": "./assets/icons/android-pro-foreground.png",
+              "foregroundImage": "./assets/icons/android-midnight-foreground.png",
               "backgroundColor": "#0b1022"
             }
           }
         ]
-      ]
+      ],
+      "@bacons/apple-targets",
+      "./plugins/withAppIntents.js"
     ]
   }
 }

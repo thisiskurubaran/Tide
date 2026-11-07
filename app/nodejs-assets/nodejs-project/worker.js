@@ -12,6 +12,9 @@ const { parentPort, workerData } = require('worker_threads');
 if (!parentPort) throw new Error('worker.js must run in a worker thread');
 const port = parentPort;
 
+// Runs overlap and share one process cwd, so each run gets its own (see runcwd.js).
+require('./runcwd').useCwd(workerData.cwd);
+
 const stdin = new Readable({ read() {} });
 stdin.setEncoding('utf8');
 let reading = false;
@@ -50,4 +53,6 @@ net.Server.prototype.listen = function (/** @type {any[]} */ ...args) {
 
 // Look like `node <entry> <args>`: argv[1] is the script and require.main is it.
 process.argv = [process.argv[0], workerData.entry, ...process.argv.slice(2)];
-/** @type {any} */ (Module).runMain();
+const typescript = require('./typescript');
+if (typescript.isTs(workerData.entry)) typescript.runTypeScript(workerData.entry);
+else /** @type {any} */ (Module).runMain();

@@ -1,217 +1,60 @@
 import { createMemoryFs } from '../features/files/memoryFs';
 import { createFsStorage } from '../state/storage';
 import { createDiagnosticsStore, fileDiagnostics, lineStarts, offsetAt, positionAt } from './diagnostics';
-import { manifestFor, manifests } from './manifests';
-import { createFakePurchases, createStorePurchases, PurchaseProvider, trialLength } from './purchases';
-import { createExtensionsStore, isActive } from './store';
+import { manifests } from './manifests';
+import { createExtensionsStore, DEFAULT_PREFS, isActive } from './store';
 import { fileIconFor } from './themes/fileIcons';
 import { colorThemes } from './themes/catalog';
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
-// For providers written out by hand that only deal in one-time purchases.
-const noSubscriptions = { subscriptions: async () => [], trialEligible: async () => false, manageSubscriptions: async () => undefined };
-const product = (id: string) => manifestFor(id as never).productId;
 
 describe('manifests', () => {
-  it('gives every extension its own product', () => {
-    expect(new Set(manifests.map((m) => m.productId)).size).toBe(manifests.length);
+  it('lists every extension once', () => {
     expect(manifests.map((m) => m.id)).toEqual(['themes', 'format-lint', 'git-pro', 'intellisense', 'debugger']);
   });
 });
 
 describe('extensions store', () => {
-  it('unlocks an extension when it is bought and remembers it', async () => {
+  it('installs and removes extensions, and remembers them', async () => {
     const storage = createFsStorage(createMemoryFs());
-    const purchases = createFakePurchases();
-    const store = createExtensionsStore(storage, purchases);
+    const store = createExtensionsStore(storage);
     await flush();
     expect(isActive(store.getState(), 'themes')).toBe(false);
-    await store.getState().buy('themes');
-    expect(store.getState().owned).toEqual(['themes']);
+    store.getState().install('debugger');
+    store.getState().install('themes');
+    store.getState().install('themes');
+    expect(store.getState().installed).toEqual(['themes', 'debugger']);
     expect(isActive(store.getState(), 'themes')).toBe(true);
+    store.getState().uninstall('debugger');
     expect(isActive(store.getState(), 'debugger')).toBe(false);
     await flush();
-    const restarted = createExtensionsStore(storage, createFakePurchases());
+    const restarted = createExtensionsStore(storage);
     await flush();
-    expect(restarted.getState().owned).toEqual(['themes']);
+    expect(restarted.getState().installed).toEqual(['themes']);
   });
 
-  it('switches an owned extension off and on', async () => {
-    const store = createExtensionsStore(createFsStorage(createMemoryFs()), createFakePurchases());
-    await store.getState().buy('git-pro');
-    store.getState().setEnabled('git-pro', false);
-    expect(isActive(store.getState(), 'git-pro')).toBe(false);
-    store.getState().setEnabled('git-pro', true);
-    expect(isActive(store.getState(), 'git-pro')).toBe(true);
-  });
-
-  it('shows store prices and keeps cached purchases when the store is unreachable', async () => {
-    const offline: PurchaseProvider = {
-      ...noSubscriptions,
-      products: async () => [{ productId: product('debugger'), price: '₹799' }],
-      owned: async () => {
-        throw new Error('offline');
-      },
-      buy: async () => 'cancelled',
-      restore: async () => [],
-      onPurchase: () => undefined,
-    };
+  it('remembers turned-down suggestions per project', async () => {
     const storage = createFsStorage(createMemoryFs());
-    await storage.setItem('extensions', JSON.stringify({ state: { owned: ['themes'] }, version: 1 }));
-    const store = createExtensionsStore(storage, offline);
+    const store = createExtensionsStore(storage);
+    // Changes made before the saved state loads aren't saved.
     await flush();
-    await store.getState().refresh();
-    expect(store.getState().prices.debugger).toBe('₹799');
-    expect(store.getState().owned).toEqual(['themes']);
-  });
-
-  it('replaces the cache with what restore returns', async () => {
-    const purchases = createFakePurchases();
-    const store = createExtensionsStore(createFsStorage(createMemoryFs()), purchases);
-    store.setState({ owned: ['themes', 'debugger'] });
-    purchases.owned_.add(product('intellisense'));
-    await store.getState().restore();
-    expect(store.getState().owned).toEqual(['intellisense']);
-  });
-
-  it('reports a cancelled purchase without an error and a failed one with it', async () => {
-    let result: 'cancelled' | Error = 'cancelled';
-    const purchases: PurchaseProvider = {
-      ...noSubscriptions,
-      products: async () => [],
-      owned: async () => [],
-      buy: async () => {
-        if (result instanceof Error) throw result;
-        return result;
-      },
-      restore: async () => [],
-      onPurchase: () => undefined,
-    };
-    const store = createExtensionsStore(createFsStorage(createMemoryFs()), purchases);
-    await store.getState().buy('themes');
-    expect(store.getState()).toMatchObject({ owned: [], error: null, busy: null });
-    result = new Error('Payment declined');
-    await store.getState().buy('themes');
-    expect(store.getState()).toMatchObject({ owned: [], error: 'Payment declined', busy: null });
-  });
-
-  it('grants purchases that complete later, like Ask to Buy', async () => {
-    const purchases = createFakePurchases();
-    const store = createExtensionsStore(createFsStorage(createMemoryFs()), purchases);
-    await purchases.buy(product('format-lint'));
-    expect(store.getState().owned).toEqual(['format-lint']);
-  });
-});
-
-// A stand-in for expo-iap: purchases complete through the listeners, as they do on a device.
-function fakeIap() {
-  let updated: (p: unknown) => void = () => undefined;
-  let failed: (e: unknown) => void = () => undefined;
-  const finished: string[] = [];
-  const mod = {
-    initConnection: jest.fn(async () => true),
-    purchaseUpdatedListener: (fn: (p: unknown) => void) => {
-      updated = fn;
-      return { remove() {} };
-    },
-    purchaseErrorListener: (fn: (e: unknown) => void) => {
-      failed = fn;
-      return { remove() {} };
-    },
-    fetchProducts: jest.fn(async ({ skus, type }: { skus: string[]; type: string }) =>
-      skus.map((id) =>
-        type === 'subs'
-          ? {
-              id,
-              displayPrice: '$24.99',
-              platform: 'ios',
-              type: 'subs',
-              subscriptionGroupIdIOS: 'group-1',
-              introductoryPricePaymentModeIOS: id.endsWith('yearly') ? 'free-trial' : 'empty',
-              introductoryPriceNumberOfPeriodsIOS: '1',
-              introductoryPriceSubscriptionPeriodIOS: 'week',
-            }
-          : { id, displayPrice: '$1.00' },
-      ),
-    ),
-    getActiveSubscriptions: async (ids: string[]) =>
-      [
-        { productId: 'pro.yearly', isActive: true, expirationDateIOS: 1000, renewalInfoIOS: { willAutoRenew: false } },
-        { productId: 'pro.monthly', isActive: false, expirationDateIOS: 10 },
-      ].filter((s) => ids.includes(s.productId)),
-    isEligibleForIntroOfferIOS: jest.fn(async (group: string) => group === 'group-1'),
-    deepLinkToSubscriptions: jest.fn(async () => undefined),
-    requestPurchase: jest.fn(async () => null),
-    finishTransaction: async ({ purchase }: { purchase: { productId: string } }) => void finished.push(purchase.productId),
-    getAvailablePurchases: async () => [
-      { productId: 'a', purchaseState: 'purchased' },
-      { productId: 'b', purchaseState: 'pending' },
-    ],
-    restorePurchases: async () => undefined,
-    isUserCancelledError: (e: { code?: string }) => e.code === 'user-cancelled',
-    getUserFriendlyErrorMessage: (e: { message?: string }) => e.message ?? 'failed',
-  };
-  return { mod, finished, complete: (p: unknown) => updated(p), fail: (e: unknown) => failed(e) };
-}
-
-describe('store purchases (expo-iap)', () => {
-  it('connects once, buys and finishes the transaction', async () => {
-    const iap = fakeIap();
-    const purchases = createStorePurchases(() => iap.mod as never);
-    const done = purchases.buy('x');
+    store.getState().dismiss('demo', 'git-pro');
+    store.getState().dismiss('demo', 'git-pro');
+    store.getState().dismiss('other', 'intellisense');
+    expect(store.getState().dismissed).toEqual({ demo: ['git-pro'], other: ['intellisense'] });
     await flush();
-    iap.complete({ productId: 'x', purchaseState: 'purchased' });
-    await expect(done).resolves.toBe('purchased');
-    expect(iap.finished).toEqual(['x']);
-    await purchases.products(['x']);
-    expect(iap.mod.initConnection).toHaveBeenCalledTimes(1);
+    const restarted = createExtensionsStore(storage);
+    await flush();
+    expect(restarted.getState().dismissed.demo).toEqual(['git-pro']);
   });
 
-  it('settles a cancelled sheet as cancelled and other errors as failures', async () => {
-    const iap = fakeIap();
-    const purchases = createStorePurchases(() => iap.mod as never);
-    const cancelled = purchases.buy('x');
+  it('ignores extensions it no longer knows when loading', async () => {
+    const storage = createFsStorage(createMemoryFs());
+    await storage.setItem('extensions', JSON.stringify({ state: { installed: ['gone', 'git-pro'], prefs: { formatOnSave: true } }, version: 2 }));
+    const store = createExtensionsStore(storage);
     await flush();
-    iap.fail({ code: 'user-cancelled' });
-    await expect(cancelled).resolves.toBe('cancelled');
-    const failed = purchases.buy('x');
-    await flush();
-    iap.fail({ code: 'network-error', message: 'No connection' });
-    await expect(failed).rejects.toThrow('No connection');
-  });
-
-  it('reads subscriptions: trials, active periods and renewal', async () => {
-    const iap = fakeIap();
-    const purchases = createStorePurchases(() => iap.mod as never);
-    expect(await purchases.products(['pro.monthly', 'pro.yearly'], 'subs')).toEqual([
-      { productId: 'pro.monthly', price: '$24.99', groupId: 'group-1' },
-      { productId: 'pro.yearly', price: '$24.99', groupId: 'group-1', trial: '7 days' },
-    ]);
-    expect(iap.mod.fetchProducts).toHaveBeenLastCalledWith({ skus: ['pro.monthly', 'pro.yearly'], type: 'subs' });
-    expect(await purchases.subscriptions(['pro.monthly', 'pro.yearly'])).toEqual([{ productId: 'pro.yearly', expiresAt: 1000, willRenew: false }]);
-    expect(await purchases.trialEligible('group-1')).toBe(true);
-    const buying = purchases.buy('pro.yearly', 'subs');
-    await flush();
-    expect(iap.mod.requestPurchase).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'subs' }));
-    iap.complete({ productId: 'pro.yearly', purchaseState: 'purchased' });
-    await expect(buying).resolves.toBe('purchased');
-    await purchases.manageSubscriptions();
-    expect(iap.mod.deepLinkToSubscriptions).toHaveBeenCalled();
-  });
-
-  it('counts only completed purchases as owned', async () => {
-    const purchases = createStorePurchases(() => fakeIap().mod as never);
-    await expect(purchases.owned()).resolves.toEqual(['a']);
-  });
-
-  it('reports pending purchases without finishing them', async () => {
-    const iap = fakeIap();
-    const purchases = createStorePurchases(() => iap.mod as never);
-    const done = purchases.buy('x');
-    await flush();
-    iap.complete({ productId: 'x', purchaseState: 'pending' });
-    await expect(done).resolves.toBe('pending');
-    expect(iap.finished).toEqual([]);
+    expect(store.getState().installed).toEqual(['git-pro']);
+    expect(store.getState().prefs).toEqual({ ...DEFAULT_PREFS, formatOnSave: true });
   });
 });
 
@@ -251,15 +94,5 @@ describe('themes pack', () => {
     expect(fileIconFor('app.TSX')).toMatchObject({ kind: 'label', text: 'TSX' });
     expect(fileIconFor('.env.local')).toMatchObject({ name: 'key' });
     expect(fileIconFor('Makefile')).toBeNull();
-  });
-});
-
-describe('trialLength', () => {
-  it('describes introductory periods', () => {
-    expect(trialLength('1', 'week')).toBe('7 days');
-    expect(trialLength('2', 'week')).toBe('14 days');
-    expect(trialLength('1', 'month')).toBe('1 month');
-    expect(trialLength('3', 'day')).toBe('3 days');
-    expect(trialLength('1', 'empty')).toBeUndefined();
   });
 });

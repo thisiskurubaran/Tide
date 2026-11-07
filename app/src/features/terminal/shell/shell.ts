@@ -9,6 +9,8 @@ import { displayPath, PathError, resolvePath } from './paths';
 import type { ShellFs } from './shellFs';
 import { currentWord, escapeWord, ParseError, tokenize } from './tokenize';
 import { DEFAULT_CONFIG, parseTasks } from '../../project/tasks';
+import { dotCommand, formatResult, isComplete, runSql, SqliteHost, SqliteOutput } from './sqlite';
+import { findPackage, lifecycle, resolveBin, ScriptError, scriptsOf, splitScript, takeEnv } from './npmRun';
 
 export interface ShellOptions {
   project: string;
@@ -20,6 +22,15 @@ export interface ShellOptions {
   newId?: () => string;
   // Extra environment for built-in tools, read per run (git's token and identity).
   toolEnv?: () => Record<string, string>;
+  // Opens project databases for sqlite3; without it the command says it's unavailable.
+  sqlite?: SqliteHost;
+  // The project's .env and Keychain variables, given to every program it runs.
+  projectEnv?(): Promise<{ values: Record<string, string>; secrets: string[] }>;
+  // Told when a program ends, e.g. so a git commit can start an automatic deploy.
+  onRunExit?(entry: string, args: string[], code: number): void;
+  // Told when a command starts and when the shell is back at its prompt, so
+  // the Run button can turn into Stop while something runs.
+  onBusy?(busy: boolean): void;
 }
 
 class CommandError extends Error {}
@@ -42,16 +53,28 @@ const COMMAND_HELP: [string, string][] = [
   ['rm [-r] <path...>', 'delete files, or folders with -r'],
   ['mv <src...> <dest>', 'move or rename'],
   ['cp [-r] <src...> <dest>', 'copy files, or folders with -r'],
-  ['node <file> [args]', 'run a JavaScript file'],
+  ['node <file> [args]', 'run a JavaScript or TypeScript file (types are stripped, not checked)'],
   ['python <file> [args]', 'run a Python file'],
+  ['lua <file> [args]', 'run a Lua file (Lua 5.3)'],
+  ['ruby <file> [args]', 'run a Ruby file (Ruby 3.4)'],
+  ['php <file> [args]', 'run a PHP file (PHP 8.3)'],
   ['run [name]', 'run the project, or a named configuration (uses tide.json)'],
   ['npm install [pkg...]', 'install pure-JS packages into node_modules'],
   ['npm uninstall <pkg...>', 'remove packages and what only they needed'],
   ['pip install <pkg...>', 'install pure-Python packages into .pylibs'],
   ['git <command>', 'clone, status, add, commit, log, push, pull (git help)'],
+  ['env [NAME]', "show the project's environment variables (.env and Keychain)"],
+  ['sqlite3 <db> ["SQL"]', 'run SQL on a database file, or open a sqlite> prompt'],
   ['clear', 'clear the screen'],
   ['help', 'show this list'],
 ];
+
+// TypeScript runs on the same Node: the supervisor strips the types (see
+// nodejs-project/typescript), so tsx and ts-node are just node.
+export const isTypeScript = (path: string) => /\.(ts|tsx|mts|cts)$/i.test(path) && !/\.d\.[cm]?tsx?$/i.test(path);
+const TS_RUNNERS = ['tsx', 'ts-node', 'ts-node-esm'];
+// Their options that take a value, dropped along with it; other options are dropped alone.
+const TS_RUNNER_VALUE_FLAGS = ['--tsconfig', '-P', '--project', '-r', '--require', '--import', '-C', '--compiler', '-O', '--compilerOptions'];
 
 const errorMessage = (e: unknown) =>
   e instanceof WorkspaceError || e instanceof CommandError || e instanceof PathError || e instanceof ParseError
@@ -66,12 +89,20 @@ export class Shell {
   private cwd = '';
   private cols = 80;
   private editor: LineEditor;
-  private running: { id: string; stdin: LineEditor } | null = null;
+  private running: { id: string; stdin: LineEditor; entry: string; args: string[] } | null = null;
+  // A built-in that reads its own lines (the sqlite> prompt) while it runs.
+  private session: LineEditor | null = null;
   private busy = false;
+  // Called with each program's exit code (null when it was stopped), for npm run.
+  private exitWaiters: ((code: number | null) => void)[] = [];
+  // Variables from an npm script's FOO=bar prefix, for the program it starts.
+  private stepEnv: Record<string, string> = {};
   // Keys typed while a command is still finishing; replayed at the next prompt, like a real shell.
   private typeahead = '';
   private commands: Record<string, Command>;
   private nextId: () => string;
+  // The "not type-checked" note is shown once per terminal.
+  private toldNoTypeCheck = false;
 
   constructor(private opts: ShellOptions) {
     let counter = 0;
@@ -100,6 +131,7 @@ export class Shell {
   dispose() {
     if (this.running) this.opts.runner.send({ type: 'kill', id: this.running.id });
     this.running = null;
+    this.settleWaiters(null);
   }
 
   resize(cols: number) {
@@ -107,6 +139,10 @@ export class Shell {
   }
 
   input(data: string) {
+    if (this.session) {
+      this.typeahead += this.session.input(data);
+      return;
+    }
     if (this.running) {
       this.typeahead += this.running.stdin.input(data);
       return;
@@ -122,7 +158,15 @@ export class Shell {
     this.opts.write(data);
   }
 
+  private reportedBusy = false;
+  private reportBusy(busy: boolean) {
+    if (busy === this.reportedBusy) return;
+    this.reportedBusy = busy;
+    this.opts.onBusy?.(busy);
+  }
+
   private prompt() {
+    this.reportBusy(false);
     const where = this.cwd ? `/${this.cwd}` : '/';
     this.editor.read(`${ansi.blue}${this.opts.project}${ansi.reset} ${ansi.cyan}${where}${ansi.reset} $ `);
     if (this.typeahead) {
@@ -134,6 +178,7 @@ export class Shell {
 
   private async execute(line: string) {
     this.busy = true;
+    this.reportBusy(true);
     try {
       await this.runLine(line);
     } finally {
@@ -166,7 +211,7 @@ export class Shell {
       );
       return;
     }
-    if (parsed.redirect && ['node', 'python', 'python3', 'run', 'npm', 'pip', 'pip3', 'git'].includes(name)) {
+    if (parsed.redirect && ['node', 'python', 'python3', 'lua', 'ruby', 'php', 'run', 'npm', 'npx', 'pip', 'pip3', 'git', ...TS_RUNNERS].includes(name)) {
       io.err(`${name}: output redirection isn't supported for programs\n`);
       return;
     }
@@ -352,15 +397,23 @@ export class Shell {
         }
       },
       clear: async () => this.write(ansi.clearScreen),
+      env: (args, io) => this.printEnv(args, io),
+      printenv: (args, io) => this.printEnv(args, io),
       node: (args) => this.runProgram('node', args),
+      ...Object.fromEntries(TS_RUNNERS.map((name): [string, Command] => [name, (args) => this.runTsRunner(name, args)])),
       python: (args) => this.runProgram('python', args),
       python3: (args) => this.runProgram('python', args),
+      lua: (args) => this.runProgram('lua', args),
+      ruby: (args) => this.runProgram('ruby', args),
+      php: (args) => this.runProgram('php', args),
       // Built into the Node supervisor; resolves packages from the registry without running scripts.
-      npm: (args) => this.startRun('node', 'tide:npm', args, this.cwd),
+      npm: (args, io) => this.npm(args, io),
+      npx: (args, io) => this.npx(args, io),
       // pip runs in the Node supervisor next to npm, sharing its download and archive code.
       pip: (args) => this.startRun('node', 'tide:pip', args, this.cwd),
       pip3: (args) => this.startRun('node', 'tide:pip', args, this.cwd),
       git: (args) => this.startRun('node', 'tide:git', args, this.cwd, this.opts.toolEnv?.()),
+      sqlite3: (args, io) => this.sqlite3(args, io),
       run: async (args) => {
         const raw = await fs.readRunConfig();
         const { configs } = parseTasks(raw ? JSON.stringify(raw) : null);
@@ -373,6 +426,74 @@ export class Shell {
     };
   }
 
+  private async sqlite3(args: string[], io: Io) {
+    const host = this.opts.sqlite;
+    if (!host) throw new CommandError('not available in this terminal');
+    const [file, ...sql] = args;
+    if (!file) throw new CommandError('usage: sqlite3 <database> ["SQL"]');
+    const path = this.resolve(file);
+    if ((await this.opts.fs.stat(path)) === 'dir') throw new CommandError(`${file}: is a directory`);
+    const db = await host.open(path);
+    const out: SqliteOutput = { headers: true, mode: 'table' };
+    try {
+      if (sql.length) {
+        io.out(formatResult(await runSql(db, sql.join(' ')), out));
+        return;
+      }
+      io.out(`${ansi.dim}SQLite on ${file}. End statements with ;  .help for commands, .quit to leave.${ansi.reset}\n`);
+      await this.readLines('sqlite> ', '   ...> ', async (statement) => {
+        if (statement.trim().startsWith('.')) {
+          const text = await dotCommand(db, statement, out);
+          if (text === null) return false;
+          io.out(text);
+          return true;
+        }
+        try {
+          io.out(formatResult(await runSql(db, statement), out));
+        } catch (e) {
+          io.err(`Error: ${errorMessage(e)}\n`);
+        }
+        return true;
+      });
+    } finally {
+      await db.closeAsync().catch(() => undefined);
+      // A new database file, or tables written from SQL, show up in the tree.
+      this.opts.fs.refresh().catch(() => undefined);
+    }
+  }
+
+  // Reads statements at a prompt until `handle` returns false. Lines join
+  // until the text is complete (ends with ;); dot commands are single lines.
+  private readLines(prompt: string, more: string, handle: (statement: string) => Promise<boolean>) {
+    return new Promise<void>((done) => {
+      let pending = '';
+      const session: LineEditor = new LineEditor({
+        write: (d) => this.write(d),
+        submit: async (line) => {
+          const text = pending ? `${pending}\n${line}` : line;
+          if (!text.trim()) return session.read(prompt);
+          if (!text.trim().startsWith('.') && !isComplete(text)) {
+            pending = text;
+            return session.read(more);
+          }
+          pending = '';
+          if (await handle(text)) return session.read(prompt);
+          session.stop();
+          this.session = null;
+          done();
+        },
+        interrupt: () => {
+          pending = '';
+          session.read(prompt);
+        },
+        clearScreen: () => this.write(ansi.clearScreen),
+        complete: async () => null,
+      });
+      this.session = session;
+      session.read(prompt);
+    });
+  }
+
   private async runProgram(runtime: Runtime, args: string[]) {
     if (runtime === 'python' && args[0] === '-m' && args[1] === 'pip') {
       return this.startRun('node', 'tide:pip', args.slice(2), this.cwd);
@@ -383,7 +504,166 @@ export class Shell {
     await this.startRun(runtime, entry, rest, this.cwd);
   }
 
-  private async startRun(runtime: Runtime, entry: string, args: string[], cwd: string, env?: Record<string, string>) {
+  // tsx / ts-node <file> [args]: their options don't apply here, and watch mode isn't available.
+  private async runTsRunner(name: string, args: string[]) {
+    let i = 0;
+    for (; i < args.length && args[i].startsWith('-'); i++) {
+      if (args[i] === '--') {
+        i++;
+        break;
+      }
+      if (TS_RUNNER_VALUE_FLAGS.includes(args[i])) i++;
+    }
+    if (name === 'tsx' && args[i] === 'watch') throw new CommandError('watch mode needs the Remote terminal; run tsx <file> again after a change');
+    if (!args[i]) throw new CommandError(`usage: ${name} <file> [args]`);
+    return this.runProgram('node', args.slice(i));
+  }
+
+  private async printEnv(args: string[], io: Io) {
+    const env = (await this.opts.projectEnv?.().catch(() => null)) ?? { values: {}, secrets: [] };
+    const names = args.length ? args : Object.keys(env.values).sort();
+    for (const name of names) {
+      if (!(name in env.values)) {
+        if (args.length) throw new CommandError(`${name} isn't set`);
+        continue;
+      }
+      // Secrets stay hidden here; programs still get the real value.
+      const value = env.secrets.includes(name) ? '•••••• (Keychain)' : env.values[name];
+      io.out(args.length ? `${value}\n` : `${name}=${value}\n`);
+    }
+    if (!names.length) io.out('No variables yet. Add them in a .env file, or from the command palette: Environment variables.\n');
+  }
+
+  private settleWaiters(code: number | null) {
+    const waiters = this.exitWaiters;
+    this.exitWaiters = [];
+    for (const w of waiters) w(code);
+  }
+
+  // The exit code of the program a command started, or 0 when it started none.
+  private waitForRun(): Promise<number | null> {
+    if (!this.running) return Promise.resolve(0);
+    return new Promise((resolve) => this.exitWaiters.push(resolve));
+  }
+
+  // npm run / test / start run package.json scripts here; everything else
+  // (install, uninstall, ls…) goes to the npm built into the Node supervisor.
+  private async npm(args: string[], io: Io) {
+    const [sub, ...rest] = args;
+    const extra = (list: string[]) => (list[0] === '--' ? list.slice(1) : list);
+    if (sub === 'run' || sub === 'run-script' || sub === 'rum' || sub === 'urn') return this.runScript(rest[0], extra(rest.slice(1)), io);
+    if (sub === 'test' || sub === 't' || sub === 'tst') return this.runScript('test', extra(rest), io);
+    if (sub === 'start' || sub === 'stop' || sub === 'restart') return this.runScript(sub, extra(rest), io);
+    return this.startRun('node', 'tide:npm', args, this.cwd);
+  }
+
+  private async npx(args: string[], io: Io) {
+    const [bin, ...rest] = args;
+    if (!bin) throw new CommandError('usage: npx <command> [args]');
+    // tsx and ts-node need native esbuild or a full compiler; Tide's Node runs .ts itself.
+    if (TS_RUNNERS.includes(bin)) return this.runTsRunner(bin, rest);
+    const pkg = await findPackage(this.opts.fs, this.cwd);
+    const path = await resolveBin(this.opts.fs, pkg?.dir ?? '', bin);
+    if (!path) throw new CommandError(`${bin} isn't installed in node_modules. Install it with npm install ${bin}; Local mode doesn't download packages on the fly.`);
+    io.out('');
+    await this.startRun('node', path, rest, this.cwd);
+  }
+
+  private async runScript(name: string | undefined, extra: string[], io: Io) {
+    let pkg;
+    try {
+      pkg = await findPackage(this.opts.fs, this.cwd);
+    } catch (e) {
+      throw new CommandError(errorMessage(e));
+    }
+    if (!pkg) throw new CommandError('no package.json here or in a parent folder');
+    const scripts = scriptsOf(pkg.json);
+    if (!name) {
+      const names = Object.keys(scripts);
+      io.out(names.length ? names.map((n) => `  ${n}\n    ${ansi.dim}${scripts[n]}${ansi.reset}\n`).join('') : 'This package.json has no scripts.\n');
+      return;
+    }
+    let plan = lifecycle(scripts, name, extra);
+    // Like npm: start falls back to node server.js.
+    if (!plan.length && name === 'start' && (await this.opts.fs.stat(joinPath(pkg.dir, 'server.js'))) === 'file') plan = [{ name, script: 'node server.js' }];
+    if (!plan.length) throw new CommandError(`missing script: "${name}". Available: ${Object.keys(scripts).join(', ') || 'none'}`);
+    const cwd = this.cwd;
+    this.cwd = pkg.dir;
+    try {
+      for (const step of plan) {
+        io.out(`${ansi.dim}> ${step.name}\n> ${step.script}${ansi.reset}\n\n`);
+        const code = await this.runScriptLine(step.script, pkg.dir, io);
+        if (code === null) return;
+        if (code !== 0) {
+          io.err(`npm run ${step.name} failed with exit code ${code}\n`);
+          return;
+        }
+      }
+    } finally {
+      this.cwd = cwd;
+    }
+  }
+
+  // One script: commands joined with && and ;. Returns its exit code, or null
+  // when a program was stopped (Ctrl-C), which ends the whole run.
+  private async runScriptLine(script: string, dir: string, io: Io): Promise<number | null> {
+    let steps;
+    try {
+      steps = splitScript(script);
+    } catch (e) {
+      io.err(`${errorMessage(e)}\n`);
+      return 1;
+    }
+    let last = 0;
+    for (const step of steps) {
+      if (step.ifOk && last !== 0) continue;
+      const code = await this.runScriptStep(step.line, dir, io);
+      if (code === null) return null;
+      last = code;
+    }
+    return last;
+  }
+
+  private async runScriptStep(line: string, dir: string, io: Io): Promise<number | null> {
+    let words: string[];
+    try {
+      const parsed = tokenize(line);
+      if (parsed.redirect) throw new ScriptError(`"${line}": redirects in scripts need the Remote terminal`);
+      words = parsed.args;
+    } catch (e) {
+      io.err(`${errorMessage(e)}\n`);
+      return 1;
+    }
+    const { env, rest } = takeEnv(words);
+    const [name, ...args] = rest;
+    if (!name) return 0;
+    this.stepEnv = env;
+    try {
+      const command = this.commands[name];
+      if (command) await command(args, io);
+      else {
+        const bin = await resolveBin(this.opts.fs, dir, name);
+        if (!bin) {
+          io.err(`${name}: not available in Local mode (not a Tide command or a package in node_modules). Run this script in the Remote terminal.\n`);
+          return 127;
+        }
+        await this.startRun('node', bin, args, this.cwd);
+      }
+      return await this.waitForRun();
+    } catch (e) {
+      io.err(`${name}: ${errorMessage(e)}\n`);
+      return 1;
+    } finally {
+      this.stepEnv = {};
+    }
+  }
+
+  private async startRun(runtime: Runtime, entry: string, args: string[], cwd: string, toolEnv?: Record<string, string>) {
+    // Programs read the disk: pending autosaves go there first.
+    await this.opts.fs.flush().catch((e) => console.warn('Could not save files before running', e));
+    const projectEnv = (await this.opts.projectEnv?.().catch(() => null))?.values ?? {};
+    const merged = { ...projectEnv, ...this.stepEnv, ...toolEnv };
+    const env = Object.keys(merged).length ? merged : undefined;
     const id = this.nextId();
     const stdin = new LineEditor({
       write: (d) => this.write(d),
@@ -395,7 +675,11 @@ export class Shell {
       clearScreen: () => this.write(ansi.clearScreen),
       complete: async () => null,
     });
-    this.running = { id, stdin };
+    this.running = { id, stdin, entry, args };
+    if (runtime === 'node' && isTypeScript(entry) && !this.toldNoTypeCheck) {
+      this.toldNoTypeCheck = true;
+      this.write(`${ansi.dim}tide: running TypeScript without type-checking${ansi.reset}\n`);
+    }
     stdin.read('');
 
     const root = this.opts.projectRoot;
@@ -416,7 +700,9 @@ export class Shell {
         return this.write(`${ansi.red}${msg.data}${ansi.reset}`);
       case 'exit': {
         this.running.stdin.stop();
+        this.opts.onRunExit?.(this.running.entry, this.running.args, msg.code ?? 1);
         this.running = null;
+        this.settleWaiters(msg.signal ? null : (msg.code ?? 1));
         // Programs can create or delete files (npm install, scripts writing output).
         this.opts.fs.refresh().catch(() => undefined);
         if (msg.code !== 0 || msg.signal) {

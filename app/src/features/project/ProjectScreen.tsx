@@ -1,10 +1,12 @@
 import * as Clipboard from 'expo-clipboard';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Animated, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
+import Feather from '@expo/vector-icons/Feather';
+import { Alert, Animated, PanResponder, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { IconButton } from '../../components/Button';
+import { ActionSheet } from '../../components/ActionSheet';
 import { PromptSheet } from '../../components/PromptSheet';
 import { Text } from '../../components/Text';
 import { answerRequest, editorFeatures, findDefinition, saveWithHooks, useActiveExtensions, useExtensionHost } from '../../extensions/host';
@@ -13,7 +15,7 @@ import type { ProjectContext } from '../../extensions/types';
 import { buffersStore, projectsStore, runnerStore, snapshots, tabsStore, useBuffers, useProjects, useRunner, useTabs, workspace } from '../../state';
 import { bufferKey, isDirty } from '../../state/buffers';
 import { projectTabs } from '../../state/tabs';
-import { borderWidth, spacing } from '../../theme/tokens';
+import { borderWidth, fonts, radius, spacing } from '../../theme/tokens';
 import { exportProject } from '../backup/actions';
 import { SnapshotsSheet } from '../backup/SnapshotsSheet';
 import { pullFolder, pushFolder, useLinked } from '../external';
@@ -28,7 +30,11 @@ import { TerminalKeyBar } from '../terminal/TerminalKeyBar';
 import { SourceControlSheet } from '../git/SourceControlSheet';
 import { Command, CommandPalette } from '../search/CommandPalette';
 import { SearchPanel } from '../search/SearchPanel';
-import { projectLink, ProjectLinkOptions } from '../launch/links';
+import { TodosPanel } from '../todos/TodosPanel';
+import { OutlinePanel } from '../outline/OutlinePanel';
+import { NotebookBar } from '../notebook/NotebookBar';
+import { AiMode, AiSheet } from '../ai/AiSheet';
+import { launchConfirmation, projectLink, ProjectLinkOptions } from '../launch/links';
 import { configLine, DEFAULT_CONFIG, NamedConfig, taskLine, Task } from './tasks';
 import { useProjectTasks } from './useProjectTasks';
 import type { Shortcut } from './shortcuts';
@@ -36,11 +42,35 @@ import { ShortcutsSheet } from './ShortcutsSheet';
 import { SplitDivider } from './SplitDivider';
 import { TabBar } from './TabBar';
 import { TerminalPanel, TerminalPanelHandle } from './TerminalPanel';
-import { makeStyles } from '../../theme/theme';
+import { TerminalGrabber, DETENTS } from './TerminalGrabber';
+import { StatusBar, countProblems } from './StatusBar';
+import { Activity, ActivityBar, ActivityItem } from './ActivityBar';
+import { TideWave } from '../../components/TideWave';
+import { EditorTour, resetEditorTour, useTourTarget } from '../onboarding/tour';
+import { runActivity } from '../widgets/runActivity';
+import { openAgent } from '../agent';
+import { gitStatusStore, useGitStatus } from '../git/status';
+import { useDiagnostics } from '../../extensions/diagnostics';
+import { recentsStore } from '../../state/recents';
+import { makeStyles, useColors } from '../../theme/theme';
 import { haptic } from '../../components/haptics';
 import { countRun } from '../support/actions';
 import { PreviewPane } from '../preview/PreviewPane';
-import { previewKind } from '../preview/render';
+import { previewKind, viewerFirst, viewerOnly } from '../preview/render';
+import { projectFileFor } from '../terminal/fileRefs';
+import { ProblemsPanel } from '../problems/ProblemsPanel';
+import { FixSheet, type FixRequest } from '../problems/FixSheet';
+import { Breadcrumbs, cursorStore } from '../outline/Breadcrumbs';
+import { SuggestionBanner } from '../../extensions/suggest/SuggestionBanner';
+import { matchOutput } from '../problems/matchers';
+import { wordAt } from '../docs/docs';
+import { DatabasePane } from '../database/DatabasePane';
+import { HttpPane } from '../http/HttpPane';
+import { OpenApiPane } from '../openapi/OpenApiPane';
+import { HTTP_TEMPLATE } from '../http/http';
+import { requestSend } from '../http/pending';
+import { autoDeployer, deployStore } from '../deploy';
+import { useDeployStatus } from '../deploy/auto';
 import { hasConflicts } from '../diff/conflicts';
 import { CompareView } from '../diff/CompareView';
 import type { CompareRequest } from '../diff/sources';
@@ -48,7 +78,6 @@ import { PackagesSheet } from '../packages/PackagesSheet';
 import { isJsTestFile, isPyTestFile } from '../tests/results';
 import { TestsRequest, TestsSheet } from '../tests/TestsSheet';
 import { useReduceMotion } from '../../components/a11y';
-import { requirePro } from '../pro';
 
 // Extensions can contribute the same command or panel (Show problems); the first one wins.
 const uniqueById = <T extends { id: string }>(items: T[]) => items.filter((x, i) => items.findIndex((o) => o.id === x.id) === i);
@@ -60,10 +89,14 @@ const DRAWER_MAX = 340;
 // iPad portrait and wider: the file tree stays open beside the editor.
 const WIDE = 768;
 const SIDEBAR_WIDTH = 280;
+// A swipe this far in from the left edge opens the files on phones.
+const EDGE_WIDTH = 16;
+const EDGE_OPEN_DX = 40;
 
 // `launch` comes from a tide:// link or quick action: a file to open, and whether to run.
 export function ProjectScreen({ project, launch }: { project: string; launch?: ProjectLinkOptions | null }) {
   const styles = useStyles();
+  const colors = useColors();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const drawerWidth = Math.min(DRAWER_MAX, width * 0.85);
@@ -95,8 +128,26 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [palette, setPalette] = useState<'files' | 'commands' | null>(null);
   const [searching, setSearching] = useState(false);
+  const [todos, setTodos] = useState(false);
+  const [outline, setOutline] = useState(false);
+  const [ai, setAi] = useState<AiMode | null>(null);
   const [goingToLine, setGoingToLine] = useState(false);
-  const [terminalHidden, setTerminalHidden] = useState(false);
+  // Closed until something runs or it's asked for, so the editor gets the screen.
+  const [terminalHidden, setTerminalHidden] = useState(true);
+  const [terminalSize, setTerminalSize] = useState(DETENTS[0] + 0.1);
+  const [running, setRunning] = useState(false);
+  const [mainHeight, setMainHeight] = useState(0);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [liveWindow, setLiveWindow] = useState(false);
+  // Two-finger tap in the editor: actions for the word at the cursor.
+  const [editorActions, setEditorActions] = useState(false);
+  // An inline AI suggestion is showing, so the key bar offers Accept.
+  const [ghost, setGhost] = useState(false);
+  // A problem being fixed with AI, from the error lens or the Problems panel.
+  const [fixRequest, setFixRequest] = useState<FixRequest | null>(null);
+  const [sidebarRatio, setSidebarRatio] = useState(0);
+  const [bodyWidth, setBodyWidth] = useState(0);
+  const [previewRatio, setPreviewRatio] = useState(0.5);
   const [sidebarHidden, setSidebarHidden] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [sourceControl, setSourceControl] = useState(false);
@@ -105,15 +156,53 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
   const [showLinked, setShowLinked] = useState(false);
   const reduceMotion = useReduceMotion();
   const [compare, setCompare] = useState<CompareRequest | null>(null);
+  const [historyOf, setHistoryOf] = useState<string | null>(null);
+  const [problems, setProblems] = useState(false);
+  // The terminal output the AI sheet's Error tab explains, and the file it points at.
+  const [aiError, setAiError] = useState<{ output: string; path: string | null } | null>(null);
   const [packagesOpen, setPackagesOpen] = useState(false);
   const [tests, setTests] = useState<TestsRequest | null>(null);
   // "Compare with file…" uses the file picker; the next pick is the other file.
   const comparingWith = useRef<string | null>(null);
   const currentHasConflicts = useBuffers((s) => (current ? hasConflicts(s.buffers[bufferKey(project, current)]?.content ?? '') : false));
-  // Files shown rendered instead of as source. Notebooks start out rendered.
+  // Files shown rendered instead of as source. Notebooks and .http files start
+  // out in their viewer; databases only have one.
   const [previewToggled, setPreviewToggled] = useState<Record<string, boolean>>({});
-  const previewing = (path: string | null) => !!path && !!previewKind(path) && (previewToggled[path] ?? previewKind(path) === 'notebook');
-  const togglePreview = () => current && previewKind(current) && setPreviewToggled((t) => ({ ...t, [current]: !previewing(current) }));
+  const previewing = (path: string | null) =>
+    !!path && !!previewKind(path) && (viewerOnly(previewKind(path)) || (previewToggled[path] ?? viewerFirst(previewKind(path))));
+  const canToggle = (path: string | null) => !!path && !!previewKind(path) && !viewerOnly(previewKind(path));
+  const togglePreview = () => canToggle(current) && setPreviewToggled((t) => ({ ...t, [current!]: !previewing(current) }));
+  const viewer = (path: string | null) =>
+    previewing(path) &&
+    (previewKind(path!) === 'sqlite' ? (
+      <DatabasePane project={project} path={path!} />
+    ) : previewKind(path!) === 'http' ? (
+      <HttpPane project={project} path={path!} />
+    ) : previewKind(path!) === 'openapi' ? (
+      <OpenApiPane project={project} path={path!} />
+    ) : previewKind(path!) === 'html' ? (
+      (() => {
+        // Loaded on first use, like the other viewers that pull in native modules.
+        const { HtmlFilePreview } = require('../preview/HtmlFilePreview') as typeof import('../preview/HtmlFilePreview');
+        return <HtmlFilePreview project={project} path={path!} />;
+      })()
+    ) : previewKind(path!) === 'table' || previewKind(path!) === 'parquet' ? (
+      (() => {
+        // Loaded on first use: Parquet support pulls in hyparquet.
+        const { DataPane } = require('../data/DataPane') as typeof import('../data/DataPane');
+        return <DataPane project={project} path={path!} />;
+      })()
+    ) : previewKind(path!) === 'notebook' ? (
+      // Notebooks get a bar to run their Python cells.
+      <View style={StyleSheet.absoluteFill}>
+        <NotebookBar project={project} path={path!} />
+        <View style={styles.flexFill}>
+          <PreviewPane project={project} path={path!} />
+        </View>
+      </View>
+    ) : (
+      <PreviewPane project={project} path={path!} />
+    ));
   const linked = useLinked((s) => s.links[project]?.name);
   const progress = useRef(new Animated.Value(0)).current;
   const activePath = useRef(current);
@@ -121,13 +210,26 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
   const cursor = useRef<{ path: string; offset: number } | null>(null);
   const extensions = useActiveExtensions();
   const features = useMemo(() => editorFeatures(extensions), [extensions]);
-  // Git Pro's screen stands in for the Source Control sheet.
+  // Git Tools's screen stands in for the Source Control sheet.
   const openSourceControl = () => (extensions.some((e) => e.id === 'git-pro') ? setPanel(GIT_PRO_PANEL) : setSourceControl(true));
 
   useEffect(() => {
     // A snapshot on opening, at most hourly; after a moment, so the editor opens first.
     const timer = setTimeout(() => snapshots.maybeTake(project).catch((e) => console.warn('Snapshot failed', e)), SNAPSHOT_DELAY_MS);
     return () => clearTimeout(timer);
+  }, [project]);
+
+  const git = useGitStatus((s) => s.byProject[project]);
+  const changedCount = git ? Object.keys(git.changes).length : 0;
+  const problemsByPath = useDiagnostics((s) => s.byProject[project]);
+  const problemCount = useMemo(() => {
+    const { errors, warnings } = countProblems(problemsByPath);
+    return errors + warnings;
+  }, [problemsByPath]);
+
+  useEffect(() => {
+    recentsStore.getState().touchProject(project);
+    gitStatusStore.getState().refresh(project).catch(() => undefined);
   }, [project]);
 
   useEffect(() => {
@@ -138,7 +240,9 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
   }, [project]);
 
   useEffect(() => {
-    Animated.timing(progress, { toValue: drawerOpen ? 1 : 0, duration: reduceMotion ? 0 : 200, useNativeDriver: true }).start();
+    // A spring that follows through like a native drawer; Reduce Motion snaps.
+    if (reduceMotion) progress.setValue(drawerOpen ? 1 : 0);
+    else Animated.spring(progress, { toValue: drawerOpen ? 1 : 0, damping: 26, stiffness: 260, mass: 0.9, useNativeDriver: true }).start();
   }, [drawerOpen, progress, reduceMotion]);
 
   const openFile = (path: string) => {
@@ -149,6 +253,18 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     setDrawerOpen(false);
   };
 
+  // requests.http, or requests-2.http and so on when that's taken, started from an example.
+  const newHttpFile = async () => {
+    for (let n = 1; ; n++) {
+      const name = n === 1 ? 'requests.http' : `requests-${n}.http`;
+      if ((await workspace.fileSize(project, name).catch(() => null)) !== null) continue;
+      const path = await workspace.createFile(project, '', name, HTTP_TEMPLATE);
+      await projectsStore.getState().loadTree(project);
+      openFile(path);
+      return;
+    }
+  };
+
   // Wraps around, like Ctrl-Tab in most editors.
   function switchTab(step: number) {
     if (!tabs.open.length) return;
@@ -157,11 +273,16 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
   }
 
   async function closeFile(path: string) {
+    // The editors send typing on a short debounce, and the tab's X is native:
+    // get their last keystrokes into the buffer before saving it.
+    await Promise.all([leftEditor.current?.flush(), rightEditor.current?.flush()]);
     await buffersStore.getState().save(project, path);
     const rest = tabs.open.filter((p) => p !== path);
     // The right pane moves to a neighbour too.
     if (split?.path === path) setSplit({ path: rest[Math.min(tabs.open.indexOf(path), rest.length - 1)] ?? null });
     tabsStore.getState().closeTab(project, path);
+    // Reopening reads the file fresh, so changes made on disk meanwhile show up.
+    buffersStore.getState().drop(project, path);
   }
 
   function toggleSplit() {
@@ -170,12 +291,16 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
       setSplit(null);
       setFocusedPane('left');
     } else {
-      if (!requirePro('split-editor')) return;
       // Start with the same file, the way most editors split.
       setSplit({ path: tabs.active });
       setFocusedPane('right');
     }
   }
+
+  // What the Live Activity calls a run: tests, a server, or another task.
+  const runKind = (line: string): 'tests' | 'server' | 'task' =>
+    /\b(test|jest|vitest|pytest|mocha)\b/.test(line) ? 'tests' : /\b(dev|start|serve|server)\b|vite|next|http\.server|flask|uvicorn/.test(line) ? 'server' : 'task';
+  const startActivity = (line: string) => runActivity.onRunStart(project, line.trim(), runKind(line));
 
   async function runProject(config = selectedConfig) {
     if (!config) {
@@ -187,15 +312,64 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     countRun();
     await buffersStore.getState().flushProject(project);
     setTerminalHidden(false);
+    startActivity(line);
     terminal.current?.input(line);
   }
 
+  // The word at the cursor (e.g. "map" in arr.map), searched in offline docs.
+  const lookUpInDocs = () => {
+    const at = cursor.current;
+    const text = at ? buffersStore.getState().buffers[bufferKey(project, at.path)]?.content : undefined;
+    const q = at && text !== undefined ? wordAt(text, at.offset) : '';
+    router.push(q ? { pathname: '/docs', params: { q } } : '/docs');
+  };
+
+  // The last error in the active terminal, explained by the AI assistant with
+  // the file it points at (or the open file).
+  const explainLastError = async () => {
+    const output = terminal.current?.recentOutput() ?? '';
+    const found = matchOutput(output);
+    if (!found.length && !/error|exception|traceback|failed/i.test(output)) {
+      Alert.alert('No error to explain', 'Run your code in the terminal first. When it fails, this explains the error and suggests a fix.');
+      return;
+    }
+    const files = await workspace.listFiles(project).catch(() => [] as string[]);
+    const last = found[found.length - 1];
+    setAiError({ output, path: (last && projectFileFor(last.path, project, files)) ?? current ?? null });
+    setAi('error');
+  };
+
+  // A path:line tapped in the terminal, as the program printed it.
+  const openPrinted = async (printed: string, line: number, column?: number) => {
+    const files = await workspace.listFiles(project).catch(() => [] as string[]);
+    const path = projectFileFor(printed, project, files);
+    if (path) openAt(path, line, column);
+    else Alert.alert("Couldn't find that file", `${printed} isn't in this project.`);
+  };
   const openAt = (path: string, line: number, column?: number) => {
     openFile(path);
     editor.current?.reveal(path, line, column);
   };
 
-  const save = (path: string) => saveWithHooks(extensions, ctx, path);
+  const save = (path: string) =>
+    saveWithHooks(extensions, ctx, path).then(() => {
+      autoDeployer.onSave(project).catch(() => undefined);
+      gitStatusStore.getState().refresh(project).catch(() => undefined);
+    });
+
+  // Run turns into Stop while the terminal is busy; Stop sends Ctrl-C.
+  const stopRunning = () => {
+    haptic('press');
+    terminal.current?.input('\x03');
+  };
+  const showFiles = () => (wide ? setSidebarHidden((h) => !h) : setDrawerOpen((o) => !o));
+  const deployStatus = useDeployStatus(deployStore, project);
+  // A finished deploy's note goes away after a moment; failures stay until tapped.
+  useEffect(() => {
+    if (deployStatus?.state !== 'done') return;
+    const t = setTimeout(() => deployStore.getState().setStatus(project, undefined), 6000);
+    return () => clearTimeout(t);
+  }, [deployStatus, project]);
 
   const projectTasks = useProjectTasks(project);
   const chosenConfig = useRunner((s) => s.configs[project] ?? DEFAULT_CONFIG);
@@ -210,6 +384,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     haptic('press');
     await buffersStore.getState().flushProject(project);
     setTerminalHidden(false);
+    startActivity(line);
     if (task.newTerminal) {
       terminal.current?.newTerminal();
       // The new terminal needs a moment before it takes input.
@@ -225,10 +400,29 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
       if (launch.line) openAt(launch.file, launch.line);
       else openFile(launch.file);
     }
-    if (!launch.run) return;
-    // Through a ref: by then tide.json has been read, which this render hadn't.
-    const timer = setTimeout(() => latestRun.current().catch((e) => console.warn('Run failed', e)), LAUNCH_RUN_DELAY_MS);
-    return () => clearTimeout(timer);
+    // From the Live Activity's Stop.
+    if (launch.stop) terminal.current?.input('\x03');
+    // Sending, running and testing come from Shortcuts and widgets, but any
+    // app or page can open the link: they wait for a yes.
+    const ask = launchConfirmation(project, launch);
+    if (!ask) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let alive = true;
+    const go = () => {
+      if (!alive) return;
+      if (launch.file && launch.send) requestSend(project, launch.file, launch.send);
+      if (launch.tests) setTests({});
+      // Through a ref: by then tide.json has been read, which this render hadn't.
+      if (launch.run) timer = setTimeout(() => latestRun.current().catch((e) => console.warn('Run failed', e)), LAUNCH_RUN_DELAY_MS);
+    };
+    Alert.alert(ask.title, ask.message, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: ask.action, onPress: go },
+    ]);
+    return () => {
+      alive = false;
+      if (timer) clearTimeout(timer);
+    };
     // Once per opening; the screen is keyed by project.
   }, []);
 
@@ -236,7 +430,6 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
 
   // Palette pull and push; failures open the sheet, which can re-grant access.
   const syncFolder = (sync: (project: string) => Promise<unknown>) =>
-    requirePro('linked-folders') &&
     sync(project).catch((e: Error) =>
       Alert.alert("Couldn't sync the folder", e.message, [
         { text: 'OK', style: 'cancel' },
@@ -261,8 +454,21 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
       const [target] = await findDefinition(extensions, project, path, offset);
       if (target) openAt(target.path, target.line, target.column);
     },
+    // A few lines around the definition, shown inline under the cursor line.
+    async peek(path, offset) {
+      const [target] = await findDefinition(extensions, project, path, offset);
+      if (!target) return null;
+      const buffered = buffersStore.getState().buffers[bufferKey(project, target.path)]?.content;
+      const content = buffered ?? (await workspace.readFile(project, target.path).catch(() => null));
+      if (content === null) return null;
+      const lines = content.split('\n');
+      const startLine = Math.max(1, target.line - 2);
+      return { path: target.path, line: target.line, startLine, text: lines.slice(startLine - 1, startLine - 1 + 12).join('\n') };
+    },
+    openAt: (path, line) => openAt(path, line),
     cursor: (path, offset) => {
       cursor.current = { path, offset };
+      cursorStore.setState({ path, offset });
     },
     save: (path) => {
       save(path).catch((e) => console.warn('Save failed', e));
@@ -272,29 +478,68 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
   const commands = uniqueById<Command>([
     { id: 'quick-open', title: 'Open file', icon: 'file', hint: '⌘P', run: () => setPalette('files') },
     { id: 'search', title: 'Search in project', icon: 'search', hint: '⇧⌘F', run: () => setSearching(true) },
+    { id: 'todos', title: 'TODOs in project', icon: 'check-square', run: () => setTodos(true) },
+    { id: 'symbols', title: 'Go to symbol (outline)', icon: 'list', hint: '⇧⌘O', run: () => setOutline(true) },
+    ...(current
+      ? (['explain', 'fix', 'ask'] as const).map((m) => ({
+          id: `ai.${m}`,
+          title: m === 'explain' ? 'AI: explain this file' : m === 'fix' ? 'AI: fix bugs in this file' : 'AI: ask about this file…',
+          icon: 'cpu' as const,
+          run: () => setAi(m),
+        }))
+      : []),
+    { id: 'github', title: 'GitHub', icon: 'github', run: () => router.push('/github') },
+    { id: 'deploy', title: 'Deploy…', icon: 'upload-cloud', run: () => router.push({ pathname: '/deploy', params: { project } }) },
+    { id: 'env', title: 'Environment variables…', icon: 'key', run: () => router.push({ pathname: '/env', params: { project } }) },
+    { id: 'databases', title: 'Databases…', icon: 'database', run: () => router.push('/databases') },
+    { id: 'tools', title: 'Developer tools (JSON, regex, Base64, JWT…)', icon: 'tool', run: () => router.push('/tools') },
+    { id: 'docs', title: 'Look up in docs (offline)', icon: 'book', hint: '⇧⌘D', run: lookUpInDocs },
+    { id: 'ai.error', title: 'Explain the last error with AI', icon: 'cpu', run: () => explainLastError() },
+    { id: 'problems', title: 'Show problems', icon: 'alert-triangle', run: () => setProblems(true) },
+    { id: 'hosts', title: 'GitLab and Bitbucket…', icon: 'gitlab', run: () => router.push('/hosts') },
+    ...(current
+      ? [
+          { id: 'git.blame', title: 'Git: blame this file', icon: 'user' as const, run: () => router.push({ pathname: '/blame', params: { project, path: current } }) },
+          { id: 'git.file-history', title: 'Git: history of this file', icon: 'clock' as const, run: () => router.push({ pathname: '/blame', params: { project, path: current, show: 'history' } }) },
+        ]
+      : []),
+    { id: 'http.new', title: 'New HTTP requests file', icon: 'send', run: () => newHttpFile().catch((e) => Alert.alert('Could not create the file', String(e?.message ?? e))) },
     { id: 'find', title: 'Find in file', icon: 'search', hint: '⌘F', run: () => editor.current?.send({ type: 'find' }) },
     { id: 'goto-line', title: 'Go to line', icon: 'corner-down-right', hint: '⌘L', run: () => current && setGoingToLine(true) },
-    { id: 'save', title: 'Save file', icon: 'save', hint: '⌘S', run: () => current && save(current).then(() => haptic('success')) },
+    { id: 'save', title: 'Save file', icon: 'save', hint: '⌘S', run: () => current && save(current).then(() => haptic('tap')) },
     { id: 'close-tab', title: 'Close file', icon: 'x', hint: '⌘W', run: () => current && closeFile(current) },
     ...(wide ? [{ id: 'split', title: splitOn ? 'Close the second editor' : 'Split editor', icon: 'columns' as const, hint: '⌘\\', run: toggleSplit }] : []),
-    ...(current && previewKind(current)
+    ...(canToggle(current)
       ? [{ id: 'preview', title: previewing(current) ? 'Show source' : 'Show preview', icon: 'eye' as const, hint: '⇧⌘V', run: togglePreview }]
+      : []),
+    ...(current && (previewKind(current) === 'markdown' || previewKind(current) === 'notebook')
+      ? [
+          {
+            id: 'export-pdf',
+            title: 'Export as PDF',
+            icon: 'file-text' as const,
+            run: () => {
+              const { exportPdf } = require('../preview/exportPdf') as typeof import('../preview/exportPdf');
+              exportPdf(project, current).catch((e: Error) => Alert.alert('Could not export the PDF', e.message));
+            },
+          },
+        ]
       : []),
     ...(current
       ? [
           ...(currentHasConflicts
-            ? [{ id: 'compare.merge', title: 'Resolve conflicts in the merge editor', icon: 'git-merge' as const, run: () => requirePro('compare') && setCompare({ path: current, with: 'merge' }) }]
+            ? [{ id: 'compare.merge', title: 'Resolve conflicts in the merge editor', icon: 'git-merge' as const, run: () => setCompare({ path: current, with: 'merge' }) }]
             : []),
           ...(dirty.has(current)
-            ? [{ id: 'compare.saved', title: 'Compare with saved', icon: 'file-text' as const, run: () => requirePro('compare') && setCompare({ path: current, with: 'saved' }) }]
+            ? [{ id: 'compare.saved', title: 'Compare with saved', icon: 'file-text' as const, run: () => setCompare({ path: current, with: 'saved' }) }]
             : []),
-          { id: 'compare.head', title: 'Compare with last commit', icon: 'git-commit' as const, run: () => requirePro('compare') && setCompare({ path: current, with: 'head' }) },
+          { id: 'compare.head', title: 'Compare with last commit', icon: 'git-commit' as const, run: () => setCompare({ path: current, with: 'head' }) },
+          { id: 'history.local', title: 'Local history of this file', icon: 'clock' as const, run: () => setHistoryOf(current) },
           {
             id: 'compare.file',
             title: 'Compare with file…',
             icon: 'copy' as const,
             run: () => {
-              if (!requirePro('compare')) return;
               comparingWith.current = current;
               setPalette('files');
             },
@@ -336,13 +581,17 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     },
     { id: 'terminal.close', title: 'Close terminal', icon: 'x-square', run: () => terminal.current?.closeTerminal() },
     { id: 'terminal.next', title: 'Next terminal', icon: 'terminal', run: () => terminal.current?.nextTerminal() },
+    { id: 'agent', title: 'Agent: ask for a change across files', icon: 'cpu', run: () => openAgent(project) },
+    { id: 'peek', title: 'Peek definition', icon: 'eye', hint: '⌥F12', run: () => editor.current?.send({ type: 'peek' }) },
+    { id: 'live-preview', title: liveWindow ? 'Close the live preview window' : 'Live preview window', icon: 'monitor', run: () => setLiveWindow((on) => !on) },
+    { id: 'tour', title: 'Show the editor tour again', icon: 'compass', run: () => resetEditorTour() },
     { id: 'keyboard-shortcuts', title: 'Keyboard shortcuts', icon: 'command', hint: '⇧⌘?', run: () => setShortcutsOpen(true) },
     { id: 'toggle-terminal', title: 'Toggle terminal', icon: 'terminal', hint: '⌘J', run: () => setTerminalHidden((h) => !h) },
     { id: 'local', title: 'Terminal: use Local', icon: 'smartphone', run: () => runnerStore.getState().setMode('local') },
     { id: 'remote', title: 'Terminal: use Remote', icon: 'server', run: () => runnerStore.getState().setMode('remote') },
-    { id: 'tests', title: 'Run tests', icon: 'check-square', run: () => requirePro('tests') && setTests({}) },
+    { id: 'tests', title: 'Run tests', icon: 'check-square', run: () => setTests({}) },
     ...(current && (isJsTestFile(current) || isPyTestFile(current))
-      ? [{ id: 'tests.file', title: 'Run tests in this file', icon: 'check-square' as const, run: () => requirePro('tests') && setTests({ files: [current], language: isPyTestFile(current) ? 'python' : 'js' }) }]
+      ? [{ id: 'tests.file', title: 'Run tests in this file', icon: 'check-square' as const, run: () => setTests({ files: [current], language: isPyTestFile(current) ? 'python' : 'js' }) }]
       : []),
     { id: 'packages', title: 'Packages (npm, pip)', icon: 'box', run: () => setPackagesOpen(true) },
     { id: 'source-control', title: 'Source control', icon: 'git-branch', run: openSourceControl },
@@ -390,15 +639,127 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     } else commands.find((c) => c.id === id)?.run();
   };
 
+  const activityItems: ActivityItem[] = [
+    { id: 'files', label: 'Files', icon: 'file' },
+    { id: 'search', label: 'Search', icon: 'search' },
+    { id: 'git', label: 'Git', icon: 'git-branch', badge: changedCount },
+    { id: 'terminal', label: 'Terminal', icon: 'terminal' },
+    { id: 'problems', label: 'Problems', icon: 'alert-circle', badge: problemCount, alert: true },
+    { id: 'more', label: 'More', icon: 'grid' },
+  ];
+  const activeActivity: Activity | null = (wide ? !sidebarHidden : drawerOpen)
+    ? 'files'
+    : searching
+      ? 'search'
+      : sourceControl
+        ? 'git'
+        : problems
+          ? 'problems'
+          : moreOpen
+            ? 'more'
+            : !terminalHidden
+              ? 'terminal'
+              : null;
+  const onActivity = (id: Activity) => {
+    haptic('select');
+    if (id === 'files') showFiles();
+    else if (id === 'search') setSearching(true);
+    else if (id === 'git') openSourceControl();
+    else if (id === 'terminal') setTerminalHidden((h) => !h);
+    else if (id === 'problems') setProblems(true);
+    else setMoreOpen(true);
+  };
+  const run = (id: string) => () => commands.find((c) => c.id === id)?.run();
+  const moreActions = [
+    { label: 'Agent', icon: 'cpu' as const, onPress: () => openAgent(project) },
+    { label: 'All commands', icon: 'command' as const, onPress: () => setPalette('commands') },
+    { label: liveWindow ? 'Close live preview' : 'Live preview window', icon: 'monitor' as const, onPress: () => setLiveWindow((on) => !on) },
+    { label: 'Go to symbol', icon: 'list' as const, onPress: () => setOutline(true) },
+    { label: 'TODOs in project', icon: 'check-square' as const, onPress: () => setTodos(true) },
+    { label: 'Run tests', icon: 'check-circle' as const, onPress: () => setTests({}) },
+    { label: 'Packages (npm, pip)', icon: 'box' as const, onPress: () => setPackagesOpen(true) },
+    { label: 'Deploy…', icon: 'upload-cloud' as const, onPress: run('deploy') },
+    { label: 'Look up in docs', icon: 'book' as const, onPress: lookUpInDocs },
+    { label: 'Developer tools', icon: 'tool' as const, onPress: run('tools') },
+    { label: 'Extensions', icon: 'package' as const, onPress: run('extensions') },
+    { label: 'Settings', icon: 'settings' as const, onPress: run('settings') },
+  ];
+
+  // A swipe in from the left edge opens the files (the back swipe is off on
+  // this screen for that reason; the back button stays). Swiping the drawer
+  // left closes it.
+  const edgeSwipe = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_e, g) => g.dx > 8 && Math.abs(g.dy) < Math.abs(g.dx),
+        onPanResponderRelease: (_e, g) => g.dx > EDGE_OPEN_DX && setDrawerOpen(true),
+      }),
+    [],
+  );
+  const drawerSwipe = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_e, g) => g.dx < -12 && Math.abs(g.dy) < Math.abs(g.dx),
+        onPanResponderRelease: (_e, g) => g.dx < -EDGE_OPEN_DX && setDrawerOpen(false),
+      }),
+    [],
+  );
+
+  const runTarget = useTourTarget('run');
+  const paletteTarget = useTourTarget('palette');
+  const filesTarget = useTourTarget('files');
+  const terminalTarget = useTourTarget('terminal');
+  const tourTargets = { files: filesTarget, terminal: terminalTarget };
+
+  // Opening a project grows the editor in from the card that was tapped.
+  const enter = useRef(new Animated.Value(reduceMotion ? 1 : 0)).current;
+  useEffect(() => {
+    Animated.spring(enter, { toValue: 1, damping: 20, stiffness: 220, mass: 0.9, useNativeDriver: true }).start();
+  }, [enter]);
+
+  // How the last program ended, shown by the wave for a moment.
+  const [runResult, setRunResult] = useState<'success' | 'error' | null>(null);
+  useEffect(() => {
+    if (!runResult) return;
+    const t = setTimeout(() => setRunResult(null), 1500);
+    return () => clearTimeout(t);
+  }, [runResult]);
+  const onProgramExit = (code: number) => {
+    runActivity.onExit(code);
+    haptic(code === 0 ? 'success' : 'warning');
+    setRunResult(code === 0 ? 'success' : 'error');
+  };
+
+  const sidebarWidth = sidebarRatio > 0 && bodyWidth > 0 ? Math.round(sidebarRatio * bodyWidth) : SIDEBAR_WIDTH;
+  // iPad: Markdown, HTML and the like show beside their source.
+  const sidePreview = wide && !splitOn && !!tabs.active && canToggle(tabs.active) && previewing(tabs.active);
+  const chromeHidden = keyboardOpen && !wide;
+  const terminalShown = !terminalHidden || (keyboardOpen && typingIn === 'terminal');
+
   return (
-    <View style={[styles.screen, { paddingTop: insets.top }]}>
+    <Animated.View
+      style={[
+        styles.screen,
+        { paddingTop: insets.top, opacity: enter, transform: [{ scale: enter.interpolate({ inputRange: [0, 1], outputRange: [0.96, 1] }) }] },
+      ]}
+    >
       <View style={styles.header}>
         <IconButton icon="chevron-left" label="Projects" onPress={() => router.back()} testID="back" />
-        {!wide && <IconButton icon="sidebar" label="Files" onPress={() => setDrawerOpen(true)} testID="open-tree" />}
-        <Text variant="title" numberOfLines={1} style={styles.title}>
-          {project}
-        </Text>
-        {current && previewKind(current) && (
+        <View style={styles.titleBox}>
+          <Text variant="title" numberOfLines={1} style={styles.title}>
+            {project}
+          </Text>
+          {git?.branch && (
+            <Pressable onPress={openSourceControl} accessibilityRole="button" accessibilityLabel={`Branch ${git.branch}, ${changedCount} changed`} style={styles.subtitle} testID="header-branch">
+              <Feather name="git-branch" size={10} color={styles.subtitleText.color} />
+              <Text style={styles.subtitleText} numberOfLines={1}>
+                {git.branch}
+                {changedCount > 0 ? ` · ${changedCount} changed` : ''}
+              </Text>
+            </Pressable>
+          )}
+        </View>
+        {canToggle(current) && (
           <IconButton
             icon={previewing(current) ? 'code' : 'eye'}
             label={previewing(current) ? 'Show source' : 'Show preview'}
@@ -406,31 +767,85 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
             testID="toggle-preview"
           />
         )}
-        <IconButton icon="git-branch" label="Source control" onPress={openSourceControl} testID="open-source-control" />
-        <IconButton icon="search" label="Search in project" onPress={() => setSearching(true)} testID="open-search" />
-        <IconButton icon="command" label="Commands" onPress={() => setPalette('commands')} testID="open-palette" />
+        <Pressable
+          onPress={() => (running ? stopRunning() : runProject())}
+          onLongPress={() => setPalette('commands')}
+          accessibilityRole="button"
+          accessibilityLabel={running ? 'Stop' : 'Run project'}
+          accessibilityHint={running ? undefined : 'Long press for run configurations and tasks'}
+          style={({ pressed }) => [styles.run, running && styles.stop, pressed && styles.runPressed]}
+          ref={runTarget.ref}
+          onLayout={runTarget.onLayout}
+          testID="run-button"
+        >
+          <Feather name={running ? 'square' : 'play'} size={13} color={running ? styles.stopText.color : styles.runText.color} />
+          <Text style={running ? styles.stopText : styles.runText}>{running ? 'Stop' : 'Run'}</Text>
+        </Pressable>
+        <View ref={paletteTarget.ref} onLayout={paletteTarget.onLayout}>
+          <IconButton icon="command" label="Commands" onPress={() => setPalette('commands')} testID="open-palette" />
+        </View>
+      </View>
+      <View style={styles.waveTrack}>
+        <TideWave
+          state={running ? 'running' : (runResult ?? 'idle')}
+          color={colors.brand}
+          done={{ success: colors.success, error: colors.destructive }}
+        />
       </View>
 
-      <View style={[styles.body, wide && styles.row]}>
+      {deployStatus && (
+        <Pressable
+          onPress={() => (deployStatus.state === 'failed' ? router.push({ pathname: '/deploy', params: { project } }) : deployStore.getState().setStatus(project, undefined))}
+          accessibilityRole="button"
+          accessibilityLiveRegion="polite"
+          style={[styles.deployBar, deployStatus.state === 'failed' && styles.deployFailed]}
+          testID="deploy-status"
+        >
+          <Text variant="muted" numberOfLines={1} style={styles.deployText}>
+            {deployStatus.state === 'deploying' ? `Deploying · ${deployStatus.message}` : deployStatus.state === 'done' ? `Deployed · ${deployStatus.url ?? ''}` : `Deploy failed · ${deployStatus.message}`}
+          </Text>
+        </Pressable>
+      )}
+      <View style={[styles.body, wide && styles.row]} onLayout={(e) => setBodyWidth(e.nativeEvent.layout.width)}>
+        {wide && <ActivityBar vertical items={activityItems} active={activeActivity} onSelect={onActivity} targets={tourTargets} />}
         {wide && !sidebarHidden && (
-          <View style={[styles.sidebar, { paddingBottom: insets.bottom }]} testID="sidebar">
-            <FileTree project={project} nodes={tree ?? []} activePath={current} onOpenFile={openFile} />
-          </View>
+          <>
+            <View style={[styles.sidebar, { width: sidebarWidth }]} testID="sidebar">
+              <FileTree project={project} nodes={tree ?? []} activePath={current} onOpenFile={openFile} />
+            </View>
+            <SplitDivider
+              ratio={bodyWidth > 0 ? sidebarWidth / bodyWidth : 0.25}
+              width={bodyWidth}
+              onChange={setSidebarRatio}
+              min={0.15}
+              max={0.4}
+              label="Files width"
+              testID="sidebar-divider"
+            />
+          </>
         )}
-        <View style={styles.body}>
+        <View style={styles.body} onLayout={(e) => setMainHeight(e.nativeEvent.layout.height)}>
           <TabBar open={tabs.open} active={current} onSelect={openFile} dirty={dirty} onClose={(path) => closeFile(path)} />
+          {wide && current && !previewing(current) && (
+            <Breadcrumbs
+              project={project}
+              path={current}
+              onShowFiles={() => setSidebarHidden(false)}
+              onJump={(line) => openAt(current, line)}
+            />
+          )}
 
           {extensions.map((ext) => ext.bar && <ext.bar key={ext.id} ctx={ctx} />)}
           {/* Both panes stay mounted so the terminal keeps its scrollback and the editor its undo history. */}
           <View
-            style={[styles.editor, splitOn && styles.row, keyboardOpen && typingIn === 'terminal' && !terminalHidden && styles.collapsed]}
+            style={[styles.editor, (splitOn || sidePreview) && styles.row, keyboardOpen && typingIn === 'terminal' && !terminalHidden && styles.collapsed]}
             onLayout={(e) => setEditorWidth(e.nativeEvent.layout.width)}
           >
-            <View style={[styles.pane, splitOn && { flex: splitRatio }, splitOn && !rightFocused && styles.focusedPane]}>
+            <View style={[styles.pane, splitOn && { flex: splitRatio }, sidePreview && { flex: previewRatio }, splitOn && !rightFocused && styles.focusedPane]}>
               <EditorPane
                 ref={leftEditor}
                 project={project}
-                path={tabs.active}
+                path={tabs.active && viewerOnly(previewKind(tabs.active)) ? null : tabs.active}
                 features={features}
                 host={editorHost}
                 onBrowse={() => (wide ? setPalette('files') : setDrawerOpen(true))}
@@ -440,9 +855,20 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
                   setFocusedPane('left');
                 }}
                 onShortcut={onShortcut}
+                onActions={() => setEditorActions(true)}
+                onCompletionState={setGhost}
+                onFixProblem={(path, line) => setFixRequest({ kind: 'problem', path, line })}
               />
-              {previewing(tabs.active) && <PreviewPane project={project} path={tabs.active!} />}
+              {!sidePreview && viewer(tabs.active)}
             </View>
+            {sidePreview && (
+              <>
+                <SplitDivider ratio={previewRatio} width={editorWidth} onChange={setPreviewRatio} label="Preview width" testID="preview-divider" />
+                <View style={[styles.pane, { flex: 1 - previewRatio }]} testID="side-preview">
+                  {viewer(tabs.active)}
+                </View>
+              </>
+            )}
             {splitOn && (
               <>
                 <SplitDivider ratio={splitRatio} width={editorWidth} onChange={setSplitRatio} />
@@ -450,7 +876,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
                   <EditorPane
                     ref={rightEditor}
                     project={project}
-                    path={split.path}
+                    path={split.path && viewerOnly(previewKind(split.path)) ? null : split.path}
                     features={features}
                     host={editorHost}
                     onBrowse={() => {
@@ -463,25 +889,46 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
                       setFocusedPane('right');
                     }}
                     onShortcut={onShortcut}
+                    onActions={() => setEditorActions(true)}
+                    onCompletionState={setGhost}
+                    onFixProblem={(path, line) => setFixRequest({ kind: 'problem', path, line })}
                   />
-                  {previewing(split.path) && <PreviewPane project={project} path={split.path!} />}
+                  {viewer(split.path)}
                 </View>
               </>
             )}
+            {!keyboardOpen && <SuggestionBanner project={project} />}
+            {liveWindow &&
+              (() => {
+                // Loaded on first use: it pulls in a WebView.
+                const { LivePreviewWindow } = require('../preview/LivePreviewWindow') as typeof import('../preview/LivePreviewWindow');
+                return <LivePreviewWindow project={project} path={current ?? null} onClose={() => setLiveWindow(false)} />;
+              })()}
           </View>
           <View
             style={[
               styles.terminal,
-              { paddingBottom: keyboardOpen ? 0 : insets.bottom },
-              keyboardOpen && (typingIn === 'terminal' ? styles.expanded : styles.collapsed),
-              terminalHidden && styles.collapsed,
+              { height: Math.round(Math.max(120, mainHeight * terminalSize)) },
+              keyboardOpen && typingIn === 'terminal' && !terminalHidden && styles.expanded,
+              !terminalShown && styles.collapsed,
             ]}
+            testID="terminal-sheet"
           >
+            {!keyboardOpen && <TerminalGrabber fraction={terminalSize} height={mainHeight} onChange={setTerminalSize} onHide={() => setTerminalHidden(true)} />}
             <TerminalPanel
               project={project}
               ref={terminal}
               onFocusChange={(focused) => focused && setTypingIn('terminal')}
               onShortcut={onShortcut}
+              onOpenFile={openPrinted}
+              onShowProblems={() => setProblems(true)}
+              onBusyChange={setRunning}
+              onExit={onProgramExit}
+              onOutput={(text) => runActivity.onOutput(text)}
+              onHide={() => {
+                terminal.current?.blur();
+                setTerminalHidden(true);
+              }}
             />
           </View>
         </View>
@@ -491,13 +938,28 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
           {typingIn === 'terminal' && !terminalHidden ? (
             <TerminalKeyBar input={(data) => terminal.current?.input(data)} onHide={() => terminal.current?.blur()} />
           ) : (
-            <EditorKeyBar send={(msg) => editor.current?.send(msg)} language={languageFor(current ?? '')} />
+            <EditorKeyBar send={(msg) => editor.current?.send(msg)} language={languageFor(current ?? '')} completion={ghost} />
           )}
         </View>
       )}
+      {!chromeHidden && (
+        <View style={wide ? { paddingBottom: keyboardOpen ? 0 : insets.bottom } : undefined}>
+          <StatusBar
+            project={project}
+            path={current ?? null}
+            running={running}
+            onBranch={openSourceControl}
+            onProblems={() => setProblems(true)}
+            onGoToLine={() => current && setGoingToLine(true)}
+            onMode={() => setTerminalHidden(false)}
+          />
+        </View>
+      )}
+      {!wide && !chromeHidden && <ActivityBar items={activityItems} active={activeActivity} onSelect={onActivity} bottomInset={insets.bottom} targets={tourTargets} />}
 
       {!wide && (
         <>
+          {!drawerOpen && !keyboardOpen && <View {...edgeSwipe.panHandlers} style={[styles.edge, { top: insets.top + 44 }]} testID="drawer-edge" />}
           <Animated.View
             pointerEvents={drawerOpen ? 'auto' : 'none'}
             style={[StyleSheet.absoluteFill, styles.backdrop, { opacity: progress.interpolate({ inputRange: [0, 1], outputRange: [0, 0.6] }) }]}
@@ -505,6 +967,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
             <Pressable accessibilityRole="button" style={StyleSheet.absoluteFill} onPress={() => setDrawerOpen(false)} accessibilityLabel="Close files" />
           </Animated.View>
           <Animated.View
+            {...drawerSwipe.panHandlers}
             pointerEvents={drawerOpen ? 'auto' : 'none'}
             style={[
               styles.drawer,
@@ -520,11 +983,32 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
           </Animated.View>
         </>
       )}
+      <EditorTour />
+      <ActionSheet
+        title={editorActions ? 'Actions' : null}
+        actions={[
+          {
+            label: 'Go to definition',
+            icon: 'corner-down-right',
+            onPress: () => cursor.current && editorHost.definition(cursor.current.path, cursor.current.offset),
+          },
+          { label: 'Peek definition', icon: 'eye', onPress: () => editor.current?.send({ type: 'peek' }) },
+          { label: 'Look up in docs', icon: 'book', onPress: lookUpInDocs },
+          { label: 'Find in file', icon: 'search', onPress: () => editor.current?.send({ type: 'find' }) },
+          { label: 'Select line', icon: 'minus', onPress: () => editor.current?.send({ type: 'select', unit: 'line' }) },
+          { label: 'Select all', icon: 'maximize', onPress: () => editor.current?.send({ type: 'select', unit: 'all' }) },
+          { label: 'Command palette', icon: 'command', onPress: () => setPalette('commands') },
+        ]}
+        onClose={() => setEditorActions(false)}
+      />
+      <ActionSheet title={moreOpen ? project : null} actions={moreActions} onClose={() => setMoreOpen(false)} />
 
       <CommandPalette
         mode={palette}
         project={project}
         commands={commands}
+        activePath={current ?? null}
+        onOpenAt={openAt}
         onOpenFile={(path) => {
           const base = comparingWith.current;
           comparingWith.current = null;
@@ -539,6 +1023,12 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
         }}
       />
       <CompareView project={project} request={compare} onClose={() => setCompare(null)} />
+      {historyOf !== null &&
+        (() => {
+          // Loaded on first use, like the other sheets that pull in state at import.
+          const { LocalHistorySheet } = require('../history/LocalHistorySheet') as typeof import('../history/LocalHistorySheet');
+          return <LocalHistorySheet project={project} path={historyOf} onClose={() => setHistoryOf(null)} />;
+        })()}
       <TestsSheet
         project={project}
         request={tests}
@@ -546,6 +1036,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
         onOpen={(path, line) => (line ? openAt(path, line) : openFile(path))}
         onTerminal={(line) => {
           setTerminalHidden(false);
+          runActivity.onRunStart(project, line, 'tests');
           terminal.current?.input(`${line}\r`);
         }}
       />
@@ -558,11 +1049,42 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
           terminal.current?.input(`${line}\r`);
         }}
       />
-      <SourceControlSheet visible={sourceControl} project={project} onClose={() => setSourceControl(false)} />
+      <SourceControlSheet
+        visible={sourceControl}
+        project={project}
+        onClose={() => {
+          setSourceControl(false);
+          gitStatusStore.getState().refresh(project).catch(() => undefined);
+        }}
+      />
       {panels.map(({ id, component: Panel }) => (
         <Panel key={id} ctx={ctx} visible={panel === id} onClose={() => setPanel((p) => (p === id ? null : p))} />
       ))}
       <SearchPanel visible={searching} project={project} onOpen={openAt} onClose={() => setSearching(false)} />
+      <TodosPanel visible={todos} project={project} onOpen={openAt} onClose={() => setTodos(false)} />
+      <AiSheet
+        mode={ai}
+        project={project}
+        path={ai === 'error' && aiError ? aiError.path : (current ?? null)}
+        errorOutput={aiError?.output ?? null}
+        onClose={() => {
+          setAi(null);
+          setAiError(null);
+        }}
+      />
+      <ProblemsPanel
+        visible={problems}
+        project={project}
+        onOpen={openAt}
+        onClose={() => setProblems(false)}
+        onExplainError={() => explainLastError()}
+        onFix={(request) => {
+          setProblems(false);
+          setFixRequest(request);
+        }}
+      />
+      <FixSheet project={project} request={fixRequest} onClose={() => setFixRequest(null)} />
+      <OutlinePanel visible={outline} project={project} path={current ?? null} onOpen={openAt} onClose={() => setOutline(false)} />
       <ShortcutsSheet visible={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       <SnapshotsSheet project={showSnapshots ? project : null} onClose={() => setShowSnapshots(false)} />
       <LinkedFolderSheet project={showLinked ? project : null} onClose={() => setShowLinked(false)} />
@@ -579,30 +1101,43 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
         }}
         onClose={() => setGoingToLine(false)}
       />
-    </View>
+    </Animated.View>
   );
 }
 
 const useStyles = makeStyles((colors) => ({
+  flexFill: { flex: 1 },
+  deployBar: { paddingHorizontal: spacing.md, paddingVertical: spacing.xs + 2, backgroundColor: colors.brandSoft },
+  deployFailed: { backgroundColor: colors.destructiveSoft },
+  deployText: { color: colors.foreground },
   screen: { flex: 1, backgroundColor: colors.background },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderBottomWidth: borderWidth,
-    borderColor: colors.border,
+    height: 48,
+    paddingHorizontal: spacing.xs + 2,
+    backgroundColor: colors.card,
   },
-  title: { flex: 1, marginLeft: spacing.xs },
+  titleBox: { flex: 1, minWidth: 0, marginLeft: 2 },
+  title: { fontSize: 15, lineHeight: 18 },
+  subtitle: { flexDirection: 'row', alignItems: 'center', gap: 3, alignSelf: 'flex-start' },
+  subtitleText: { fontFamily: fonts.sans.regular, fontSize: 11, color: colors.mutedForeground },
+  run: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 30, paddingLeft: 10, paddingRight: 12, borderRadius: radius.pill, backgroundColor: colors.brand, marginHorizontal: 2 },
+  runPressed: { opacity: 0.75 },
+  runText: { fontFamily: fonts.sans.semibold, fontSize: 13, color: colors.brandForeground },
+  stop: { backgroundColor: colors.destructiveSoft, borderWidth, borderColor: colors.destructive },
+  stopText: { fontFamily: fonts.sans.semibold, fontSize: 13, color: colors.destructive },
+  waveTrack: { borderBottomWidth: borderWidth, borderColor: colors.border, backgroundColor: colors.card },
+  edge: { position: 'absolute', left: 0, bottom: 0, width: EDGE_WIDTH },
   body: { flex: 1 },
   row: { flexDirection: 'row' },
-  sidebar: { width: SIDEBAR_WIDTH, borderRightWidth: borderWidth, borderColor: colors.border, backgroundColor: colors.card },
-  editor: { flex: 3 },
+  sidebar: { backgroundColor: colors.card },
+  editor: { flex: 1 },
   pane: { flex: 1 },
   // A thin line marks which editor gets the key bar and commands.
   focusedPane: { borderTopWidth: 2, borderColor: colors.brand },
-  terminal: { flex: 2 },
+  terminal: { borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, overflow: 'hidden', borderTopWidth: borderWidth, borderColor: colors.border, backgroundColor: colors.card },
   expanded: { flex: 1 },
   // Kept mounted but out of the layout while the other pane is being typed in.
   collapsed: { flex: 0, height: 0, overflow: 'hidden' },

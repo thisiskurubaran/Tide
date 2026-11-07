@@ -28,11 +28,12 @@ jest.mock('../../state', () => {
     workspace,
     runnerStore,
     projectsStore: createStore(() => ({ loadTree: async () => undefined })),
+    buffersStore: createStore(() => ({ flushProject: async () => undefined, reloadProject: async () => undefined })),
     useRunner: (sel: (s: unknown) => unknown) => useStore(runnerStore, sel),
   };
 });
 
-import { runnerStore, workspace } from '../../state';
+import { buffersStore, runnerStore, workspace } from '../../state';
 import { PackagesSheet } from './PackagesSheet';
 
 const settle = () => act(() => new Promise((r) => setTimeout(r, 400)));
@@ -79,4 +80,21 @@ it('sends commands to the terminal in remote mode', async () => {
   await fireEvent.press(screen.getByTestId('update-lodash'));
   expect(onTerminal).toHaveBeenCalledWith('npm install lodash@latest');
   expect(mockRuns).toEqual([]);
+});
+
+it('clears busy and shows the error when saving open files fails (L3)', async () => {
+  runnerStore.setState({ mode: 'local' });
+  const flushProject = jest.fn().mockRejectedValueOnce(new Error('disk full')).mockResolvedValue(undefined);
+  buffersStore.setState({ flushProject });
+  await render(<PackagesSheet project="p" visible onClose={() => undefined} onTerminal={() => undefined} />);
+  await settle();
+  await fireEvent.press(screen.getByTestId('update-lodash'));
+  await settle();
+  // The installer doesn't run over unsaved files, and the error is shown.
+  expect(mockRuns).toEqual([]);
+  expect(screen.getByText(/disk full/)).toBeTruthy();
+  // Not stuck busy: the next press runs.
+  await fireEvent.press(screen.getByTestId('update-lodash'));
+  await settle();
+  expect(mockRuns).toEqual([{ entry: 'tide:npm', args: ['install', 'lodash@latest'] }]);
 });

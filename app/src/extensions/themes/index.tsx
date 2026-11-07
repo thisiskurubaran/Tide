@@ -15,7 +15,7 @@ import { fileIconFor } from './fileIcons';
 import { ThemePicker } from './ThemePicker';
 
 // The editor colors to use: the chosen theme while the pack is active,
-// otherwise the FuseOps theme for the app's light or dark scheme.
+// otherwise Tide's theme for the app's light or dark scheme.
 export function useEditorTheme(scheme: ColorScheme): { colors: EditorTheme; dark: boolean } {
   const chosen = useExtensions((s) => (isActive(s, 'themes') ? s.prefs.theme : null));
   return useMemo(() => {

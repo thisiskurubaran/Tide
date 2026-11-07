@@ -1,26 +1,47 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
-import { AppState, StyleSheet, View } from 'react-native';
+import { AppState, StyleSheet, useWindowDimensions, View } from 'react-native';
 import WebView, { WebViewMessageEvent } from 'react-native-webview';
 import * as Clipboard from 'expo-clipboard';
 
+import { announce, useScreenReader } from '../../components/a11y';
 import { Button } from '../../components/Button';
 import { Text } from '../../components/Text';
 import { breakpointsStore, fileBreakpoints, useBreakpoints } from '../../extensions/debugger/breakpoints';
-import { fileDiagnostics, useDiagnostics } from '../../extensions/diagnostics';
+import { useShallow } from 'zustand/react/shallow';
+
+import { diagnosticsStore, EDITOR_SOURCE, fileDiagnostics, lineStarts, positionAt, useDiagnostics } from '../../extensions/diagnostics';
 import { useEditorTheme } from '../../extensions/themes';
 import { buffersStore, settingsStore, useBuffers, useSettings, workspace } from '../../state';
 import { bufferKey } from '../../state/buffers';
 import { spacing } from '../../theme/tokens';
-import { CompletionResult, EditorFeatures, EditorRequest, HoverResult, languageFor, NO_FEATURES, parseFromEditor, ToEditor } from './bridge';
+import { ALL_GESTURES, CompletionResult, DEFAULT_CODE_FONT, EditorFeatures, EditorRequest, HoverResult, isCodeFont, languageFor, NO_FEATURES, NO_GESTURES, parseFromEditor, ToEditor } from './bridge';
+import type { PeekTarget } from './bridge';
 import { classify, formatBytes, TOO_LARGE_BYTES } from './largeFiles';
+import { useInlineCompletions } from './useInlineCompletions';
+import { useAiFix } from './useAiFix';
 import type { Shortcut } from '../project/shortcuts';
 import editorHtml from './editorHtml.generated';
 import { makeStyles, useColorScheme } from '../../theme/theme';
+
+const PROBLEM_ACTIONS = [
+  { name: 'nextProblem', label: 'Next problem' },
+  { name: 'previousProblem', label: 'Previous problem' },
+];
+
+// Narrower windows (phones, Slide Over) don't show the minimap.
+export const MINIMAP_MIN_WIDTH = 600;
+
+// flush() doesn't wait longer than this for an editor that doesn't answer
+// (still loading, or its web content crashed).
+export const FLUSH_TIMEOUT_MS = 500;
 
 export interface EditorHandle {
   send(msg: ToEditor): void;
   // Moves to a line once `path` is the open file; call it right after opening the tab.
   reveal(path: string, line: number, column?: number): void;
+  // Resolves once typing the editor was still holding back (its change
+  // messages are debounced) has reached the buffer, e.g. before closing a tab.
+  flush(): Promise<void>;
 }
 
 // What the editor asks of the app beyond editing: answered by extensions.
@@ -29,6 +50,10 @@ export interface EditorHost {
   definition(path: string, offset: number): void;
   cursor(path: string, offset: number): void;
   save(path: string): void;
+  // Peek definition at `offset`: a few lines around the definition, or null.
+  peek?(path: string, offset: number): Promise<PeekTarget | null>;
+  // "Open" in a peek: show `path` at a 1-based line, opening its tab if needed.
+  openAt?(path: string, line: number): void;
 }
 
 interface EditorPaneProps {
@@ -39,10 +64,16 @@ interface EditorPaneProps {
   onBrowse(): void;
   onShortcut(id: Shortcut): void;
   onFocusChange(focused: boolean): void;
+  // A two-finger tap in the editor.
+  onActions?(): void;
+  // AI ghost text appeared or went away, e.g. to show Accept in the key bar.
+  onCompletionState?(visible: boolean): void;
+  // "✦ Fix" tapped in the error lens of a 1-based line. Without it the button isn't shown.
+  onFixProblem?(path: string, line: number): void;
 }
 
 export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function EditorPane(
-  { project, path, features, host, onBrowse, onFocusChange, onShortcut },
+  { project, path, features, host, onBrowse, onFocusChange, onShortcut, onActions, onCompletionState, onFixProblem },
   ref,
 ) {
   const styles = useStyles();
@@ -58,9 +89,24 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
   const wordWrap = useSettings((s) => s.wordWrap);
   const folding = useSettings((s) => s.folding);
   const indentGuides = useSettings((s) => s.indentGuides);
-  const minimap = useSettings((s) => s.minimap);
+  // A minimap is noise at phone width; it shows on iPad-sized windows.
+  const wideEnough = useWindowDimensions().width >= MINIMAP_MIN_WIDTH;
+  const minimap = useSettings((s) => s.minimap) && wideEnough;
+  const keymap = useSettings((s) => s.keymap);
+  const emmet = useSettings((s) => s.emmet);
+  const snippets = useSettings((s) => s.snippets);
+  const codeFont = useSettings((s) => s.codeFont);
+  const ligatures = useSettings((s) => s.ligatures);
+  // Missing in settings saved before the option existed: on.
+  const errorLens = useSettings((s) => s.errorLens) !== false;
+  const gestureSettings = useSettings((s) => s.gestures);
+  // Gestures would fight VoiceOver / TalkBack's own, so they are all off while one runs.
+  const screenReader = useScreenReader();
   const bufferContent = useBuffers((s) => (path ? s.buffers[bufferKey(project, path)]?.content : undefined));
-  const diagnostics = useDiagnostics((s) => (path ? fileDiagnostics(s, project, path) : null));
+  // Deleted on disk while it had unsaved edits (see buffers.ts).
+  const deleted = useBuffers((s) => (path ? s.buffers[bufferKey(project, path)]?.deleted === true : false));
+  // fileDiagnostics builds a new array; compare its items so a re-render isn't a new value every time.
+  const diagnostics = useDiagnostics(useShallow((s) => (path ? fileDiagnostics(s, project, path, EDITOR_SOURCE) : null)));
   const breakpoints = useBreakpoints((s) => (path ? fileBreakpoints(s, project, path) : null));
   const paused = useBreakpoints((s) => (s.paused?.project === project ? s.paused : null));
   const hostRef = useRef(host);
@@ -77,8 +123,22 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
     webview.current?.injectJavaScript(`window.tide && window.tide.receive(${JSON.stringify(JSON.stringify(msg))});true;`);
   }, []);
 
+  // AI inline completions, off for large and refused files.
+  const inline = useInlineCompletions(send, !!path && !isLarge && refused?.path !== path);
+  const onCompletionStateRef = useRef(onCompletionState);
+  onCompletionStateRef.current = onCompletionState;
+  const onFixProblemRef = useRef(onFixProblem);
+  onFixProblemRef.current = onFixProblem;
+  const aiFix = useAiFix(send, !!onFixProblem && !!path && !isLarge && refused?.path !== path);
+
   const pendingReveal = useRef<{ path: string; line: number; column?: number } | null>(null);
   const opened = useRef<string | null>(null);
+  const flushes = useRef(new Map<number, () => void>());
+  const nextFlush = useRef(0);
+  // Unblocks waiting flush() calls, e.g. when the web content reloads.
+  const settleFlushes = () => {
+    for (const done of [...flushes.current.values()]) done();
+  };
 
   useImperativeHandle(
     ref,
@@ -87,6 +147,20 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
       reveal(target, line, column) {
         if (opened.current === target && pathRef.current === target) send({ type: 'goto', path: target, line, column });
         else pendingReveal.current = { path: target, line, column };
+      },
+      flush() {
+        if (!ready.current) return Promise.resolve();
+        const id = ++nextFlush.current;
+        return new Promise<void>((resolve) => {
+          const done = () => {
+            clearTimeout(timer);
+            flushes.current.delete(id);
+            resolve();
+          };
+          const timer = setTimeout(done, FLUSH_TIMEOUT_MS);
+          flushes.current.set(id, done);
+          send({ type: 'flush', id });
+        });
       },
     }),
     [send],
@@ -98,6 +172,19 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
   );
   useEffect(sendTheme, [sendTheme]);
 
+  // A font id saved by a build that had more fonts falls back to the default.
+  const sendFont = useCallback(
+    () => send({ type: 'setFont', font: isCodeFont(codeFont) ? codeFont : DEFAULT_CODE_FONT, ligatures: ligatures === true }),
+    [send, codeFont, ligatures],
+  );
+  useEffect(sendFont, [sendFont]);
+
+  const sendGestures = useCallback(
+    () => send({ type: 'setGestures', gestures: screenReader ? NO_GESTURES : { ...ALL_GESTURES, ...gestureSettings } }),
+    [send, screenReader, gestureSettings],
+  );
+  useEffect(sendGestures, [sendGestures]);
+
   const sendFeatures = useCallback(() => send({ type: 'features', features: isLarge ? NO_FEATURES : features }), [send, features, isLarge]);
   useEffect(sendFeatures, [sendFeatures]);
 
@@ -105,9 +192,15 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
     () =>
       send({
         type: 'options',
-        options: isLarge ? { wordWrap: false, folding: false, indentGuides: false, minimap: false } : { wordWrap, folding, indentGuides, minimap },
+        options: {
+          ...(isLarge
+            ? { wordWrap: false, folding: false, indentGuides: false, minimap: false, keymap }
+            : { wordWrap, folding, indentGuides, minimap, keymap, emmet, snippets, errorLens }),
+          // Only when on, so the editor's options stay as they were for everyone else.
+          ...(screenReader ? { screenReader } : {}),
+        },
       }),
-    [send, wordWrap, folding, indentGuides, minimap, isLarge],
+    [send, wordWrap, folding, indentGuides, minimap, keymap, emmet, snippets, errorLens, screenReader, isLarge],
   );
   useEffect(sendOptions, [sendOptions]);
 
@@ -151,7 +244,7 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
     setLarge(kind === 'large' ? target : null);
     if (kind === 'large') {
       // Off before the text arrives, so the editor never highlights it.
-      send({ type: 'options', options: { wordWrap: false, folding: false, indentGuides: false, minimap: false } });
+      send({ type: 'options', options: { wordWrap: false, folding: false, indentGuides: false, minimap: false, keymap } });
       send({ type: 'features', features: NO_FEATURES });
     }
     editorContent.current = buffer.content;
@@ -197,8 +290,12 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
       case 'ready':
         ready.current = true;
         sendTheme();
+        sendFont();
+        sendGestures();
         sendOptions();
         sendFeatures();
+        inline.sendCompletions();
+        aiFix.sendAiFix();
         openCurrent().then(() => {
           sendMarks();
           sendPaused();
@@ -211,6 +308,9 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
       case 'save':
         hostRef.current.save(msg.path);
         return;
+      case 'flushed':
+        flushes.current.get(msg.id)?.();
+        return;
       case 'request':
         hostRef.current
           .request(msg)
@@ -219,6 +319,21 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
         return;
       case 'definition':
         hostRef.current.definition(msg.path, msg.offset);
+        return;
+      case 'peek': {
+        const peek = hostRef.current.peek;
+        if (!peek) return;
+        peek(msg.path, msg.offset)
+          .catch(() => null)
+          .then((target) => send({ type: 'showPeek', path: msg.path, offset: msg.offset, target }));
+        return;
+      }
+      case 'openAt':
+        if (hostRef.current.openAt) hostRef.current.openAt(msg.path, msg.line);
+        else if (msg.path === pathRef.current) send({ type: 'goto', path: msg.path, line: msg.line });
+        return;
+      case 'announce':
+        announce(msg.text);
         return;
       case 'cursor':
         hostRef.current.cursor(msg.path, msg.offset);
@@ -232,11 +347,35 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
       case 'breakpointsChanged':
         breakpointsStore.getState().set(project, msg.path, msg.lines);
         return;
+      case 'serviceDiagnostics': {
+        // Lines and columns for the Problems panel, from the text they were found in.
+        const text = buffersStore.getState().buffers[bufferKey(project, msg.path)]?.content ?? '';
+        const starts = lineStarts(text);
+        diagnosticsStore.getState().set(
+          project,
+          msg.path,
+          EDITOR_SOURCE,
+          msg.items.map((d) => ({ ...d, ...positionAt(starts, d.from) })),
+        );
+        return;
+      }
       case 'focus':
         onFocusChange(msg.focused);
         return;
       case 'shortcut':
         onShortcut(msg.id);
+        return;
+      case 'actions':
+        onActions?.();
+        return;
+      case 'requestCompletion':
+        inline.requestCompletion(msg);
+        return;
+      case 'completionState':
+        onCompletionStateRef.current?.(msg.visible);
+        return;
+      case 'fixProblem':
+        onFixProblemRef.current?.(msg.path, msg.line);
         return;
       case 'error':
         console.warn('Editor error:', msg.message);
@@ -245,7 +384,16 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
   }
 
   return (
-    <View style={styles.container}>
+    <View
+      testID="editor-pane"
+      style={styles.container}
+      // VoiceOver / TalkBack actions: the editor moves to the problem and says what it is.
+      accessibilityActions={PROBLEM_ACTIONS}
+      onAccessibilityAction={(e) => {
+        const direction = e.nativeEvent.actionName === 'nextProblem' ? 1 : e.nativeEvent.actionName === 'previousProblem' ? -1 : 0;
+        if (direction) send({ type: 'gotoProblem', direction });
+      }}
+    >
       {/* The default type argument makes WebView's props `WebViewProps & undefined`, i.e. never. */}
       <WebView<object>
         ref={webview}
@@ -255,11 +403,14 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
         onMessage={onMessage}
         // The web content reloads after a crash, so it has to ask for the file again.
         onContentProcessDidTerminate={() => {
+          settleFlushes();
           ready.current = false;
           opened.current = null;
           webview.current?.reload();
         }}
         onLoadStart={() => {
+          settleFlushes();
+          onCompletionStateRef.current?.(false);
           ready.current = false;
           opened.current = null;
         }}
@@ -284,6 +435,18 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
           </Text>
         </View>
       )}
+      {path && deleted && (
+        <View style={styles.deleted} testID="editor-deleted">
+          <Text variant="muted" style={styles.deletedText}>
+            Deleted on disk. Your changes are kept but not saved.
+          </Text>
+          <Button
+            title="Save as new file"
+            variant="outline"
+            onPress={() => buffersStore.getState().save(project, path, { recreate: true }).catch((e) => console.warn('Save failed', e))}
+          />
+        </View>
+      )}
       {path && refused?.path === path && (
         <View style={styles.empty} testID="editor-refused">
           <Text variant="muted" style={styles.refused}>
@@ -306,6 +469,20 @@ const useStyles = makeStyles((colors) => ({
   webview: { flex: 1, backgroundColor: colors.background },
   banner: { position: 'absolute', right: spacing.sm, bottom: spacing.sm, paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: 6, backgroundColor: colors.secondary, opacity: 0.9 },
   bannerText: { fontSize: 11 },
+  deleted: {
+    position: 'absolute',
+    left: spacing.sm,
+    right: spacing.sm,
+    top: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    padding: spacing.sm,
+    borderRadius: 8,
+    backgroundColor: colors.secondary,
+  },
+  deletedText: { flex: 1, fontSize: 13 },
   refused: { textAlign: 'center', paddingHorizontal: spacing.lg },
   empty: {
     ...StyleSheet.absoluteFill,

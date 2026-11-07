@@ -24,11 +24,27 @@ export function handlePreview(manager: SessionManager, req: http.IncomingMessage
   }
   manager.touch(session);
   const fail = () => {
+    if (res.destroyed || res.writableEnded) return;
     if (!res.headersSent) res.writeHead(502, { 'content-type': 'text/plain' });
     res.end(`Nothing is listening on port ${port} in the container.`);
   };
+  // The browser can go away mid-stream (a closed tab, an abandoned event
+  // stream): then the upstream request and its relay exec are torn down, or each
+  // one would leave a docker exec and a relay.py running in the container.
+  // 'close' also fires after a completed response, when the relay has exited
+  // (connection: close), so the kill then finds nothing left to stop.
+  let gone = false;
+  let teardown = () => {};
+  res.on('close', () => {
+    gone = true;
+    teardown();
+  });
   // http.request only takes a socket synchronously, so open the relay first.
   manager.connect(session, port).then((socket) => {
+    if (gone) {
+      socket.destroy();
+      return;
+    }
     // A one-off agent: newer Node ignores createConnection when agent is false.
     const agent = new http.Agent();
     agent.createConnection = () => socket as never;
@@ -43,6 +59,11 @@ export function handlePreview(manager: SessionManager, req: http.IncomingMessage
       up.pipe(res);
     });
     upstream.on('error', fail);
+    teardown = () => {
+      upstream.destroy();
+      // Kills the relay exec (and its process group) in the container.
+      socket.destroy();
+    };
     req.pipe(upstream);
   }, fail);
   return true;

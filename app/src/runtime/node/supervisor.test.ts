@@ -61,6 +61,92 @@ describe('supervisor', () => {
     expect(t.output('r1')).toBe('a,b proj\n');
   });
 
+  it('gives each overlapping run its own cwd without touching the process cwd', async () => {
+    const t = setup();
+    // a waits until b has started, then resolves relative paths in its own folder.
+    t.file('a/run.js', [
+      'const fs = require("fs"), path = require("path");',
+      'process.stdin.once("data", async () => {',
+      '  fs.writeFileSync("out.txt", "a");',
+      '  await fs.promises.mkdir("sub/deep", { recursive: true });',
+      '  fs.writeFileSync(path.join("sub", "x.txt"), "x");',
+      '  process.chdir("sub");',
+      '  console.log(path.basename(process.cwd()), fs.readFileSync("x.txt", "utf8"), fs.existsSync("deep"));',
+      '  process.exit(0);',
+      '});',
+    ].join('\n'));
+    t.file('b/run.js', 'require("fs").writeFileSync("out.txt", "b"); console.log(require("path").basename(process.cwd()))');
+    const before = process.cwd();
+    t.supervisor.handle({ type: 'run', id: 'a', runtime: 'node', entry: 'a/run.js', cwd: 'a', args: [] });
+    t.supervisor.handle({ type: 'run', id: 'b', runtime: 'node', entry: 'b/run.js', cwd: 'b', args: [] });
+    // A service-style run in the root starting alongside them.
+    t.file('svc.js', 'console.log(process.cwd() === process.env.PWD)');
+    t.supervisor.handle({ type: 'run', id: 's', runtime: 'node', entry: 'svc.js', cwd: '.', args: [] });
+    await t.exited('b');
+    await t.exited('s');
+    t.supervisor.handle({ type: 'stdin', id: 'a', data: 'go\n' });
+    await t.exited('a');
+    expect(t.output('a')).toBe('sub x true\n');
+    expect(t.output('b')).toBe('b\n');
+    expect(t.output('s')).toBe('true\n');
+    expect(fs.readFileSync(path.join(t.root, 'a/out.txt'), 'utf8')).toBe('a');
+    expect(fs.readFileSync(path.join(t.root, 'b/out.txt'), 'utf8')).toBe('b');
+    expect(fs.existsSync(path.join(t.root, 'out.txt'))).toBe(false);
+    expect(process.cwd()).toBe(before);
+  });
+
+  it('starts child processes in the run folder, and resolves Buffer paths there', async () => {
+    const t = setup();
+    t.file('proj/sub/marker.txt', 'm');
+    // Each child prints the folder it started in.
+    const pwd = `${JSON.stringify(process.execPath)} -e "console.log(require('path').basename(process.cwd()))"`;
+    t.file('proj/kid.js', 'console.log(require("path").basename(process.cwd()))');
+    t.file('proj/cp.js', [
+      'const cp = require("child_process"), fs = require("fs");',
+      `const pwd = ${JSON.stringify(pwd)};`,
+      'const node = process.execPath, code = "console.log(require(\'path\').basename(process.cwd()))";',
+      'process.chdir("sub");',
+      'const out = [];',
+      'out.push(cp.execSync(pwd, { encoding: "utf8" }).trim());',
+      'out.push(cp.execFileSync(node, ["-e", code], { encoding: "utf8" }).trim());',
+      'out.push(cp.spawnSync(node, ["-e", code], { encoding: "utf8" }).stdout.trim());',
+      'out.push(cp.execSync(pwd, { encoding: "utf8", cwd: ".." }).trim());',
+      'out.push(fs.readFileSync(Buffer.from("marker.txt"), "utf8"));',
+      'cp.exec(pwd, (e, a) => {',
+      '  out.push(a.trim());',
+      '  cp.execFile(node, ["-e", code], (e2, b) => {',
+      '    out.push(b.trim());',
+      '    let c = "";',
+      '    const kid = cp.spawn(node, ["-e", code]);',
+      '    kid.stdout.on("data", (d) => (c += d));',
+      '    kid.on("close", () => {',
+      '      out.push(c.trim());',
+      '      const f = cp.fork("../kid.js", [], { silent: true });',
+      '      let d = "";',
+      '      f.stdout.on("data", (x) => (d += x));',
+      '      f.on("close", async () => {',
+      '        out.push(d.trim());',
+      '        out.push((await require("util").promisify(cp.exec)(pwd)).stdout.trim());',
+      '        console.log(out.join(","));',
+      '      });',
+      '    });',
+      '  });',
+      '});',
+    ].join('\n'));
+    t.run('r1', 'cp.js');
+    expect(await t.exited('r1', 15000)).toEqual({ type: 'exit', id: 'r1', code: 0 });
+    expect(t.output('r1', 'stderr')).toBe('');
+    expect(t.output('r1')).toBe('sub,sub,sub,proj,m,sub,sub,sub,sub,sub\n');
+  });
+
+  it('fails a run whose cwd is missing', async () => {
+    const t = setup();
+    t.file('proj/index.js', '');
+    t.supervisor.handle({ type: 'run', id: 'r1', runtime: 'node', entry: 'proj/index.js', cwd: 'nope', args: [] });
+    expect((await t.exited('r1')).code).toBe(1);
+    expect(t.output('r1', 'stderr')).toContain("can't enter nope");
+  });
+
   it('reports stderr, uncaught errors and exit codes', async () => {
     const t = setup();
     t.file('proj/fail.js', 'console.error("warn"); throw new Error("boom")');

@@ -26,6 +26,13 @@ export interface EditorTheme {
   };
 }
 
+// Tide's own keyword and string hues: a pale teal next to the brand and a soft
+// green. Light mode reuses the deeper brand and success colors, which pass AA.
+const tideSyntax: Record<ColorScheme, { keyword: string; string: string }> = {
+  dark: { keyword: '#5eead4', string: '#a5e9a0' },
+  light: { keyword: palette.light.brand, string: palette.light.success },
+};
+
 function build(scheme: ColorScheme): EditorTheme {
   const c = palette[scheme];
   const x = extended[scheme];
@@ -40,8 +47,8 @@ function build(scheme: ColorScheme): EditorTheme {
     gutterBorder: c.border,
     matchingBracket: c.secondary,
     syntax: {
-      keyword: c.brand,
-      string: c.success,
+      keyword: tideSyntax[scheme].keyword,
+      string: tideSyntax[scheme].string,
       number: c.warning,
       comment: x.dim,
       function: x.cyan,

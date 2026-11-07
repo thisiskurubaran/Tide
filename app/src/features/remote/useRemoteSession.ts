@@ -48,6 +48,7 @@ export function useRemoteSession(project: string, enabled: boolean) {
         sync = new RemoteSync(socket, project, workspace, {
           onReady: () => !cancelled && setStatus({ state: 'ready', settings, session }),
           onPorts: (p) => !cancelled && setPorts(p),
+          onSyncError: (path, message) => console.warn(`Remote sync: kept ${path} in the container only (${message})`),
           onFileChanged: (path) => void buffersStore.getState().reload(project, path),
           onTreeChanged: () => {
             if (treeTimer !== null) clearTimeout(treeTimer);

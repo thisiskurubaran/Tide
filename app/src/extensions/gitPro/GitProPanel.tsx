@@ -3,26 +3,30 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Modal, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ActionSheet } from '../../components/ActionSheet';
 import { Button, IconButton } from '../../components/Button';
+import { FormSheet } from '../../components/FormSheet';
 import { PromptSheet } from '../../components/PromptSheet';
 import { Segmented } from '../../components/Segmented';
 import { Text } from '../../components/Text';
 import { runGit } from '../../features/git/runGit';
 import { localRunner } from '../../runtime';
-import { buffersStore, projectsStore, tabsStore, workspace } from '../../state';
+import { buffersStore, projectsStore, workspace } from '../../state';
 import { bufferKey } from '../../state/buffers';
-import { projectTabs } from '../../state/tabs';
 import { makeStyles, useColors } from '../../theme/theme';
 import { borderWidth, fonts, fontSizes, radius, spacing } from '../../theme/tokens';
 import type { PanelProps } from '../types';
-import { Branches, CommitInfo, createGitPro, FileChange, isStaged, isUnstaged, Status } from './api';
+import { Branches, CommitInfo, createGitPro, FileChange, isStaged, isUnstaged, PickResult, StashEntry, Status, Tag } from './api';
 import { applyHunk, diffText, Hunk, revertHunk } from './diff';
 import { DiffView } from './DiffView';
+import { changedFiles } from '../../features/git/SourceControlSheet';
+import { SuggestMessageButton } from '../../features/ai/SuggestMessageButton';
 
 type Tab = 'changes' | 'branches' | 'history';
 type Detail =
   | { kind: 'file'; path: string; staged: boolean }
-  | { kind: 'commit'; commit: CommitInfo }
+  // A stash shows like a commit, without Cherry-pick.
+  | { kind: 'commit'; commit: CommitInfo; stash?: boolean }
   | { kind: 'commitFile'; commit: CommitInfo; path: string };
 
 const label = (code: string) => {
@@ -86,7 +90,8 @@ export function GitProPanel({ ctx, visible, onClose }: PanelProps) {
       } finally {
         if (touchesFiles) {
           await projectsStore.getState().loadTree(project);
-          for (const path of projectTabs(tabsStore.getState(), project).open) await buffersStore.getState().reload(project, path);
+          // Every clean buffer, not only open tabs: a stale one would be autosaved back over the change.
+          await buffersStore.getState().reloadProject(project);
         }
         setBusy(false);
         await refresh();
@@ -95,7 +100,7 @@ export function GitProPanel({ ctx, visible, onClose }: PanelProps) {
     [project, refresh],
   );
 
-  const shared = { git, act, busy, setDetail, ctx, refresh };
+  const shared = { git, act, busy, setDetail, setTab, ctx, refresh };
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose} supportedOrientations={['portrait', 'landscape']}>
@@ -150,8 +155,9 @@ export function GitProPanel({ ctx, visible, onClose }: PanelProps) {
           )}
           {status && status !== 'none' && (
             <>
+              {status.operation && <OperationBanner {...shared} status={status} />}
               {detail?.kind === 'file' && <FileDiff {...shared} path={detail.path} staged={detail.staged} />}
-              {detail?.kind === 'commit' && <CommitDetail {...shared} commit={detail.commit} />}
+              {detail?.kind === 'commit' && <CommitDetail {...shared} commit={detail.commit} stash={!!detail.stash} />}
               {detail?.kind === 'commitFile' && <CommitFileDiff {...shared} commit={detail.commit} path={detail.path} />}
               {!detail && tab === 'changes' && <Changes {...shared} status={status} />}
               {!detail && tab === 'branches' && <BranchList {...shared} status={status} />}
@@ -169,6 +175,7 @@ type Shared = {
   act(step: () => Promise<unknown>, touchesFiles?: boolean): Promise<boolean>;
   busy: boolean;
   setDetail(d: Detail | null): void;
+  setTab(t: Tab): void;
   ctx: PanelProps['ctx'];
   refresh(): Promise<void>;
 };
@@ -268,6 +275,12 @@ function Changes({ git, act, busy, setDetail, ctx, status }: Shared & { status: 
         multiline
         style={styles.input}
       />
+      <SuggestMessageButton
+        changes={() => changedFiles(ctx.project, staged.map((c) => c.path), 'index')}
+        onMessage={setMessage}
+        disabled={busy || staged.length === 0}
+        testID="gp-suggest"
+      />
       <View style={styles.actions}>
         <Button title="Pull" variant="outline" icon="download" onPress={() => act(() => git.pull(), true)} disabled={busy} testID="gp-pull" />
         <Button title="Push" variant="outline" icon="upload" onPress={() => act(() => git.push())} disabled={busy} testID="gp-push" />
@@ -282,6 +295,130 @@ function Changes({ git, act, busy, setDetail, ctx, status }: Shared & { status: 
           testID="gp-commit"
         />
       </View>
+      <Stashes {...{ git, act, busy, setDetail, ctx, status }} dirty={status.changes.length > 0} />
+    </View>
+  );
+}
+
+// Tells the user what a cherry-pick or rebase result means for them.
+export function explainPick(r: PickResult, what: string): string | null {
+  if (r.status === 'conflict') return `${r.current.subject} conflicts in ${r.conflicts.join(', ')}. Resolve them in the editor, stage each file, then Continue.`;
+  if (r.status === 'empty') return `${r.current.subject} changes nothing here: the branch already has it.`;
+  if (r.status === 'done' && r.skipped.length) return `${what} finished. Left out because their changes were already there: ${r.skipped.map((s) => s.subject).join(', ')}.`;
+  return null;
+}
+
+// While a rebase or cherry-pick waits: what it's doing, and Continue / Skip / Abort.
+function OperationBanner({ git, act, busy, setTab, status }: Shared & { status: Status }) {
+  const styles = useStyles();
+  const colors = useColors();
+  const op = status.operation!;
+  const conflicts = status.changes.filter((c) => c.code === 'UU');
+  const rebase = op.kind === 'rebase';
+  const step = (run: () => Promise<PickResult | null>) =>
+    act(async () => {
+      const r = await run();
+      const note = r && explainPick(r, rebase ? 'Rebase' : 'Cherry-pick');
+      if (note) Alert.alert(rebase ? 'Rebase' : 'Cherry-pick', note);
+      if (r?.status === 'conflict') setTab('changes');
+    }, true);
+  const title = rebase
+    ? `Rebasing ${op.branch} onto ${op.onto.slice(0, 7)} (${op.step}/${op.total})${op.current ? `, stopped at ${op.current.subject}` : ''}.`
+    : `Cherry-picking ${op.current.oid.slice(0, 7)} ${op.current.subject}.`;
+  return (
+    <View style={[styles.banner, styles.operation]} testID="gp-operation">
+      <View style={styles.bannerHead}>
+        <Feather name={rebase ? 'git-pull-request' : 'git-commit'} size={16} color={colors.warning} />
+        <Text style={styles.flex}>
+          {title} {conflicts.length ? `Resolve ${conflicts.map((c) => c.path).join(', ')} in the editor, then stage each file.` : 'Stage the resolved files, then Continue.'}
+        </Text>
+      </View>
+      <View style={styles.actions}>
+        <Button title="Abort" variant="outline" onPress={() => step(() => (rebase ? git.rebaseAbort() : git.cherryPickAbort()))} disabled={busy} testID="gp-op-abort" />
+        {rebase && <Button title="Skip" variant="outline" onPress={() => step(() => git.rebaseSkip())} disabled={busy} testID="gp-op-skip" />}
+        <Button
+          title="Continue"
+          icon="check"
+          onPress={() => step(() => (rebase ? git.rebaseContinue() : git.cherryPickContinue()))}
+          disabled={busy || conflicts.length > 0}
+          testID="gp-op-continue"
+        />
+      </View>
+    </View>
+  );
+}
+
+function Stashes({ git, act, busy, setDetail, status, dirty }: Omit<Shared, 'setTab' | 'refresh'> & { status: Status; dirty: boolean }) {
+  const styles = useStyles();
+  const colors = useColors();
+  const [list, setList] = useState<StashEntry[] | null>(null);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    git.stashes().then(setList, () => setList([]));
+  }, [git, status]);
+
+  const applied = (r: { conflicts: string[] }, popped: boolean) => {
+    if (r.conflicts.length)
+      Alert.alert('Stash conflicts', `Resolve the conflicts in ${r.conflicts.join(', ')} and stage the files.${popped ? ' The stash was kept.' : ''}`);
+  };
+  const drop = (s: StashEntry) =>
+    Alert.alert(`Drop ${s.message}?`, 'The stashed changes will be lost.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Drop', style: 'destructive', onPress: () => act(() => git.stashDrop(s.index)) },
+    ]);
+
+  return (
+    <View style={styles.gap}>
+      <View style={styles.sectionHead}>
+        <Text variant="label" style={styles.flex}>
+          Stashes ({list?.length ?? 0})
+        </Text>
+        <IconButton icon="archive" label="Stash changes" onPress={() => setSaving(true)} disabled={busy || !dirty} testID="gp-stash-save" />
+      </View>
+      {list?.length === 0 && <Text variant="muted">Stash puts your changes aside and leaves the files as they were at the last commit.</Text>}
+      {list?.map((s) => (
+        <Pressable
+          accessibilityRole="button"
+          key={s.oid}
+          testID={`gp-stash-${s.index}`}
+          onPress={() => setDetail({ kind: 'commit', stash: true, commit: { oid: s.oid, message: s.message, author: 'stash', timestamp: s.timestamp, parents: s.parents.slice(0, 1) } })}
+          style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.secondary }]}
+        >
+          <Feather name="archive" size={16} color={colors.mutedForeground} />
+          <View style={styles.flex}>
+            <Text numberOfLines={1}>{s.message}</Text>
+            <Text variant="muted">
+              stash@{'{'}
+              {s.index}
+              {'}'} · {ago(s.timestamp)}
+            </Text>
+          </View>
+          <IconButton icon="corner-down-left" label={`Apply ${s.message}`} onPress={() => act(() => git.stashApply(s.index).then((r) => applied(r, false)), true)} testID={`gp-stash-apply-${s.index}`} />
+          <IconButton icon="download" label={`Pop ${s.message}`} onPress={() => act(() => git.stashPop(s.index).then((r) => applied(r, true)), true)} testID={`gp-stash-pop-${s.index}`} />
+          <IconButton icon="trash-2" label={`Drop ${s.message}`} onPress={() => drop(s)} testID={`gp-stash-drop-${s.index}`} />
+        </Pressable>
+      ))}
+      <FormSheet
+        visible={saving}
+        title="Stash changes"
+        description="Your changes are saved aside and the files go back to the last commit."
+        confirmLabel="Stash"
+        fields={[
+          { key: 'message', label: 'Message', placeholder: 'What you were doing (optional)' },
+          {
+            key: 'untracked',
+            label: 'New files',
+            choices: [
+              { value: '1', label: 'Include' },
+              { value: '0', label: 'Leave' },
+            ],
+          },
+        ]}
+        onClose={() => setSaving(false)}
+        onSubmit={async (v) => {
+          if (!(await act(() => git.stashPush(v.message.trim(), v.untracked === '1'), true))) throw new Error('Could not stash the changes');
+        }}
+      />
     </View>
   );
 }
@@ -333,11 +470,12 @@ function FileDiff({ git, act, busy, ctx, path, staged }: Shared & { path: string
   );
 }
 
-function BranchList({ git, act, busy, status }: Shared & { status: Status }) {
+function BranchList({ git, act, busy, status, setTab }: Shared & { status: Status }) {
   const styles = useStyles();
   const colors = useColors();
   const [branches, setBranches] = useState<Branches | null>(null);
   const [creating, setCreating] = useState(false);
+  const [choosingBase, setChoosingBase] = useState(false);
   useEffect(() => {
     git.branches().then(setBranches, () => setBranches({ current: null, local: [], remote: [] }));
   }, [git, status]);
@@ -366,9 +504,39 @@ function BranchList({ git, act, busy, status }: Shared & { status: Status }) {
       },
     ]);
 
+  const rebaseOnto = (onto: string) =>
+    Alert.alert(`Rebase ${branches.current} onto ${onto}?`, `Your commits on ${branches.current} are replayed one by one on top of ${onto}. Their ids change.`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Rebase',
+        onPress: () =>
+          act(async () => {
+            const r = await git.rebase(onto);
+            if (r.status === 'up-to-date') Alert.alert('Rebase', `${branches.current} already has everything in ${onto}.`);
+            const note = explainPick(r, 'Rebase');
+            if (note) Alert.alert('Rebase', note);
+            if (r.status === 'conflict') setTab('changes');
+          }, true),
+      },
+    ]);
+  const bases = [...branches.local.filter((b) => b !== branches.current), ...branches.remote];
+
   return (
     <View style={styles.gap}>
-      <Button title="New branch" variant="outline" icon="plus" onPress={() => setCreating(true)} disabled={busy} testID="gp-new-branch" />
+      <View style={styles.actions}>
+        <Button
+          title="Rebase onto…"
+          variant="outline"
+          icon="git-pull-request"
+          onPress={() => {
+            if (dirty) Alert.alert('Uncommitted changes', 'Commit or stash your changes before rebasing.');
+            else setChoosingBase(true);
+          }}
+          disabled={busy || !branches.current || !bases.length || !!status.operation}
+          testID="gp-rebase"
+        />
+        <Button title="New branch" variant="outline" icon="plus" onPress={() => setCreating(true)} disabled={busy} testID="gp-new-branch" />
+      </View>
       <Text variant="label">Local</Text>
       {branches.local.map((b) => {
         const current = b === branches.current;
@@ -402,6 +570,12 @@ function BranchList({ git, act, busy, status }: Shared & { status: Status }) {
           <IconButton icon="git-merge" label={`Merge ${b}`} onPress={() => merge(b)} />
         </Pressable>
       ))}
+      <Tags git={git} act={act} busy={busy} status={status} />
+      <ActionSheet
+        title={choosingBase ? `Rebase ${branches.current} onto` : null}
+        actions={bases.map((b) => ({ label: b, icon: branches.remote.includes(b) ? 'cloud' : 'git-branch', onPress: () => rebaseOnto(b) }))}
+        onClose={() => setChoosingBase(false)}
+      />
       <PromptSheet
         visible={creating}
         title="New branch from the current commit"
@@ -411,6 +585,64 @@ function BranchList({ git, act, busy, status }: Shared & { status: Status }) {
         onSubmit={async (name) => {
           if (!/^[\w./-]+$/.test(name) || name.includes('..')) throw new Error('Use letters, numbers, dots, dashes and slashes');
           if (!(await act(() => git.createBranch(name), true))) throw new Error('Could not create the branch');
+        }}
+      />
+    </View>
+  );
+}
+
+function Tags({ git, act, busy, status }: Pick<Shared, 'git' | 'act' | 'busy'> & { status: Status }) {
+  const styles = useStyles();
+  const colors = useColors();
+  const [tags, setTags] = useState<Tag[] | null>(null);
+  const [creating, setCreating] = useState(false);
+  const load = useCallback(() => git.tags().then(setTags, () => setTags([])), [git]);
+  useEffect(() => {
+    load();
+  }, [load, status]);
+  const run = (step: () => Promise<unknown>) => act(step).then(load);
+  const remove = (t: Tag) =>
+    Alert.alert(`Delete tag ${t.name}?`, 'Only the local tag is deleted; a pushed one stays on the remote.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => run(() => git.deleteTag(t.name)) },
+    ]);
+  return (
+    <View style={styles.gap}>
+      <View style={styles.sectionHead}>
+        <Text variant="label" style={styles.flex}>
+          Tags
+        </Text>
+        <IconButton icon="plus" label="New tag" onPress={() => setCreating(true)} disabled={busy} testID="gp-new-tag" />
+      </View>
+      {tags?.length === 0 && <Text variant="muted">No tags. A tag names a commit, such as a release.</Text>}
+      {tags?.map((t) => (
+        <View key={t.name} style={styles.row} testID={`gp-tag-${t.name}`}>
+          <Feather name="tag" size={16} color={colors.mutedForeground} />
+          <View style={styles.flex}>
+            <Text numberOfLines={1}>{t.name}</Text>
+            <Text variant="muted" numberOfLines={1}>
+              {t.oid.slice(0, 7)}
+              {t.message ? ` · ${t.message.split('\n')[0]}` : ''}
+            </Text>
+          </View>
+          <IconButton icon="upload" label={`Push ${t.name}`} onPress={() => run(() => git.pushTag(t.name))} testID={`gp-tag-push-${t.name}`} />
+          <IconButton icon="trash-2" label={`Delete ${t.name}`} onPress={() => remove(t)} testID={`gp-tag-delete-${t.name}`} />
+        </View>
+      ))}
+      <FormSheet
+        visible={creating}
+        title="New tag on the current commit"
+        confirmLabel="Create tag"
+        fields={[
+          { key: 'name', label: 'Name', placeholder: 'v1.0.0', required: true, mono: true },
+          { key: 'message', label: 'Message', placeholder: 'Optional; makes an annotated tag', multiline: true },
+        ]}
+        onClose={() => setCreating(false)}
+        onSubmit={async (v) => {
+          const name = v.name.trim();
+          if (!/^[\w./-]+$/.test(name) || name.includes('..')) throw new Error('Use letters, numbers, dots, dashes and slashes');
+          if (!(await act(() => git.createTag(name, v.message.trim())))) throw new Error('Could not create the tag');
+          await load();
         }}
       />
     </View>
@@ -448,9 +680,24 @@ function History({ git, setDetail }: Shared) {
   );
 }
 
-function CommitDetail({ git, setDetail, commit }: Shared & { commit: CommitInfo }) {
+function CommitDetail({ git, act, busy, setDetail, setTab, commit, stash }: Shared & { commit: CommitInfo; stash: boolean }) {
   const styles = useStyles();
   const colors = useColors();
+  const cherryPick = () =>
+    Alert.alert('Cherry-pick this commit?', 'Its changes are applied on top of the current branch as a new commit.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Cherry-pick',
+        onPress: () =>
+          act(async () => {
+            const r = await git.cherryPick(commit.oid);
+            const note = explainPick(r, 'Cherry-pick');
+            if (note) Alert.alert('Cherry-pick', note);
+            setDetail(null);
+            setTab(r.status === 'conflict' ? 'changes' : 'history');
+          }, true),
+      },
+    ]);
   const [files, setFiles] = useState<Awaited<ReturnType<typeof git.commitFiles>> | null>(null);
   useEffect(() => {
     git.commitFiles(commit.oid).then(setFiles, () => setFiles([]));
@@ -464,6 +711,11 @@ function CommitDetail({ git, setDetail, commit }: Shared & { commit: CommitInfo 
         {commit.oid.slice(0, 7)} · {commit.author} · {new Date(commit.timestamp * 1000).toLocaleString()}
         {commit.parents.length > 1 ? ' · merge commit' : ''}
       </Text>
+      {!stash && commit.parents.length === 1 && (
+        <View style={styles.actions}>
+          <Button title="Cherry-pick this commit" variant="outline" icon="git-commit" onPress={cherryPick} disabled={busy} testID="gp-cherry-pick" />
+        </View>
+      )}
       {!files && <Text variant="muted">Loading...</Text>}
       {files?.map((f) => (
         <Pressable accessibilityRole="button"
@@ -521,6 +773,8 @@ const useStyles = makeStyles((colors) => ({
     backgroundColor: colors.destructiveSoft,
   },
   banner: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.lg, backgroundColor: colors.warningSoft },
+  operation: { flexDirection: 'column', alignItems: 'stretch', marginBottom: spacing.md },
+  bannerHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   sectionHead: { flexDirection: 'row', alignItems: 'center', marginTop: spacing.sm },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 40, paddingHorizontal: spacing.xs, borderRadius: radius.sm },
   input: {

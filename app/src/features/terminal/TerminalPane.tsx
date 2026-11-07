@@ -8,6 +8,9 @@ import { PROJECTS_DIR } from '../files/workspace';
 import { useTerminalTheme } from '../../extensions/themes';
 
 import type { TerminalBackend } from './backend';
+import { openProjectDb } from '../database/open';
+import { projectEnv, readSecrets } from '../env/store';
+import { autoDeployer } from '../deploy';
 import { parseFromTerminal, ToTerminal } from './bridge';
 import { gitEnv } from '../git/settings';
 import type { Shortcut } from '../project/shortcuts';
@@ -19,7 +22,14 @@ import { makeStyles, useColorScheme } from '../../theme/theme';
 export interface TerminalHandle {
   input(data: string): void;
   blur(): void;
+  find(query: string, backwards?: boolean, caseSensitive?: boolean): void;
+  clearFind(): void;
+  // The last few thousand characters of output, without colors.
+  recentOutput(): string;
 }
+
+const RECENT_CHARS = 8000;
+const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '');
 
 interface TerminalPaneProps {
   project: string;
@@ -27,13 +37,24 @@ interface TerminalPaneProps {
   onShortcut(id: Shortcut): void;
   // Remote mode passes its PTY; read once, when the pane mounts.
   createBackend?: (write: (data: string) => void) => TerminalBackend;
+  // Results of find(): the active match (-1 when unknown) and how many there are.
+  onFound?(index: number, count: number): void;
+  // A file:line reference in the output was tapped; the path is as printed.
+  onOpenFile?(path: string, line: number, column?: number): void;
+  // Everything the terminal prints, and each Enter typed into it (Problems use both).
+  onOutput?(data: string): void;
+  onSubmit?(): void;
+  // Local shell only: a command started (true) or the prompt is back (false).
+  onBusy?(busy: boolean): void;
+  // A program it ran finished, with its exit code.
+  onExit?(code: number): void;
 }
 
 // Output from fast programs arrives in many small chunks; batching them keeps
 // the number of injectJavaScript calls to roughly one per frame.
 const FLUSH_MS = 16;
 
-export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(function TerminalPane({ project, onFocusChange, onShortcut, createBackend }, ref) {
+export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(function TerminalPane({ project, onFocusChange, onShortcut, createBackend, onFound, onOpenFile, onOutput, onSubmit, onBusy, onExit }, ref) {
   const styles = useStyles();
   const webview = useRef<WebView<object>>(null);
   const ready = useRef(false);
@@ -43,13 +64,14 @@ export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(functi
   const scheme = useColorScheme();
   const theme = useTerminalTheme(scheme);
   const fontSize = useSettings((s) => s.terminalFontSize);
+  const font = useSettings((s) => s.codeFont);
 
   const send = useCallback((msg: ToTerminal) => {
     if (!ready.current) return;
     webview.current?.injectJavaScript(`window.tide && window.tide.receive(${JSON.stringify(JSON.stringify(msg))});true;`);
   }, []);
 
-  const sendTheme = useCallback(() => send({ type: 'setTheme', theme, fontSize }), [send, theme, fontSize]);
+  const sendTheme = useCallback(() => send({ type: 'setTheme', theme, fontSize, font }), [send, theme, fontSize, font]);
   useEffect(sendTheme, [sendTheme]);
 
   const flush = useCallback(() => {
@@ -60,8 +82,20 @@ export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(functi
     send({ type: 'write', data });
   }, [send]);
 
+  const recent = useRef('');
+  const outputRef = useRef(onOutput);
+  outputRef.current = onOutput;
+  const submitRef = useRef(onSubmit);
+  submitRef.current = onSubmit;
+  const busyRef = useRef(onBusy);
+  busyRef.current = onBusy;
+  const exitRef = useRef(onExit);
+  exitRef.current = onExit;
   const write = useCallback(
     (data: string) => {
+      const plain = stripAnsi(data);
+      recent.current = (recent.current + plain).slice(-RECENT_CHARS);
+      outputRef.current?.(plain);
       pending.current += data;
       if (timer.current === null) timer.current = setTimeout(flush, FLUSH_MS);
     },
@@ -77,6 +111,16 @@ export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(functi
       write,
       projectRoot: `${PROJECTS_DIR}/${project}`,
       toolEnv: gitEnv,
+      sqlite: { open: (path) => openProjectDb(project, path) },
+      projectEnv: async () => {
+        const [values, secrets] = await Promise.all([projectEnv(project), readSecrets(project)]);
+        return { values, secrets: Object.keys(secrets) };
+      },
+      onBusy: (busy) => busyRef.current?.(busy),
+      onRunExit: (entry, args, code) => {
+        exitRef.current?.(code);
+        if (entry === 'tide:git' && args[0] === 'commit' && code === 0) autoDeployer.onCommit(project).catch(() => undefined);
+      },
     });
   }
 
@@ -93,6 +137,9 @@ export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(functi
     () => ({
       input: (data) => shell.current?.input(data),
       blur: () => send({ type: 'blur' }),
+      find: (query, backwards = false, caseSensitive = false) => send({ type: 'find', query, backwards, caseSensitive }),
+      clearFind: () => send({ type: 'clearFind' }),
+      recentOutput: () => recent.current,
     }),
     [send],
   );
@@ -114,6 +161,7 @@ export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(functi
         flush();
         return;
       case 'input':
+        if (msg.data.includes('\r')) submitRef.current?.();
         shell.current?.input(msg.data);
         return;
       case 'resize':
@@ -125,11 +173,17 @@ export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(functi
       case 'link':
         Linking.openURL(msg.url).catch(() => undefined);
         return;
+      case 'openFile':
+        onOpenFile?.(msg.path, msg.line, msg.column);
+        return;
       case 'shortcut':
         onShortcut(msg.id);
         return;
       case 'zoom':
         settingsStore.getState().setTerminalFontSize(msg.fontSize);
+        return;
+      case 'found':
+        onFound?.(msg.index, msg.count);
         return;
     }
   }

@@ -1,4 +1,4 @@
-// The Git Pro and Debugger screens rendered against a real git repository
+// The Git Tools and Debugger screens rendered against a real git repository
 // (the built-in CLI on the host's Node) and a fake runner.
 /// <reference types="node" />
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
@@ -45,11 +45,13 @@ jest.mock('../../state', () => {
   const { useStore } = jest.requireActual('zustand');
   return {
     useSettings: (selector: (s: unknown) => unknown) => useStore(settings, selector),
+    settingsStore: settings,
     storage: { getItem: async () => null, setItem: async () => undefined, removeItem: async () => undefined },
-    buffersStore: createStore(() => ({ buffers: {}, flushProject: async () => undefined, reload: async () => undefined, replace: async () => undefined })),
+    buffersStore: createStore(() => ({ buffers: {}, flushProject: async () => undefined, reload: async () => undefined, reloadProject: async () => undefined, replace: async () => undefined })),
     projectsStore: createStore(() => ({ loadTree: async () => undefined })),
     tabsStore: createStore(() => ({ byProject: {} })),
     workspace: { readFile: async () => { throw new Error('none'); }, writeFile: async () => undefined },
+    onProjectChange: () => undefined,
   };
 });
 jest.mock('../../state/tabs', () => ({ projectTabs: () => ({ open: [], active: null }) }));
@@ -71,7 +73,7 @@ const ctx: ProjectContext = {
 
 const settle = () => act(async () => new Promise((r) => setTimeout(r, 50)));
 
-describe('Git Pro panel', () => {
+describe('Git Tools panel', () => {
   beforeAll(() => {
     git(['init']);
     fs.writeFileSync(path.join(repoDir, 'a.txt'), 'one\ntwo\nthree\n');
@@ -116,6 +118,56 @@ describe('Git Pro panel', () => {
     await settle();
     expect(screen.getByText('Shout two')).toBeTruthy();
     expect(screen.getByText('first')).toBeTruthy();
+  });
+
+  it('rebases onto a branch, shows the conflict and aborts it', async () => {
+    const { Alert } = jest.requireActual('react-native');
+    // Confirms every question by pressing its last button.
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation((...args: unknown[]) => {
+      const buttons = args[2] as { onPress?: () => void }[] | undefined;
+      buttons?.[buttons.length - 1]?.onPress?.();
+    });
+    git(['checkout', '-b', 'side']);
+    fs.writeFileSync(path.join(repoDir, 'a.txt'), 'one\nSIDE\nthree\n');
+    git(['commit', '-a', '-m', 'side change']);
+    git(['checkout', 'main']);
+    fs.writeFileSync(path.join(repoDir, 'a.txt'), 'one\nMAIN\nthree\n');
+    git(['commit', '-a', '-m', 'main change']);
+
+    await render(<GitProPanel ctx={ctx} visible onClose={() => undefined} />);
+    await settle();
+    await fireEvent(screen.getByTestId('gp-tab-branches'), 'press');
+    await settle();
+    await fireEvent.press(screen.getByTestId('gp-rebase'));
+    await settle();
+    // The last 'side' is the sheet's; the first is the branch row.
+    await fireEvent.press(screen.getAllByText('side').pop()!);
+    await settle();
+    expect(screen.getByTestId('gp-operation')).toHaveTextContent(/Rebasing main onto [0-9a-f]{7} \(1\/1\), stopped at main change/);
+    expect(fs.readFileSync(path.join(repoDir, 'a.txt'), 'utf8')).toContain('<<<<<<< HEAD\nSIDE\n=======\nMAIN\n');
+    expect(screen.getByTestId('gp-unstaged-a.txt')).toBeTruthy();
+    expect(screen.getByTestId('gp-op-continue')).toBeDisabled();
+
+    await fireEvent.press(screen.getByTestId('gp-op-abort'));
+    await settle();
+    expect(screen.queryByTestId('gp-operation')).toBeNull();
+    expect(fs.readFileSync(path.join(repoDir, 'a.txt'), 'utf8')).toBe('one\nMAIN\nthree\n');
+
+    // Re-applying an old change to lines changed since conflicts, as in real git.
+    await fireEvent(screen.getByTestId('gp-tab-history'), 'press');
+    await settle();
+    await fireEvent.press(screen.getByText('Shout two'));
+    await settle();
+    await fireEvent.press(screen.getByTestId('gp-cherry-pick'));
+    await settle();
+    expect(alert).toHaveBeenLastCalledWith('Cherry-pick', 'Shout two conflicts in a.txt. Resolve them in the editor, stage each file, then Continue.');
+    expect(screen.getByTestId('gp-operation')).toHaveTextContent(/Cherry-picking [0-9a-f]{7} Shout two/);
+    expect(screen.queryByTestId('gp-op-skip')).toBeNull();
+    await fireEvent.press(screen.getByTestId('gp-op-abort'));
+    await settle();
+    expect(screen.queryByTestId('gp-operation')).toBeNull();
+    expect(fs.readFileSync(path.join(repoDir, 'a.txt'), 'utf8')).toBe('one\nMAIN\nthree\n');
+    alert.mockRestore();
   });
 });
 

@@ -30,7 +30,7 @@ class FakeRunner implements Runner {
   }
 }
 
-async function setup() {
+async function setup(projectEnv?: { values: Record<string, string>; secrets: string[] }) {
   const memfs = createMemoryFs();
   const workspace = createWorkspace(memfs);
   await workspace.createProject('demo', 'node-hello');
@@ -47,6 +47,7 @@ async function setup() {
     projectRoot: 'projects/demo',
     newId: () => 'r1',
     toolEnv: () => ({ TIDE_GIT_NAME: 'Ada' }),
+    ...(projectEnv ? { projectEnv: async () => projectEnv } : {}),
   });
   shell.start();
   await tick();
@@ -259,6 +260,31 @@ describe('shell', () => {
     });
   });
 
+  it("gives programs the project's variables, and env shows them with secrets hidden", async () => {
+    const { run, runner } = await setup({ values: { PORT: '4000', API_KEY: 'sk-live', TIDE_GIT_NAME: 'Grace' }, secrets: ['API_KEY'] });
+    await run('node index.js');
+    expect(runner.requests[0].env).toEqual({ PORT: '4000', API_KEY: 'sk-live', TIDE_GIT_NAME: 'Grace' });
+    runner.listener?.({ type: 'exit', id: 'r1', code: 0 });
+    await run('git status');
+    // The tool's own settings win over a same-named project variable.
+    expect(runner.requests[1].env).toMatchObject({ PORT: '4000', TIDE_GIT_NAME: 'Ada' });
+    runner.listener?.({ type: 'exit', id: 'r1', code: 0 });
+    const out = await run('env');
+    expect(out).toContain('PORT=4000');
+    expect(out).toContain('API_KEY=•••••• (Keychain)');
+    expect(out).not.toContain('sk-live');
+    expect(await run('printenv PORT')).toContain('4000');
+    expect(await run('printenv NOPE')).toContain("NOPE isn't set");
+  });
+
+  it('sends no environment when the project has none', async () => {
+    const { run, runner } = await setup();
+    await run('node index.js');
+    expect(runner.requests[0].env).toBeUndefined();
+    runner.listener?.({ type: 'exit', id: 'r1', code: 0 });
+    expect(await run('env')).toContain('No variables yet');
+  });
+
   it('kills the running program when disposed', async () => {
     const { shell, run, runner } = await setup();
     await run('node index.js');
@@ -297,11 +323,158 @@ describe('shell', () => {
     expect(await run('run nope')).toContain('no configuration named "nope"; tide.json has Default, Server');
   });
 
+  it('runs TypeScript with node, run, tsx and ts-node, noting once that types are not checked', async () => {
+    const { run, runner, workspace, memfs } = await setup();
+    await memfs.writeFile('projects/demo/index.ts', 'const n: number = 1;\n');
+    const exit = () => runner.listener?.({ type: 'exit', id: 'r1', code: 0 });
+    const first = await run('node index.ts world');
+    expect(runner.requests[0]).toEqual({ type: 'run', id: 'r1', runtime: 'node', entry: 'projects/demo/index.ts', cwd: 'projects/demo', args: ['world'] });
+    expect(first).toContain('tide: running TypeScript without type-checking');
+    exit();
+    await tick();
+
+    expect(await run('npx tsx index.ts a')).not.toContain('type-checking');
+    exit();
+    await run('npx ts-node --transpile-only -P tsconfig.json index.ts b');
+    exit();
+    await run('tsx -- index.ts c');
+    exit();
+    await workspace.writeFile('demo', 'tide.json', JSON.stringify({ runtime: 'node', entry: 'index.ts' }));
+    await run('run');
+    exit();
+    expect(runner.requests.slice(1).map((r) => [r.runtime, r.entry, r.args])).toEqual([
+      ['node', 'projects/demo/index.ts', ['a']],
+      ['node', 'projects/demo/index.ts', ['b']],
+      ['node', 'projects/demo/index.ts', ['c']],
+      ['node', 'projects/demo/index.ts', []],
+    ]);
+    expect(await run('tsx watch index.ts')).toContain('watch mode needs the Remote terminal');
+    expect(await run('npx tsx')).toContain('usage: tsx <file>');
+  });
+
+  it('runs package.json scripts that use tsx', async () => {
+    const { run, runner, memfs } = await setup();
+    await memfs.writeFile('projects/demo/src/main.ts', '');
+    await memfs.writeFile('projects/demo/package.json', JSON.stringify({ scripts: { start: 'tsx src/main.ts --port 1', dev: 'npx ts-node src/main.ts' } }));
+    await run('npm start');
+    expect(runner.requests[0]).toMatchObject({ runtime: 'node', entry: 'projects/demo/src/main.ts', args: ['--port', '1'] });
+    runner.listener?.({ type: 'exit', id: 'r1', code: 0 });
+    await tick();
+    await run('npm run dev');
+    expect(runner.requests[1]).toMatchObject({ runtime: 'node', entry: 'projects/demo/src/main.ts', args: [] });
+  });
+
   it('shell writes replace an open editor buffer', async () => {
     const { run, buffers } = await setup();
     await buffers.getState().load('demo', 'index.js');
     buffers.getState().edit('demo', 'index.js', 'unsaved');
     await run('echo overwritten > index.js');
     expect(buffers.getState().buffers['demo\u0000index.js']).toEqual({ content: 'overwritten\n', saved: 'overwritten\n' });
+  });
+
+  it('saves pending edits before a program starts and rereads clean buffers when it exits', async () => {
+    const { run, buffers, workspace, runner } = await setup();
+    await buffers.getState().load('demo', 'index.js');
+    await buffers.getState().load('demo', 'tide.json');
+    buffers.getState().edit('demo', 'index.js', 'console.log(1)');
+    await run('node index.js');
+    // The program sees the unsaved text.
+    expect(runner.requests).toHaveLength(1);
+    expect(await workspace.readFile('demo', 'index.js')).toBe('console.log(1)');
+    // The program rewrites files on disk (like git pull or npm install).
+    await workspace.writeFile('demo', 'index.js', 'from program');
+    await workspace.writeFile('demo', 'tide.json', '{}');
+    runner.listener?.({ type: 'exit', id: 'r1', code: 0 });
+    await tick();
+    expect(buffers.getState().buffers['demo\u0000index.js']).toEqual({ content: 'from program', saved: 'from program' });
+    expect(buffers.getState().buffers['demo\u0000tide.json'].content).toBe('{}');
+    await buffers.getState().flushProject('demo');
+    expect(await workspace.readFile('demo', 'index.js')).toBe('from program');
+  });
+});
+
+describe('npm run in the Local terminal', () => {
+  const exit = (runner: FakeRunner, code: number) => runner.listener?.({ type: 'exit', id: 'r1', code });
+  async function withPackage() {
+    const t = await setup();
+    await t.memfs.writeFile('projects/demo/package.json', JSON.stringify({
+      scripts: { pretest: 'node lint.js', test: 'NODE_ENV=test node index.js && echo done', build: 'tsc -p .', bad: 'cat x | grep y', start: 'node index.js' },
+    }));
+    await t.memfs.writeFile('projects/demo/lint.js', '');
+    await t.memfs.writeFile('projects/demo/node_modules/typescript/package.json', JSON.stringify({ name: 'typescript', bin: { tsc: './bin/tsc' } }));
+    return t;
+  }
+
+  it('lists scripts and runs pre-scripts, env prefixes and && chains in order', async () => {
+    const t = await withPackage();
+    expect(await t.run('npm run')).toContain('NODE_ENV=test node index.js && echo done');
+    await t.run('npm test');
+    expect(t.runner.requests.map((r) => r.entry)).toEqual(['projects/demo/lint.js']);
+    exit(t.runner, 0);
+    await tick();
+    expect(t.runner.requests[1]).toMatchObject({ entry: 'projects/demo/index.js', env: expect.objectContaining({ NODE_ENV: 'test' }) });
+    exit(t.runner, 0);
+    await tick();
+    expect(t.out()).toContain('done');
+    expect(t.out()).toContain('> test');
+  });
+
+  it('stops at a failing step, and runs node_modules binaries with node', async () => {
+    const t = await withPackage();
+    await t.run('npm test');
+    exit(t.runner, 2);
+    await tick();
+    expect(t.runner.requests).toHaveLength(1);
+    expect(t.out()).toContain('npm run pretest failed with exit code 2');
+
+    await t.run('npm run build -- --noEmit');
+    expect(t.runner.requests[1]).toMatchObject({ runtime: 'node', entry: 'projects/demo/node_modules/typescript/bin/tsc', args: ['-p', '.', '--noEmit'] });
+    exit(t.runner, 0);
+    await tick();
+    await t.run('npx tsc --version');
+    expect(t.runner.requests[2]).toMatchObject({ entry: 'projects/demo/node_modules/typescript/bin/tsc', args: ['--version'] });
+  });
+
+  it('explains scripts it can’t run locally, and missing ones', async () => {
+    const t = await withPackage();
+    expect(await t.run('npm run bad')).toContain('needs a full shell');
+    expect(await t.run('npm run nope')).toContain('missing script: "nope"');
+    await t.memfs.writeFile('projects/demo/package.json', JSON.stringify({ scripts: { lint: 'eslint .' } }));
+    expect(await t.run('npm run lint')).toContain('eslint: not available in Local mode');
+  });
+
+  it('still sends npm install to the built-in npm', async () => {
+    const t = await withPackage();
+    await t.run('npm install left-pad');
+    expect(t.runner.requests[0]).toMatchObject({ entry: 'tide:npm', args: ['install', 'left-pad'] });
+  });
+});
+
+describe('busy reporting', () => {
+  it('reports busy while a program runs and idle back at the prompt', async () => {
+    const memfs = createMemoryFs();
+    const workspace = createWorkspace(memfs);
+    await workspace.createProject('demo', 'node-hello');
+    const tabs = createTabsStore(createFsStorage(memfs));
+    const buffers = createBuffersStore(workspace);
+    const projects = createProjectsStore(workspace, tabs, buffers);
+    const runner = new FakeRunner();
+    const busy: boolean[] = [];
+    const shell = new Shell({
+      project: 'demo',
+      fs: createShellFs('demo', workspace, projects, buffers),
+      runner,
+      write: () => undefined,
+      projectRoot: 'projects/demo',
+      newId: () => 'r1',
+      onBusy: (b) => busy.push(b),
+    });
+    shell.start();
+    shell.input('node index.js\r');
+    await tick();
+    expect(busy).toEqual([true]);
+    runner.listener!({ type: 'exit', id: 'r1', code: 0 } as RunnerMessage);
+    await tick();
+    expect(busy).toEqual([true, false]);
   });
 });

@@ -1,7 +1,8 @@
 // Messages spoken by every runner (local Node, local Python, remote). The
 // terminal UI only knows these types, never which runner is behind them.
 
-export type Runtime = 'node' | 'python';
+// Lua runs on the Node runtime (fengari); Ruby and PHP on WebAssembly in a web view.
+export type Runtime = 'node' | 'python' | 'lua' | 'ruby' | 'php';
 
 // Optional per-run caps. Local runners apply defaults when they are missing.
 export type RunLimits = { maxMemoryMb?: number; timeoutMs?: number };
@@ -94,13 +95,97 @@ export type Envelope<T> = { n: number; m: T };
 // relative to the project root; contents are base64 so binary files survive.
 export type SyncFile = { type: 'file'; path: string; data: string };
 export type SyncDelete = { type: 'delete'; path: string };
-// App -> server once per connection: the whole project, before the shell is used.
-export type SyncInit = { type: 'init'; files: { path: string; data: string }[] };
+// App -> server once per connection: the whole project, before the shell is
+// used. Sent in batches that each stay under SyncLimits['initBatchBytes'] of file
+// data; every batch but the last has `more: true`. Flow control: the server
+// answers each `more` batch with 'init-ack' once it has applied it, and the app
+// sends the next batch only after that ack (so no more than one batch is ever
+// queued in the phone's socket). The server answers 'ready' after the last one.
+// A single init without `more` is the whole project.
+//
+// The server reconciles the init against the container (three-way, using the
+// content it last saw both sides agree on, kept per session across reconnects):
+// a side that changed wins over one that didn't; when both changed, the
+// container's file keeps its name and the phone's version is written next to it
+// as `<name>.phone-conflict` (both are then sent to the app). Container changes
+// made while disconnected reach the app as 'file' / 'delete' before 'ready'.
+export type SyncInit = { type: 'init'; files: { path: string; data: string }[]; more?: boolean };
+// Server -> app: the init batch before this was applied; send the next one.
+export type SyncInitAck = { type: 'init-ack' };
+// App -> server, once for every 'file' or 'delete' the server sent, in order,
+// after applying it. `ok: false` means the app could not store it (an invalid
+// name on the phone, a full disk): the app then treats the path as container-owned
+// (like 'skipped'), and the server never deletes it on the app's behalf.
+export type SyncAck = { type: 'ack'; path: string; ok: boolean };
 // Server -> app: the set of ports something is listening on in the container.
 export type SyncPorts = { type: 'ports'; ports: number[] };
+// Server -> app: the container owns `path`: its copy is over SyncLimits['maxBytes'],
+// or it is a symlink (or inside a symlinked folder), so it is not synced. The
+// container's copy wins: the app stops sending that path (and the server drops
+// writes to it) until that changes, which the app learns from a 'file' or
+// 'delete' for it.
+export type SyncSkipped = { type: 'skipped'; path: string };
 
-export type SyncToServer = SyncInit | SyncFile | SyncDelete;
-export type SyncToApp = SyncFile | SyncDelete | SyncPorts | { type: 'ready' };
+export type SyncToServer = SyncInit | SyncFile | SyncDelete | SyncAck;
+export type SyncToApp = SyncFile | SyncDelete | SyncPorts | SyncSkipped | SyncInitAck | { type: 'ready' };
+
+// This file holds types only (shared/ is loaded as CommonJS by the server's
+// typecheck), so sync constants are literal types that each side's runtime
+// values are checked against.
+export type SyncLimits = {
+  // Files bigger than this aren't synced either way.
+  maxBytes: 2097152;
+  // Budget for the base64 file data in one init batch. The server's WebSocket
+  // message limit is 64 MB; one batch is at most this plus one file.
+  initBatchBytes: 8388608;
+};
+
+// Folders never synced, at any depth: dependencies, VCS data, and build or
+// tool caches whose names nobody gives a source folder. They are regenerated in
+// the container and can be huge. 'dist', 'build' and 'out' are deliberately not
+// here, since some projects keep sources or checked-in assets in them (batched
+// init keeps big ones safe).
+// The runtime lists (server/src/syncRules.ts, app/src/features/remote/syncRules.ts)
+// must name exactly these (checked by tsc); server/src/watcher.py has a copy
+// that a server test compares.
+export type SyncSkipDir =
+  | 'node_modules'
+  | '.git'
+  | '__pycache__'
+  | '.pylibs'
+  | '.venv'
+  | '.next'
+  | '.nuxt'
+  | '.svelte-kit'
+  | '.turbo'
+  | '.parcel-cache'
+  | '.angular'
+  | '.expo'
+  | '.gradle'
+  | '.dart_tool'
+  | '.pytest_cache'
+  | '.mypy_cache'
+  | '.ruff_cache'
+  | '.tox'
+  | '.nyc_output';
+
+// Folders never synced only at the project root: generic names that are build
+// output or caches there (cargo's target, coverage reports, a virtualenv) but
+// can be real source folders deeper down (src/features/coverage/). Same
+// runtime copies and checks as SyncSkipDir.
+export type SyncRootSkipDir = 'venv' | '.cache' | 'coverage' | 'target';
+
+// Resolves to T only when T lists every member of All (use with `satisfies`).
+type ListsAll<All extends string, T extends readonly All[]> = [Exclude<All, T[number]>] extends [never] ? T : never;
+export type AllSyncSkipDirs<T extends readonly SyncSkipDir[]> = ListsAll<SyncSkipDir, T>;
+export type AllSyncRootSkipDirs<T extends readonly SyncRootSkipDir[]> = ListsAll<SyncRootSkipDir, T>;
 
 // POST /sessions response.
-export type SessionInfo = { id: string; project: string; previewBase: string };
+// Bumped whenever the app and the server stop understanding each other's sync
+// or session messages. The app refuses a server whose number doesn't match,
+// rather than syncing with rules the other side doesn't follow.
+// 2: acked, batched init with a three-way reconnect merge (Tide 2.0.0).
+export type SyncProtocol = 2;
+
+// `protocol` is missing on servers older than protocol 2.
+export type SessionInfo = { id: string; project: string; previewBase: string; protocol?: number };

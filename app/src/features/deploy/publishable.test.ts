@@ -1,0 +1,49 @@
+import { isPublishable } from './publishable';
+
+describe('isPublishable', () => {
+  it.each([
+    'index.html',
+    'assets/app.js',
+    '_headers',
+    '_redirects',
+    '.nojekyll',
+    '.well-known/security.txt',
+    '.well-known/apple-app-site-association',
+    'keyboard.html',
+    'img/monkey.png',
+    'docs/env.md',
+  ])('publishes %s', (path) => expect(isPublishable(path)).toBe(true));
+
+  it.each([
+    '.env',
+    '.env.local',
+    '.env.production',
+    '.env.example',
+    'api/.env',
+    'http-client.private.env.json',
+    'requests/staging.private.env.json',
+    '.npmrc',
+    '.netrc',
+    '.git-credentials',
+    '.git/config',
+    '.ssh/id_ed25519',
+    'id_rsa',
+    'id_rsa.pub',
+    'certs/server.pem',
+    'server.key',
+    'cert.p12',
+    'serviceAccountKey.json',
+    'my-app-firebase-adminsdk-abc12.json',
+    'client_secret_123.json',
+    'credentials.json',
+    'secrets.yml',
+    '.tide/state.json',
+    '.pylibs/x.py',
+    '.DS_Store',
+    '.vscode/settings.json',
+    '.github/workflows/deploy.yml',
+    'node_modules/x/index.js',
+    'lib/__pycache__/a.pyc',
+    '.well-known/.env',
+  ])('keeps %s private', (path) => expect(isPublishable(path)).toBe(false));
+});

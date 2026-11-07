@@ -3,7 +3,7 @@ import { zipSync } from 'fflate';
 import { createMemoryFs } from '../files/memoryFs';
 import { createWorkspace } from '../files/workspace';
 import { AUTO_INTERVAL_MS, createSnapshots, KEEP } from './snapshots';
-import { fromBase64, toBase64, writeEntries, zipEntries, zipProject } from './zip';
+import { fromBase64, SNAPSHOT_FILE_LIMIT, SNAPSHOT_MANIFEST, toBase64, writeEntries, zipEntries, zipProject } from './zip';
 
 async function setup() {
   const fs = createMemoryFs();
@@ -48,7 +48,9 @@ describe('zip', () => {
       'repo-main/src/': new Uint8Array(),
       '__MACOSX/repo-main/._README.md': new Uint8Array([0]),
     });
-    expect(zipEntries(zip).map((e) => e.path).sort()).toEqual(['README.md', 'src/x.py']);
+    expect(zipEntries(zip, { stripTopFolder: true }).map((e) => e.path).sort()).toEqual(['README.md', 'src/x.py']);
+    // Off by default: a snapshot of a project whose files all live in one folder keeps it.
+    expect(zipEntries(zip).map((e) => e.path).sort()).toEqual(['repo-main/README.md', 'repo-main/src/x.py']);
     expect(zipEntries(zipSync({ 'a/../../etc/passwd': new Uint8Array([1]), 'ok.txt': new Uint8Array([1]) })).map((e) => e.path)).toEqual(['ok.txt']);
     expect(() => zipEntries(new Uint8Array([1, 2, 3]))).toThrow('Not a zip file');
   });
@@ -86,6 +88,49 @@ describe('snapshots', () => {
     expect(undo.reason).toBe('before-restore');
     await snapshots.restore('p', undo.id);
     expect(await workspace.readFile('p', 'src/a.js')).toBe('changed\n');
+  });
+
+  it('never deletes files too big to be in the snapshot', async () => {
+    const { workspace, snapshots, tick } = await setup();
+    const big = toBase64(new Uint8Array(SNAPSHOT_FILE_LIMIT + 1));
+    await workspace.writeBase64('p', 'data/big.bin', big);
+    const first = await snapshots.take('p', 'manual');
+    tick(1000);
+    await snapshots.restore('p', first.id);
+    expect(await workspace.readBase64('p', 'data/big.bin')).toBe(big);
+    // The manifest is snapshot bookkeeping, not a project file.
+    expect(await workspace.stat('p', SNAPSHOT_MANIFEST)).toBeNull();
+    // And undoing the restore (whose snapshot skipped it too) keeps it.
+    const [undo] = await snapshots.list('p');
+    await snapshots.restore('p', undo.id);
+    expect(await workspace.readBase64('p', 'data/big.bin')).toBe(big);
+  });
+
+  it('keeps big files when restoring an old snapshot with no manifest', async () => {
+    const { fs, workspace, snapshots } = await setup();
+    // Snapshots from before the manifest: just the files.
+    const { zip } = await zipProject(workspace, 'p', { maxFileBytes: SNAPSHOT_FILE_LIMIT });
+    await fs.writeBase64('.tide/snapshots/p/5-manual.zip', toBase64(zip));
+    const big = toBase64(new Uint8Array(SNAPSHOT_FILE_LIMIT + 1));
+    await workspace.writeBase64('p', 'big.bin', big);
+    await workspace.createFile('p', '', 'small.txt', 'added later');
+    await snapshots.restore('p', '5-manual.zip');
+    expect(await workspace.readBase64('p', 'big.bin')).toBe(big);
+    expect(await workspace.stat('p', 'small.txt')).toBeNull();
+  });
+
+  it('restores a project whose files all live under one folder without moving them', async () => {
+    const fs = createMemoryFs();
+    const workspace = createWorkspace(fs);
+    await workspace.createEmptyProject('s');
+    await workspace.writeBase64('s', 'site/index.html', toBase64(new Uint8Array(Buffer.from('<p>hi</p>'))));
+    await workspace.writeBase64('s', 'site/style.css', toBase64(new Uint8Array(Buffer.from('p{}'))));
+    const snapshots = createSnapshots(fs, workspace, () => 1);
+    const snap = await snapshots.take('s', 'manual');
+    await workspace.writeFile('s', 'site/index.html', 'changed');
+    await snapshots.restore('s', snap.id);
+    expect((await workspace.listFiles('s')).sort()).toEqual(['site/index.html', 'site/style.css']);
+    expect(await workspace.readFile('s', 'site/index.html')).toBe('<p>hi</p>');
   });
 
   it('keeps fewer when the limit is lowered (free accounts)', async () => {

@@ -1,17 +1,20 @@
 import Feather from '@expo/vector-icons/Feather';
 import { router } from 'expo-router';
-import { ReactNode, useState } from 'react';
-import { Alert, Pressable, ScrollView, Switch, View } from 'react-native';
+import { ReactNode, useEffect, useState } from 'react';
+import { Alert, Platform, Pressable, ScrollView, Switch, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { IconButton } from '../../components/Button';
 import { Segmented } from '../../components/Segmented';
+import type { KeymapSetting } from '../editor/bridge';
+import { accountStore, useAccount } from '../github/account';
 import { Text } from '../../components/Text';
 import { settingsStore, useSettings } from '../../state';
 import { ContrastSetting, EditorOptionKey, FONT_SIZE_MAX, FONT_SIZE_MIN, ThemeSetting } from '../../state/settings';
-import { makeStyles, useColors } from '../../theme/theme';
-import { borderWidth, radius, spacing } from '../../theme/tokens';
+import { makeStyles, useChromeTheme, useColors } from '../../theme/theme';
+import { borderWidth, radius, spacing, fontSizes } from '../../theme/tokens';
 import { useExtensions } from '../../extensions/state';
+import { isActive } from '../../extensions/store';
 import { useGitSettings } from '../git/settings';
 import { crashReportsAvailable } from '../privacy/crashReports';
 import { useRemoteSettings } from '../remote/settings';
@@ -19,9 +22,11 @@ import { appVersion, contactSupport, rateApp } from '../support/actions';
 import { CHANGELOG, Release } from '../support/changelog';
 import { WhatsNewSheet } from '../support/WhatsNewSheet';
 import { Onboarding } from '../onboarding/Onboarding';
-import { requirePro, useIsPro, useProState } from '../pro';
-import { iconsSupported, setProIcon, usingProIcon } from '../pro/appIcon';
-import { proStatus } from '../pro/store';
+import { useAccounts } from '../hosts/accounts';
+import { useAiSettings } from '../ai/settings';
+import { iconsSupported, setMidnightIcon, usingMidnightIcon } from './appIcon';
+import { CodeFontSection } from './CodeFontSection';
+import { ThemeGrid } from './ThemeGrid';
 
 export function SettingsScreen() {
   const styles = useStyles();
@@ -31,20 +36,32 @@ export function SettingsScreen() {
   const terminalFontSize = useSettings((s) => s.terminalFontSize);
   const crashReports = useSettings((s) => s.crashReports);
   const haptics = useSettings((s) => s.haptics);
+  const liveActivities = useSettings((s) => s.liveActivities);
   const contrast = useSettings((s) => s.contrast);
-  const pro = useIsPro();
-  const proDetail = useProState((s) => proStatus(s));
-  const [icon, setIcon] = useState<'standard' | 'pro'>(() => (usingProIcon() ? 'pro' : 'standard'));
+  const matchChrome = useSettings((s) => s.matchChrome);
+  const themesOn = useExtensions((s) => isActive(s, 'themes'));
+  const chromeTheme = useChromeTheme();
+  const keymap = useSettings((s) => s.keymap);
+  const githubUser = useAccount((s) => s.user);
+  useEffect(() => {
+    accountStore.getState().refresh();
+  }, []);
+  const [icon, setIcon] = useState<'standard' | 'midnight'>(() => (usingMidnightIcon() ? 'midnight' : 'standard'));
   const editorOptions: Record<EditorOptionKey, boolean> = {
     wordWrap: useSettings((s) => s.wordWrap),
     folding: useSettings((s) => s.folding),
     indentGuides: useSettings((s) => s.indentGuides),
     minimap: useSettings((s) => s.minimap),
+    emmet: useSettings((s) => s.emmet),
+    errorLens: useSettings((s) => s.errorLens),
   };
+  const snippetCount = useSettings((s) => s.snippets.length);
+  const aiKey = useAiSettings((s) => s.hasKey);
+  const hostCount = useAccounts((s) => s.accounts.length);
   const colors = useColors();
   const remote = useRemoteSettings((s) => s.settings);
   const git = useGitSettings((s) => s.settings);
-  const owned = useExtensions((s) => s.owned.length);
+  const installed = useExtensions((s) => s.installed.length);
   const settings = settingsStore.getState();
   const [whatsNew, setWhatsNew] = useState<Release[] | null>(null);
   const [tour, setTour] = useState(false);
@@ -57,29 +74,6 @@ export function SettingsScreen() {
         <Text variant="title">Settings</Text>
       </View>
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.lg }]}>
-        <Section title="Tide Pro">
-          <LinkRow label={pro ? 'Tide Pro' : 'Get Tide Pro'} detail={proDetail ?? 'Linked folders, compare and merge, every extension and more'} onPress={() => router.push('/pro')} testID="settings-pro" />
-          {iconsSupported() && (
-            <Row label="App icon">
-              <Segmented<'standard' | 'pro'>
-                testID="app-icon"
-                value={icon}
-                onChange={(next) => {
-                  if (next === 'pro' && !requirePro('app-icon')) return;
-                  setProIcon(next === 'pro').then(
-                    () => setIcon(usingProIcon() ? 'pro' : 'standard'),
-                    () => undefined,
-                  );
-                }}
-                options={[
-                  { value: 'standard', label: 'Standard' },
-                  { value: 'pro', label: 'Pro' },
-                ]}
-              />
-            </Row>
-          )}
-        </Section>
-
         <Section title="Appearance">
           <Row label="Theme">
             <Segmented<ThemeSetting>
@@ -93,6 +87,40 @@ export function SettingsScreen() {
               ]}
             />
           </Row>
+          {chromeTheme && (
+            <Text variant="muted" style={styles.hint}>
+              {chromeTheme.name} is {chromeTheme.dark ? 'dark' : 'light'}, so the app is too.
+            </Text>
+          )}
+          <ThemeGrid />
+          {themesOn && (
+            <Row label="Match the whole app to the theme">
+              <Switch
+                testID="match-chrome"
+                value={matchChrome}
+                onValueChange={(on) => settings.setMatchChrome(on)}
+                trackColor={{ true: colors.brand, false: colors.secondary }}
+              />
+            </Row>
+          )}
+          {iconsSupported() && (
+            <Row label="App icon">
+              <Segmented<'standard' | 'midnight'>
+                testID="app-icon"
+                value={icon}
+                onChange={(next) =>
+                  setMidnightIcon(next === 'midnight').then(
+                    () => setIcon(usingMidnightIcon() ? 'midnight' : 'standard'),
+                    () => undefined,
+                  )
+                }
+                options={[
+                  { value: 'standard', label: 'Standard' },
+                  { value: 'midnight', label: 'Midnight' },
+                ]}
+              />
+            </Row>
+          )}
           <Row label="Contrast">
             <Segmented<ContrastSetting>
               testID="contrast"
@@ -113,13 +141,16 @@ export function SettingsScreen() {
           </Row>
         </Section>
 
+        <CodeFontSection />
+
         <Section title="Editor">
           {(
             [
               ['wordWrap', 'Word wrap'],
               ['folding', 'Code folding'],
               ['indentGuides', 'Indent guides'],
-              ['minimap', 'Minimap'],
+              ['minimap', 'Minimap (iPad and wide windows)'],
+              ['errorLens', 'Show problems at the end of the line'],
             ] as [EditorOptionKey, string][]
           ).map(([key, label]) => (
             <Row key={key} label={label}>
@@ -131,6 +162,34 @@ export function SettingsScreen() {
               />
             </Row>
           ))}
+          <Row label="Emmet">
+            <Switch
+              testID="editor-emmet"
+              value={editorOptions.emmet}
+              onValueChange={(on) => settings.setEditorOption('emmet', on)}
+              trackColor={{ true: colors.brand, false: colors.secondary }}
+            />
+          </Row>
+          <LinkRow label="AI assistant" detail={aiKey ? 'Connected · models, completions and spend limit' : 'Claude, GPT, Gemini or your own server, with your own key'} onPress={() => router.push('/settings/ai')} testID="settings-ai" />
+          <LinkRow
+            label="Snippets"
+            detail={snippetCount ? `${snippetCount} saved` : 'Your own, with tab stops'}
+            onPress={() => router.push('/settings/snippets')}
+            testID="settings-snippets"
+          />
+          <LinkRow label="Gestures" detail="Swipe, pinch and pull in the editor" onPress={() => router.push('/settings/gestures')} testID="settings-gestures" />
+          <Row label="Key bindings">
+            <Segmented<KeymapSetting>
+              testID="editor-keymap"
+              value={keymap}
+              onChange={(k) => settings.setKeymap(k)}
+              options={[
+                { value: 'standard', label: 'Standard' },
+                { value: 'vim', label: 'Vim' },
+                { value: 'emacs', label: 'Emacs' },
+              ]}
+            />
+          </Row>
         </Section>
 
         <Section title="Keyboard">
@@ -143,18 +202,40 @@ export function SettingsScreen() {
               trackColor={{ true: colors.brand, false: colors.secondary }}
             />
           </Row>
+          {Platform.OS === 'ios' && (
+            <Row label="Live Activities for runs and tests">
+              <Switch
+                testID="settings-live-activities"
+                value={liveActivities}
+                onValueChange={(on) => settings.setLiveActivities(on)}
+                trackColor={{ true: colors.brand, false: colors.secondary }}
+              />
+            </Row>
+          )}
         </Section>
 
         <Section title="Extensions">
           <LinkRow
             label="Extensions"
-            detail={owned ? `${owned} installed` : 'Themes, linting, Git Pro and more'}
+            detail={installed ? `${installed} installed` : 'Themes, linting, Git tools and more'}
             onPress={() => router.push('/extensions')}
             testID="settings-extensions"
           />
         </Section>
 
         <Section title="Git">
+          <LinkRow
+            label="GitHub"
+            detail={githubUser ? `Signed in as ${githubUser.login}` : 'Repositories, pull requests, issues and Actions'}
+            onPress={() => router.push('/github/account')}
+            testID="settings-github"
+          />
+          <LinkRow
+            label="GitLab and Bitbucket"
+            detail={hostCount ? `${hostCount} ${hostCount === 1 ? 'account' : 'accounts'}` : 'Clone, merge requests, pull requests and issues'}
+            onPress={() => router.push('/hosts')}
+            testID="settings-hosts"
+          />
           <LinkRow
             label="Identity and token"
             detail={git.name ? `${git.name}${git.token ? ', token set' : ''}` : 'Not set up'}
@@ -237,14 +318,15 @@ export function LinkRow({ label, detail, onPress, testID }: { label: string; det
   const colors = useColors();
   return (
     <Pressable testID={testID} accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
-      <Text variant="label" style={styles.rowLabel}>
-        {label}
-      </Text>
-      {detail ? (
-        <Text variant="muted" numberOfLines={1} style={styles.detail}>
-          {detail}
-        </Text>
-      ) : null}
+      {/* The detail goes under the label, so neither gets cut off on a phone. */}
+      <View style={styles.rowLabel}>
+        <Text variant="label">{label}</Text>
+        {detail ? (
+          <Text variant="muted" numberOfLines={2} style={styles.detail}>
+            {detail}
+          </Text>
+        ) : null}
+      </View>
       <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
     </Pressable>
   );
@@ -291,8 +373,9 @@ const useStyles = makeStyles((colors) => ({
   },
   pressed: { backgroundColor: colors.secondary },
   rowLabel: { flex: 1 },
-  detail: { maxWidth: '50%' },
+  detail: { fontSize: fontSizes.sm, marginTop: 1 },
   stepper: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   stepValue: { minWidth: 24, textAlign: 'center' },
   note: { padding: spacing.md },
+  hint: { paddingHorizontal: spacing.md, paddingTop: spacing.sm, fontSize: fontSizes.sm },
 }));

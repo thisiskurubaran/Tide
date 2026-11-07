@@ -1,5 +1,6 @@
 // Themes in the Themes & Icons Pack. Each one colors the editor and the
-// terminal; the app's own screens keep the FuseOps palette. Colors are the
+// terminal, and the app's chrome too while Settings > Appearance > Match the
+// whole app is on (see theme/chrome.ts). Colors are the
 // themes' published palettes, as six-digit hex (the editor adds alpha to some).
 import type { EditorTheme } from '../../theme/editor';
 import type { TerminalTheme } from '../../theme/terminal';
@@ -8,6 +9,8 @@ export interface ColorTheme {
   id: string;
   name: string;
   dark: boolean;
+  // The app's brand color under this theme: its own UI accent.
+  accent: string;
   editor: EditorTheme;
   terminal: TerminalTheme;
 }
@@ -28,6 +31,8 @@ interface Palette {
   cyan: string;
   blue: string;
   purple: string;
+  // The theme's UI accent, for buttons and selection in the app chrome.
+  accent: string;
   // Syntax roles, picked per theme so each looks like its original.
   keyword: string;
   string: string;
@@ -48,6 +53,7 @@ function theme(id: string, name: string, dark: boolean, p: Palette): ColorTheme 
     id,
     name,
     dark,
+    accent: p.accent,
     editor: {
       background: p.bg,
       foreground: p.fg,
@@ -113,6 +119,7 @@ export const colorThemes: ColorTheme[] = [
     cyan: '#8be9fd',
     blue: '#bd93f9',
     purple: '#ff79c6',
+    accent: '#bd93f9',
     keyword: '#ff79c6',
     string: '#f1fa8c',
     number: '#bd93f9',
@@ -139,6 +146,7 @@ export const colorThemes: ColorTheme[] = [
     cyan: '#56b6c2',
     blue: '#61afef',
     purple: '#c678dd',
+    accent: '#61afef',
     keyword: '#c678dd',
     string: '#98c379',
     number: '#d19a66',
@@ -166,6 +174,7 @@ export const colorThemes: ColorTheme[] = [
     cyan: '#66d9ef',
     blue: '#66d9ef',
     purple: '#ae81ff',
+    accent: '#66d9ef',
     keyword: '#f92672',
     string: '#e6db74',
     number: '#ae81ff',
@@ -192,6 +201,7 @@ export const colorThemes: ColorTheme[] = [
     cyan: '#88c0d0',
     blue: '#81a1c1',
     purple: '#b48ead',
+    accent: '#88c0d0',
     keyword: '#81a1c1',
     string: '#a3be8c',
     number: '#b48ead',
@@ -218,6 +228,7 @@ export const colorThemes: ColorTheme[] = [
     cyan: '#2aa198',
     blue: '#268bd2',
     purple: '#d33682',
+    accent: '#268bd2',
     keyword: '#859900',
     string: '#2aa198',
     number: '#d33682',
@@ -243,6 +254,7 @@ export const colorThemes: ColorTheme[] = [
     cyan: '#2aa198',
     blue: '#268bd2',
     purple: '#d33682',
+    accent: '#268bd2',
     keyword: '#859900',
     string: '#2aa198',
     number: '#d33682',
@@ -268,6 +280,7 @@ export const colorThemes: ColorTheme[] = [
     cyan: '#1b7c83',
     blue: '#0969da',
     purple: '#8250df',
+    accent: '#0969da',
     keyword: '#cf222e',
     string: '#0a3069',
     number: '#0550ae',

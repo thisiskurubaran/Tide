@@ -2,6 +2,7 @@
 // project, which has no node_modules of its own:
 //   format/bundle.js         Prettier (with its plugins) and ESLint, for Format & Lint
 //   intellisense/typescript.js and intellisense/lib/*.d.ts, for IntelliSense Pro
+//   typescript/sucrase.js    Sucrase, which strips types to run .ts files (typescript/index.js)
 // The output is several MB, so it is generated on npm install, not committed.
 const fs = require('fs');
 const path = require('path');
@@ -58,7 +59,23 @@ async function typescriptBundle() {
   return out;
 }
 
-Promise.all([formatBundle(), typescriptBundle()])
+async function sucraseBundle() {
+  const out = path.join(project, 'typescript', 'sucrase.js');
+  await esbuild.build({
+    stdin: { contents: `module.exports = { transform: require('sucrase').transform };`, resolveDir: app, loader: 'js' },
+    bundle: true,
+    platform: 'node',
+    format: 'cjs',
+    target: 'node18',
+    minify: true,
+    legalComments: 'inline',
+    outfile: out,
+    logLevel: 'error',
+  });
+  return out;
+}
+
+Promise.all([formatBundle(), typescriptBundle(), sucraseBundle()])
   .then((outs) => {
     for (const out of outs) console.log(`wrote ${path.relative(app, out)} (${(fs.statSync(out).size / 1e6).toFixed(1)} MB)`);
   })

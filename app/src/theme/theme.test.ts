@@ -1,7 +1,7 @@
 import { contrastRatio } from './contrast';
 import { editorThemes } from './editor';
 import { terminalThemes } from './terminal';
-import { ColorScheme, palette } from './tokens';
+import { ColorScheme, highContrast, palette } from './tokens';
 
 const AA = 4.5;
 const schemes: ColorScheme[] = ['dark', 'light'];
@@ -16,6 +16,12 @@ describe.each(schemes)('%s theme', (scheme) => {
       expect(contrastRatio(c[key], c.card)).toBeGreaterThanOrEqual(AA);
     },
   );
+
+  it('brandForeground is readable on brand, in both contrast modes', () => {
+    expect(contrastRatio(c.brandForeground, c.brand)).toBeGreaterThanOrEqual(AA);
+    const h = highContrast[scheme];
+    expect(contrastRatio(h.brandForeground, h.brand)).toBeGreaterThanOrEqual(7);
+  });
 
   it('ANSI colors pass AA on the terminal background', () => {
     const t = terminalThemes[scheme];

@@ -5,46 +5,52 @@ import { Appearance } from 'react-native';
 
 import { breakpointsStore } from '../extensions/debugger/breakpoints';
 import { extensionsStore } from '../extensions/state';
+// Keeps a local history of every file save.
+import '../features/history';
+import { changesStore } from '../features/agent/changesStore';
 import { gitSettingsStore } from '../features/git/settings';
+import { accountsStore } from '../features/hosts/accounts';
+import { startWidgets } from '../features/widgets';
 import { linkedStore } from '../features/external';
 import { keyBarStore } from '../features/keybar/store';
 import { startQuickActions } from '../features/launch/quickActions';
 import { startCrashReports } from '../features/privacy/crashReports';
 import { remoteSettingsStore } from '../features/remote/settings';
 import { projectsStore, runnerStore, settingsStore, tabsStore, useSettings } from '../state';
-import { useColors } from '../theme/theme';
+import { allLoaded, hydrated } from '../state/hydrated';
+import { useChromeTheme, useColors } from '../theme/theme';
 import { captureConsole } from '../features/support/logs';
 import { supportStore } from '../features/support/store';
-import { proStore, startPro } from '../features/pro';
+import { WasmHost } from '../runtime/wasm';
+import { RuffHost } from '../extensions/formatLint/RuffHost';
 
 // Before anything else logs, so bug reports include start-up warnings.
 captureConsole();
 SplashScreen.preventAutoHideAsync();
 
-type Persisted = { persist: { hasHydrated(): boolean; onFinishHydration(fn: () => void): () => void } };
-
-const hydrated = (store: Persisted) =>
-  new Promise<void>((resolve) => {
-    if (store.persist.hasHydrated()) resolve();
-    else store.persist.onFinishHydration(() => resolve());
-  });
-
 export default function RootLayout() {
   const [ready, setReady] = useState(false);
   const theme = useSettings((s) => s.theme);
   const colors = useColors();
+  // A color theme the app follows sets light or dark itself (Solarized Light
+  // makes the whole app light).
+  const chrome = useChromeTheme();
+  const windowScheme = chrome ? (chrome.dark ? 'dark' : 'light') : theme === 'system' ? 'auto' : theme;
 
   // The window takes the app's theme, so the status bar, keyboard and system
   // dialogs match it. Setting the status bar style from JS instead was lost
   // whenever the device switched between light and dark.
   useEffect(() => {
-    Appearance.setColorScheme(theme === 'system' ? 'auto' : theme);
-  }, [theme]);
+    Appearance.setColorScheme(windowScheme);
+  }, [windowScheme]);
 
   useEffect(() => {
     // Keep the splash up until saved tabs and the project list are loaded,
     // so a restart lands on the right screen without flashing an empty one.
-    Promise.all([
+    // allLoaded waits for each on its own and reports its own failure, so one
+    // that fails (the project list can't be read) doesn't lift the splash
+    // before the rest have loaded.
+    allLoaded([
       hydrated(tabsStore),
       hydrated(runnerStore),
       hydrated(settingsStore),
@@ -53,24 +59,28 @@ export default function RootLayout() {
       hydrated(keyBarStore),
       hydrated(linkedStore),
       hydrated(supportStore),
-      hydrated(proStore),
+      // The agent's unreviewed changes, so Review and Undo work after a relaunch.
+      hydrated(changesStore),
       projectsStore.getState().refresh(),
-      remoteSettingsStore.getState().load().catch(() => undefined),
-      gitSettingsStore.getState().load().catch(() => undefined),
+      remoteSettingsStore.getState().load(),
+      gitSettingsStore.getState().load(),
+      accountsStore.getState().load(),
     ]).finally(() => {
       startCrashReports(settingsStore);
       startQuickActions();
-      startPro();
+      startWidgets();
       setReady(true);
       SplashScreen.hideAsync();
-      // Prices and purchases made on another device; the cached list works until it answers.
-      extensionsStore.getState().refresh().catch(() => undefined);
     });
   }, []);
 
   if (!ready) return null;
 
   return (
-    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }} />
+    <>
+      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }} />
+      <WasmHost />
+      <RuffHost />
+    </>
   );
 }

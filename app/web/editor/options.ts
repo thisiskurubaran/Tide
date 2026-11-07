@@ -1,17 +1,26 @@
 // Editor view options the user picks in Settings: word wrap, the fold gutter,
-// indent guides and the minimap.
+// indent guides, the minimap and Vim or Emacs key bindings.
 import { foldGutter, foldKeymap, codeFolding } from '@codemirror/language';
-import { Extension } from '@codemirror/state';
+import { Extension, Prec } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 import { indentationMarkers } from '@replit/codemirror-indentation-markers';
 import { showMinimap } from '@replit/codemirror-minimap';
+import { emacs } from '@replit/codemirror-emacs';
+import { vim } from '@replit/codemirror-vim';
 
-import type { EditorOptions } from '../../src/features/editor/bridge';
+import { emmetExtension } from './emmet';
+import { wrapIndent } from './wrapIndent';
+
+import type { EditorOptions, Language } from '../../src/features/editor/bridge';
 import type { EditorTheme } from '../../src/theme/editor';
 
-export function optionsExtension(options: EditorOptions, theme: EditorTheme | null): Extension[] {
+export function optionsExtension(options: EditorOptions, theme: EditorTheme | null, lang: Language = 'plain'): Extension[] {
   const out: Extension[] = [];
-  if (options.wordWrap) out.push(EditorView.lineWrapping);
+  if (options.emmet) out.push(...emmetExtension(lang));
+  // Ahead of the default keymaps so Vim and Emacs keys win; app shortcuts (Cmd) still come first.
+  if (options.keymap === 'vim') out.push(Prec.high(vim()));
+  else if (options.keymap === 'emacs') out.push(Prec.high(emacs()));
+  if (options.wordWrap) out.push(EditorView.lineWrapping, wrapIndent);
   if (options.folding) {
     out.push(
       codeFolding({ placeholderText: '⋯' }),

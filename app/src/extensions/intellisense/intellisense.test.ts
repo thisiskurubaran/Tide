@@ -5,7 +5,7 @@
 import fs from 'fs';
 
 import { ensureServiceBundles, stopRuns, supervisorRunner } from '../testing';
-import { applyEdits, createTsClient } from './client';
+import { applyEdits, createTsClient, editsMatchOneName } from './client';
 
 const cwd = process.cwd();
 afterEach(() => {
@@ -68,4 +68,32 @@ describe('IntelliSense', () => {
     expect(result.items.map((i) => i.label)).toContain('add');
     ts.stop();
   }, 30_000);
+});
+
+describe('editsMatchOneName', () => {
+  it('accepts edits that all replace the same name', () => {
+    const a = 'from util import añadir\r\nañadir(1)\r\n';
+    const b = 'def añadir():\r\n    pass\r\n';
+    const at = (i: number) => ({ from: i, to: i + 'añadir'.length, insert: 'plus' });
+    expect(editsMatchOneName([{ edits: [at(17), at(25)] }, { edits: [at(4)] }], [a, b])).toBe(true);
+  });
+
+  it('rejects offsets that are shifted, e.g. by line endings counted differently', () => {
+    const text = 'x = 1\r\ndef add():\r\n    add()\r\n';
+    const right = text.indexOf('add');
+    expect(editsMatchOneName([{ edits: [{ from: right, to: right + 3, insert: 'p' }] }], [text])).toBe(true);
+    // One char short per earlier line, as with \n-only offsets.
+    expect(editsMatchOneName([{ edits: [{ from: right - 1, to: right + 2, insert: 'p' }] }], [text])).toBe(false);
+    const second = text.lastIndexOf('add');
+    const files = [{ edits: [{ from: right, to: right + 3, insert: 'p' }, { from: second - 2, to: second + 1, insert: 'p' }] }];
+    expect(editsMatchOneName(files, [text])).toBe(false);
+  });
+
+  it("accepts any Python identifier, by Python's rules", () => {
+    const one = (name: string) => editsMatchOneName([{ edits: [{ from: 4, to: 4 + name.length, insert: 'p' }] }], [`def ${name}(): pass`]);
+    // Other_ID_Start (℘, ℮) and Other_ID_Continue (U+00B7, U+0387, U+1369, U+19DA), as Python allows them.
+    for (const name of ['℘', '℮x', 'a·b', 'a\u0387', 'n\u1369', 'n\u19da', '_x1', 'añadir', 'ｆｕｌｌ', '変数', 'ﬁ', '𝔘']) expect(one(name)).toBe(true);
+    // Not identifiers: Python rejects these too.
+    for (const name of ['·a', '1a', 'a-b', 'a b', '゛', 'a゜', '']) expect(one(name)).toBe(false);
+  });
 });

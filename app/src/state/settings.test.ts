@@ -1,4 +1,5 @@
 import { createMemoryFs } from '../features/files/memoryFs';
+import { ALL_GESTURES } from '../features/editor/bridge';
 import { createSettingsStore } from './settings';
 import { createFsStorage } from './storage';
 
@@ -52,5 +53,56 @@ describe('settings store', () => {
     const restarted = createSettingsStore(storage);
     await flush();
     expect(restarted.getState()).toMatchObject({ wordWrap: false, minimap: true });
+  });
+
+  it('keeps the editor key bindings', async () => {
+    const storage = createFsStorage(createMemoryFs());
+    const settings = createSettingsStore(storage);
+    await flush();
+    expect(settings.getState().keymap).toBe('standard');
+    settings.getState().setKeymap('vim');
+    await flush();
+    const restarted = createSettingsStore(storage);
+    await flush();
+    expect(restarted.getState().keymap).toBe('vim');
+  });
+
+  it('defaults to JetBrains Mono without ligatures, including for settings saved before the option existed', async () => {
+    const storage = createFsStorage(createMemoryFs());
+    await storage.setItem('settings', JSON.stringify({ state: { theme: 'light', editorFontSize: 15 }, version: 1 }));
+    const settings = createSettingsStore(storage);
+    await flush();
+    expect(settings.getState()).toMatchObject({ codeFont: 'jetbrains-mono', ligatures: false });
+    settings.getState().setCodeFont('fira-code');
+    settings.getState().setLigatures(true);
+    await flush();
+    const restarted = createSettingsStore(storage);
+    await flush();
+    expect(restarted.getState()).toMatchObject({ codeFont: 'fira-code', ligatures: true });
+  });
+
+  it('matches the app chrome to the color theme by default, and remembers turning it off', async () => {
+    const storage = createFsStorage(createMemoryFs());
+    const settings = createSettingsStore(storage);
+    await flush();
+    expect(settings.getState().matchChrome).toBe(true);
+    settings.getState().setMatchChrome(false);
+    await flush();
+    const restarted = createSettingsStore(storage);
+    await flush();
+    expect(restarted.getState().matchChrome).toBe(false);
+  });
+
+  it('has every gesture on by default and saves each switch', async () => {
+    const storage = createFsStorage(createMemoryFs());
+    await storage.setItem('settings', JSON.stringify({ state: { theme: 'dark', editorFontSize: 14, terminalFontSize: 13 }, version: 1 }));
+    const settings = createSettingsStore(storage);
+    await flush();
+    expect(settings.getState().gestures).toEqual(ALL_GESTURES);
+    settings.getState().setGesture('undo', false);
+    await flush();
+    const restarted = createSettingsStore(storage);
+    await flush();
+    expect(restarted.getState().gestures).toEqual({ ...ALL_GESTURES, undo: false });
   });
 });

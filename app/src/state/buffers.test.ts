@@ -1,6 +1,6 @@
 import { createMemoryFs } from '../features/files/memoryFs';
 import { createWorkspace } from '../features/files/workspace';
-import { AUTOSAVE_MS, bufferKey, createBuffersStore, isDirty } from './buffers';
+import { AUTOSAVE_MS, bufferKey, createBuffersStore, DROP_GRACE_MS, isDirty } from './buffers';
 import { createProjectsStore } from './projects';
 import { createFsStorage } from './storage';
 import { createTabsStore } from './tabs';
@@ -26,12 +26,56 @@ beforeEach(() => jest.useFakeTimers());
 afterEach(() => jest.useRealTimers());
 
 describe('buffers store', () => {
-  it('loads from disk once and keeps the buffer', async () => {
-    const { buffers, workspace } = await setup();
+  it('keeps the buffer while the disk is unchanged', async () => {
+    const { buffers } = await setup();
     const first = await buffers.getState().load('p', 'index.js');
     expect(first.content).toContain('Hello');
-    await workspace.writeFile('p', 'index.js', 'changed on disk');
     await expect(buffers.getState().load('p', 'index.js')).resolves.toBe(first);
+  });
+
+  it('rereads a clean buffer that changed on disk when loaded again', async () => {
+    const { buffers, workspace } = await setup();
+    await buffers.getState().load('p', 'index.js');
+    await workspace.writeFile('p', 'index.js', 'changed on disk');
+    expect((await buffers.getState().load('p', 'index.js')).content).toBe('changed on disk');
+  });
+
+  it('keeps unsaved edits over the disk when loaded again', async () => {
+    const { buffers, workspace } = await setup();
+    await buffers.getState().load('p', 'index.js');
+    buffers.getState().edit('p', 'index.js', 'mine');
+    await workspace.writeFile('p', 'index.js', 'theirs');
+    expect((await buffers.getState().load('p', 'index.js')).content).toBe('mine');
+  });
+
+  it('reloadProject rereads every clean buffer of the project, and only that project', async () => {
+    const { buffers, workspace } = await setup();
+    await workspace.createProject('q', 'node-hello');
+    await buffers.getState().load('p', 'index.js');
+    await buffers.getState().load('p', 'tide.json');
+    await buffers.getState().load('q', 'index.js');
+    buffers.getState().edit('p', 'tide.json', 'unsaved');
+    await workspace.writeFile('p', 'index.js', 'pulled');
+    await workspace.writeFile('p', 'tide.json', 'pulled');
+    await workspace.writeFile('q', 'index.js', 'other');
+    await buffers.getState().reloadProject('p');
+    expect(buf(buffers, 'index.js')).toEqual({ content: 'pulled', saved: 'pulled' });
+    expect(buf(buffers, 'tide.json').content).toBe('unsaved');
+    expect(buf(buffers, 'index.js', 'q').content).toContain('Hello');
+    // The next autosave no longer writes the old text back.
+    await buffers.getState().flushProject('p');
+    expect(await workspace.readFile('p', 'index.js')).toBe('pulled');
+  });
+
+  it('drop forgets clean buffers but keeps dirty ones', async () => {
+    const { buffers } = await setup();
+    await buffers.getState().load('p', 'index.js');
+    await buffers.getState().load('p', 'tide.json');
+    buffers.getState().edit('p', 'tide.json', 'unsaved');
+    buffers.getState().drop('p', 'index.js');
+    buffers.getState().drop('p', 'tide.json');
+    expect(buf(buffers, 'index.js')).toBeUndefined();
+    expect(buf(buffers, 'tide.json').content).toBe('unsaved');
   });
 
   it('marks edits dirty and autosaves after the debounce', async () => {
@@ -159,5 +203,166 @@ describe('replace', () => {
     await settle();
     expect(await workspace.readFile('p', 'index.js')).toBe('from shell');
     expect(buf(buffers, 'index.js')).toEqual({ content: 'from shell', saved: 'from shell' });
+  });
+});
+
+describe('closing a tab while the editor still holds keystrokes', () => {
+  it('saves a late edit that arrives just after drop', async () => {
+    const { buffers, workspace } = await setup();
+    const { content } = await buffers.getState().load('p', 'index.js');
+    // Tab closed: saved (nothing pending yet) and dropped.
+    await buffers.getState().save('p', 'index.js');
+    buffers.getState().drop('p', 'index.js');
+    // The editor's debounced change lands afterwards.
+    buffers.getState().edit('p', 'index.js', `${content}// last words`);
+    jest.advanceTimersByTime(AUTOSAVE_MS);
+    await settle();
+    expect(await workspace.readFile('p', 'index.js')).toBe(`${content}// last words`);
+  });
+
+  it('ignores edits long after the drop, and for files deleted since', async () => {
+    let clock = 0;
+    const fs = createMemoryFs();
+    const workspace = createWorkspace(fs);
+    await workspace.createProject('p', 'node-hello');
+    const buffers = createBuffersStore(workspace, AUTOSAVE_MS, {}, () => clock);
+    await buffers.getState().load('p', 'index.js');
+    await buffers.getState().load('p', 'tide.json');
+    buffers.getState().drop('p', 'index.js');
+    buffers.getState().drop('p', 'tide.json');
+    buffers.getState().removePath('p', 'tide.json');
+    buffers.getState().edit('p', 'tide.json', 'resurrected?');
+    expect(buf(buffers, 'tide.json')).toBeUndefined();
+    clock += DROP_GRACE_MS + 1;
+    buffers.getState().edit('p', 'index.js', 'too late');
+    expect(buf(buffers, 'index.js')).toBeUndefined();
+  });
+});
+
+describe('files deleted on disk', () => {
+  it('forgets a clean buffer and reports it gone', async () => {
+    const fs = createMemoryFs();
+    const workspace = createWorkspace(fs);
+    await workspace.createProject('p', 'node-hello');
+    const gone = jest.fn();
+    const buffers = createBuffersStore(workspace, AUTOSAVE_MS, { gone });
+    await buffers.getState().load('p', 'index.js');
+    await workspace.deleteEntry('p', 'index.js');
+    await buffers.getState().reloadProject('p');
+    expect(buf(buffers, 'index.js')).toBeUndefined();
+    expect(gone).toHaveBeenCalledWith('p', 'index.js');
+    // A late keystroke doesn't bring the file back.
+    buffers.getState().edit('p', 'index.js', 'x');
+    jest.advanceTimersByTime(AUTOSAVE_MS * 2);
+    await settle();
+    expect(await workspace.stat('p', 'index.js')).toBeNull();
+  });
+
+  it('load fails for a clean buffer whose file is gone, instead of showing the old text', async () => {
+    const { buffers, workspace } = await setup();
+    await buffers.getState().load('p', 'index.js');
+    await workspace.deleteEntry('p', 'index.js');
+    await expect(buffers.getState().load('p', 'index.js')).rejects.toThrow();
+  });
+
+  it('keeps unsaved edits but never autosaves them back into a deleted file', async () => {
+    const { buffers, workspace } = await setup();
+    await buffers.getState().load('p', 'index.js');
+    buffers.getState().edit('p', 'index.js', 'mine');
+    await workspace.deleteEntry('p', 'index.js');
+    await buffers.getState().reload('p', 'index.js');
+    expect(buf(buffers, 'index.js')).toMatchObject({ content: 'mine', deleted: true });
+    buffers.getState().edit('p', 'index.js', 'mine, more');
+    jest.advanceTimersByTime(AUTOSAVE_MS * 2);
+    await settle();
+    await buffers.getState().flushAll();
+    await buffers.getState().save('p', 'index.js');
+    expect(await workspace.stat('p', 'index.js')).toBeNull();
+    // Only when the user asks.
+    await buffers.getState().save('p', 'index.js', { recreate: true });
+    expect(await workspace.readFile('p', 'index.js')).toBe('mine, more');
+    expect(buf(buffers, 'index.js')).toEqual({ content: 'mine, more', saved: 'mine, more' });
+  });
+
+  it('clears the mark when the file comes back, keeping the edits unsaved', async () => {
+    const { buffers, workspace } = await setup();
+    await buffers.getState().load('p', 'index.js');
+    buffers.getState().edit('p', 'index.js', 'mine');
+    await workspace.deleteEntry('p', 'index.js');
+    await buffers.getState().reload('p', 'index.js');
+    await workspace.createFile('p', '', 'index.js', 'restored');
+    await buffers.getState().reload('p', 'index.js');
+    expect(buf(buffers, 'index.js')).toEqual({ content: 'mine', saved: 'restored' });
+  });
+
+  it('leaves the buffer alone when the file is only unreadable for a moment', async () => {
+    const { buffers, workspace } = await setup();
+    const { content } = await buffers.getState().load('p', 'index.js');
+    jest.spyOn(workspace, 'stat').mockRejectedValueOnce(new Error('EIO'));
+    await buffers.getState().reload('p', 'index.js');
+    expect(buf(buffers, 'index.js')).toEqual({ content, saved: content });
+  });
+});
+
+describe('a slow reload overtaken by a write (L4)', () => {
+  // Holds the next readFile of the workspace until released, returning what
+  // was on disk when the read started.
+  const holdNextRead = (workspace: Awaited<ReturnType<typeof setup>>['workspace']) => {
+    const real = workspace.readFile.bind(workspace);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const spy = jest.spyOn(workspace, 'readFile').mockImplementationOnce(async (project, path) => {
+      const old = await real(project, path);
+      await gate;
+      return old;
+    });
+    return { release, restore: () => spy.mockRestore() };
+  };
+
+  it('discards a reload read that started before a replace', async () => {
+    const { buffers, workspace } = await setup();
+    await buffers.getState().load('p', 'index.js');
+    await workspace.writeFile('p', 'index.js', 'old on disk');
+    const held = holdNextRead(workspace);
+    const reloading = buffers.getState().reload('p', 'index.js');
+    await settle();
+    await buffers.getState().replace('p', 'index.js', 'new from shell');
+    held.release();
+    await reloading;
+    held.restore();
+    expect(buf(buffers, 'index.js')).toEqual({ content: 'new from shell', saved: 'new from shell' });
+    // The next edit doesn't write the old text back.
+    buffers.getState().edit('p', 'index.js', 'new from shell!');
+    await buffers.getState().save('p', 'index.js');
+    expect(await workspace.readFile('p', 'index.js')).toBe('new from shell!');
+  });
+
+  it('discards a reload read that started before a save', async () => {
+    const { buffers, workspace } = await setup();
+    await buffers.getState().load('p', 'index.js');
+    await workspace.writeFile('p', 'index.js', 'old on disk');
+    const held = holdNextRead(workspace);
+    const reloading = buffers.getState().reload('p', 'index.js');
+    await settle();
+    buffers.getState().edit('p', 'index.js', 'typed');
+    await buffers.getState().save('p', 'index.js');
+    held.release();
+    await reloading;
+    held.restore();
+    expect(buf(buffers, 'index.js')).toEqual({ content: 'typed', saved: 'typed' });
+    expect(await workspace.readFile('p', 'index.js')).toBe('typed');
+  });
+
+  it('still applies a reload nothing overtook', async () => {
+    const { buffers, workspace } = await setup();
+    await buffers.getState().load('p', 'index.js');
+    await workspace.writeFile('p', 'index.js', 'pulled');
+    const held = holdNextRead(workspace);
+    const reloading = buffers.getState().reload('p', 'index.js');
+    await settle();
+    held.release();
+    await reloading;
+    held.restore();
+    expect(buf(buffers, 'index.js')).toEqual({ content: 'pulled', saved: 'pulled' });
   });
 });

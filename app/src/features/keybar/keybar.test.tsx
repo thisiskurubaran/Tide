@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 
 jest.mock('expo-router', () => ({ router: { back: jest.fn(), push: jest.fn() } }));
 jest.mock('@expo/vector-icons/Feather', () => 'Feather');
@@ -22,6 +22,15 @@ import { editorKeys, keyBarStore } from './store';
 
 beforeEach(() => keyBarStore.setState({ editor: {}, terminal: keyBarStore.getInitialState().terminal }));
 
+// Editor keys read raw touches (to tell taps, swipes and holds apart), so tests touch them directly.
+let clock = 0;
+const touch = (x: number, y = 500) => ({ nativeEvent: { pageX: x, pageY: y, locationX: 10, locationY: 10, timestamp: (clock += 100) } });
+async function tap(label: string) {
+  const key = screen.getByLabelText(label);
+  await fireEvent(key, 'responderGrant', touch(100));
+  await fireEvent(key, 'responderRelease', touch(100));
+}
+
 describe('catalog', () => {
   it('describes built-in and text keys', () => {
     expect(keyFace('left', 'editor')).toMatchObject({ icon: 'arrow-left', a11y: 'Cursor left' });
@@ -44,10 +53,26 @@ describe('key bars', () => {
     keyBarStore.getState().setEditor('python', ['tab', text('self.'), 'complete']);
     const send = jest.fn();
     await render(<EditorKeyBar send={send} language="python" />);
-    await fireEvent.press(screen.getByLabelText('Tab'));
-    await fireEvent.press(screen.getByLabelText('Type self.'));
-    await fireEvent.press(screen.getByLabelText('Show suggestions'));
+    await tap('Tab');
+    await tap('Type self.');
+    await tap('Show suggestions');
     expect(send.mock.calls.map((c) => c[0])).toEqual([{ type: 'key', key: 'tab', select: false }, { type: 'insert', text: 'self.' }, { type: 'complete' }]);
+  });
+
+  it('leads with Accept, Word and Next while an AI suggestion shows', async () => {
+    keyBarStore.getState().setEditor('plain', ['tab']);
+    const send = jest.fn();
+    await render(<EditorKeyBar send={send} language="plain" />);
+    expect(screen.queryByLabelText('Accept suggestion')).toBeNull();
+    await render(<EditorKeyBar send={send} language="plain" completion />);
+    await tap('Accept suggestion');
+    await tap('Accept next word of suggestion');
+    await tap('Next suggestion');
+    expect(send.mock.calls.map((c) => c[0])).toEqual([
+      { type: 'acceptCompletion', part: 'all' },
+      { type: 'acceptCompletion', part: 'word' },
+      { type: 'nextCompletion' },
+    ]);
   });
 
   it('types terminal keys as bytes', async () => {
@@ -66,10 +91,10 @@ describe('touch editing keys', () => {
     await render(<EditorKeyBar send={send} language="plain" />);
     const pad = screen.getByTestId('editor-trackpad');
     await fireEvent(pad, 'accessibilityAction', { nativeEvent: { actionName: 'increment' } });
-    await fireEvent.press(screen.getByLabelText('Select mode'));
+    await tap('Select mode');
     expect(screen.getByLabelText('Select mode').props.accessibilityState).toEqual({ selected: true });
     await fireEvent(pad, 'accessibilityAction', { nativeEvent: { actionName: 'decrement' } });
-    await fireEvent.press(screen.getByLabelText('Cursor up'));
+    await tap('Cursor up');
     expect(send.mock.calls.map((c) => c[0])).toEqual([
       { type: 'key', key: 'right', select: false },
       { type: 'key', key: 'left', select: true },
@@ -80,14 +105,45 @@ describe('touch editing keys', () => {
   it('copies, expands and pastes through the system clipboard', async () => {
     const send = jest.fn();
     await render(<EditorKeyBar send={send} language="plain" />);
-    await fireEvent.press(screen.getByLabelText('Expand selection'));
-    await fireEvent.press(screen.getByLabelText('Copy'));
-    await fireEvent.press(screen.getByLabelText('Paste'));
+    await tap('Expand selection');
+    await tap('Copy');
+    await tap('Paste');
     expect(send.mock.calls.map((c) => c[0])).toEqual([
       { type: 'select', unit: 'expand' },
       { type: 'copy', cut: false },
       { type: 'insert', text: 'pasted' },
     ]);
+  });
+
+  it('moves the cursor when a drag across the keys passes the slop, without typing the key', async () => {
+    const send = jest.fn();
+    await render(<EditorKeyBar send={send} language="plain" />);
+    const key = screen.getByLabelText('Open brace');
+    await fireEvent(key, 'responderGrant', touch(100));
+    await fireEvent(key, 'responderMove', touch(108));
+    await fireEvent(key, 'responderMove', touch(115));
+    await fireEvent(key, 'responderMove', touch(133));
+    await fireEvent(key, 'responderMove', touch(115));
+    await fireEvent(key, 'responderRelease', touch(115));
+    await tap('Select mode');
+    await fireEvent(key, 'responderGrant', touch(100));
+    await fireEvent(key, 'responderMove', touch(80));
+    await fireEvent(key, 'responderMove', touch(62));
+    await fireEvent(key, 'responderRelease', touch(62));
+    expect(send.mock.calls.map((c) => c[0])).toEqual([
+      { type: 'moveCursor', by: 2, select: false },
+      { type: 'moveCursor', by: -2, select: false },
+      { type: 'moveCursor', by: -2, select: true },
+    ]);
+  });
+
+  it('pages the keys, since dragging them moves the cursor', async () => {
+    await render(<EditorKeyBar send={() => undefined} language="plain" />);
+    const row = screen.getByTestId('keyboard-bar-keys');
+    expect(row.props.scrollEnabled).toBe(false);
+    await fireEvent(row, 'layout', { nativeEvent: { layout: { width: 300 } } });
+    await fireEvent(row, 'contentSizeChange', 1000, 32);
+    expect(screen.getByLabelText('More keys')).toBeTruthy();
   });
 
   it('turns terminal trackpad moves into arrow keys and pastes', async () => {
@@ -96,6 +152,52 @@ describe('touch editing keys', () => {
     await fireEvent(screen.getByTestId('terminal-trackpad'), 'accessibilityAction', { nativeEvent: { actionName: 'decrement' } });
     await fireEvent.press(screen.getByLabelText('Paste'));
     expect(input.mock.calls.map((c) => c[0])).toEqual(['\x1b[D', 'pasted']);
+  });
+});
+
+describe('key variants', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  const hold = async (label: string) => {
+    const key = screen.getByLabelText(label);
+    await fireEvent(key, 'responderGrant', touch(100));
+    await act(() => jest.advanceTimersByTime(400));
+    return key;
+  };
+
+  it('inserts the variant the finger is released on, caret inside a pair', async () => {
+    const send = jest.fn();
+    await render(<EditorKeyBar send={send} language="plain" />);
+    const key = await hold('Open parenthesis');
+    // With no layout in tests the popover sits at the bar's left edge: cells () ( ) => from x=7.
+    expect(screen.getByText('=>')).toBeTruthy();
+    await fireEvent(key, 'responderMove', touch(20, 460));
+    await fireEvent(key, 'responderRelease', touch(20, 460));
+    expect(screen.queryByText('=>')).toBeNull();
+    expect(send.mock.calls.map((c) => c[0])).toEqual([{ type: 'insertLiteral', text: '()', cursor: 1 }]);
+  });
+
+  it('cancels when released away from the popover', async () => {
+    const send = jest.fn();
+    await render(<EditorKeyBar send={send} language="plain" />);
+    const key = await hold('Equals');
+    await fireEvent(key, 'responderMove', touch(100, 300));
+    await fireEvent(key, 'responderRelease', touch(100, 300));
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('offers variants as accessibility actions', async () => {
+    const send = jest.fn();
+    await render(<EditorKeyBar send={send} language="plain" />);
+    const key = screen.getByLabelText('Slash');
+    expect(key.props.accessibilityActions.map((a: { label?: string }) => a.label)).toEqual([undefined, 'Line comment', 'Block comment', 'Backslash']);
+    await fireEvent(key, 'accessibilityAction', { nativeEvent: { actionName: 'variant-1' } });
+    await fireEvent(key, 'accessibilityAction', { nativeEvent: { actionName: 'activate' } });
+    expect(send.mock.calls.map((c) => c[0])).toEqual([
+      { type: 'insertLiteral', text: '/*  */', cursor: 3 },
+      { type: 'insert', text: '/' },
+    ]);
   });
 });
 

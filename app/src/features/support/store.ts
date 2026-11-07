@@ -11,8 +11,11 @@ export interface SupportState {
   seenVersion: string | null;
   // The first-run tour was finished or skipped.
   onboarded: boolean;
+  // The editor's coach-mark tour was finished or skipped; see onboarding/tour.tsx.
+  touredEditor: boolean;
   countRun(): void;
   setOnboarded(done: boolean): void;
+  setTouredEditor(done: boolean): void;
   asked(version: string): void;
   seen(version: string): void;
 }
@@ -26,7 +29,9 @@ export function createSupportStore(s: StateStorage, now = Date.now) {
         askedVersion: null,
         seenVersion: null,
         onboarded: false,
+        touredEditor: false,
         setOnboarded: (onboarded) => set({ onboarded }),
+        setTouredEditor: (touredEditor) => set({ touredEditor }),
         countRun: () => set((st) => ({ runs: st.runs + 1 })),
         asked: (askedVersion) => set({ askedVersion }),
         seen: (seenVersion) => set({ seenVersion }),
@@ -35,7 +40,15 @@ export function createSupportStore(s: StateStorage, now = Date.now) {
         name: 'support',
         version: 1,
         storage: createJSONStorage(() => s),
-        partialize: ({ installedAt, runs, askedVersion, seenVersion, onboarded }) => ({ installedAt, runs, askedVersion, seenVersion, onboarded }),
+        // touredEditor is new; older saves lack it and merge to false, so no version bump.
+        partialize: ({ installedAt, runs, askedVersion, seenVersion, onboarded, touredEditor }) => ({
+          installedAt,
+          runs,
+          askedVersion,
+          seenVersion,
+          onboarded,
+          touredEditor,
+        }),
       },
     ),
   );
