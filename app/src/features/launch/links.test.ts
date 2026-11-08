@@ -49,6 +49,10 @@ describe('links that act ask first', () => {
     expect(send).toMatchObject({ title: 'Send request?', action: 'Send' });
     expect(send?.message).toContain('send the request \u201cLogin\u201d in \u201ca.http\u201d');
     expect(launchConfirmation('api', launchParams({ file: 'a.http', send: '1', run: '1' }))?.message).toContain('the first request in \u201ca.http\u201d and run it');
+    // A number is a position, and the dialog says so, rather than naming a request "3".
+    expect(launchConfirmation('api', launchParams({ file: 'a.http', send: '3' }))?.message).toContain('send the third request in \u201ca.http\u201d');
+    expect(launchConfirmation('api', launchParams({ file: 'a.http', send: '999' }))?.message).toContain('send request number 999');
+    expect(launchParams({ file: 'a.http', send: '0' })?.send).toBeUndefined();
   });
 
   it("doesn't ask for links that only open or stop", () => {

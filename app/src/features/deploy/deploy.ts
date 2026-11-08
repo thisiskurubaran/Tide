@@ -1,7 +1,9 @@
 import * as SecureStore from 'expo-secure-store';
 
-import { projectsStore, workspace } from '../../state';
+import { workspace } from '../../state';
+import { folderIdentity } from '../agent/projectIdentity';
 import { createProjectKeychain, hexName } from '../env/secretKeys';
+import { loadedProjects } from '../env/store';
 import { RUN_CONFIG_FILE } from '../files/templates';
 import { runTool } from '../../runtime/tool';
 import {
@@ -46,9 +48,12 @@ const tokenKey = (provider: ProviderId) => `tide.deploy.${provider}`;
 export const hookKeys = {
   key: (project: string) => `tide.secrets.render.${hexName(project)}`,
   legacy: (project: string) => `tide.deploy.render.${project.replace(/[^\w.-]/g, '_')}`,
+  index: 'tide.secrets.render.index',
 };
-// Follows project renames and deletes (registered in ./index.ts).
-export const deployHooks = createProjectKeychain(SecureStore, hookKeys, () => projectsStore.getState().projects);
+// Follows project renames and deletes, and is checked against the project
+// folders at start-up (registered in ./index.ts). Tied to the folder's
+// identity where that's reliable (iOS).
+export const deployHooks = createProjectKeychain(SecureStore, hookKeys, loadedProjects, { identify: folderIdentity });
 
 export async function getToken(provider: ProviderId, project: string): Promise<string> {
   if (provider === 'github') return gitSettingsStore.getState().settings.token;

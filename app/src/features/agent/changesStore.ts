@@ -59,13 +59,12 @@ export const useChanges = <T>(selector: (s: ReturnType<typeof changesStore.getSt
 // Pending changes and command approvals follow a rename and go with a delete
 // made in Tide.
 onProjectChange({
+  // Each saved at once, and one failing doesn't skip the other.
   renamed: async (from, to) => {
-    changesStore.getState().renameProject(from, to);
-    await commandApprovals.renameProject(from, to);
+    await Promise.allSettled([changesStore.getState().renameProject(from, to), commandApprovals.renameProject(from, to)]);
   },
   deleted: async (project) => {
-    changesStore.getState().forget(project);
-    await commandApprovals.forget(project);
+    await Promise.allSettled([changesStore.getState().forget(project), commandApprovals.forget(project)]);
   },
 });
 
@@ -73,7 +72,12 @@ onProjectChange({
 // a project deleted in the Files app (and maybe made again under the same
 // name) doesn't get them back, and `disk` is taken from the files themselves.
 hydrated(changesStore)
-  .then(() => changesStore.getState().reconcileAll())
+  .then(() => {
+    // Loaded again later (its file couldn't be read in time at start-up, see
+    // state/hydrated.ts): what came in is checked the same way.
+    changesStore.persist.onFinishHydration(() => void changesStore.getState().reconcileAll().catch(() => undefined));
+    return changesStore.getState().reconcileAll();
+  })
   .catch(() => undefined);
 
 // A project showing up (made again, or put back by the Files app) is checked too.

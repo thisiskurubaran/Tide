@@ -52,27 +52,45 @@ function record(provider: ProviderId, model: string, usage: Usage) {
   if (usage.inputTokens || usage.outputTokens) usageStore.getState().record(provider, model, usage);
 }
 
+// fetch that notes whether the server answered at all (a response arrived),
+// to tell a request stopped while it was being worked on from one stopped
+// before it got anywhere. Uses the global fetch at call time.
+function watchedFetch(): { fetch: typeof fetch; responded: () => boolean } {
+  let responded = false;
+  const fn = (async (...args: Parameters<typeof fetch>) => {
+    const res = await globalThis.fetch(...args);
+    responded = true;
+    return res;
+  }) as typeof fetch;
+  return { fetch: fn, responded: () => responded };
+}
+
 // A request that was stopped or failed partway may still be billed: once the
-// reply had started streaming, or the user stopped it, its use is estimated
-// from what was sent and what came back. (Errors before any reply, like a
-// bad key, aren't counted.)
-function recordPartial(provider: ProviderId, model: string, sent: unknown, streamed: string, signal?: AbortSignal) {
-  if (!streamed && !signal?.aborted) return;
+// reply had started streaming, or the user stopped it after the server had
+// answered, its use is estimated from what was sent and what came back.
+// Errors before any reply (a bad key), and requests stopped before any
+// response arrived, aren't counted.
+function recordPartial(provider: ProviderId, model: string, sent: unknown, streamed: string, aborted: boolean, responded: boolean) {
+  if (!streamed && !(aborted && responded)) return;
   record(provider, model, { inputTokens: estimateTokens(JSON.stringify(sent)), outputTokens: estimateTokens(streamed) });
 }
 
-async function chatWith(t: Target, req: ChatRequest): Promise<ChatResult> {
+// `countAborted: false`: a stopped request is never counted (inline
+// completions, which are stopped when a newer one replaces them).
+async function chatWith(t: Target, req: ChatRequest, { countAborted = true } = {}): Promise<ChatResult> {
+  const watch = watchedFetch();
   try {
     if (t.ref.provider === 'anthropic') {
-      const { result, model } = await anthropicChat({ apiKey: t.apiKey ?? '', model: t.ref.model }, req);
+      const { result, model } = await anthropicChat({ apiKey: t.apiKey ?? '', model: t.ref.model, fetch: watch.fetch }, req);
       record('anthropic', model, result.usage);
       return result;
     }
-    const result = await openAiChat({ provider: t.ref.provider, baseUrl: t.baseUrl, apiKey: t.apiKey, model: t.ref.model }, req);
+    const result = await openAiChat({ provider: t.ref.provider, baseUrl: t.baseUrl, apiKey: t.apiKey, model: t.ref.model, fetch: watch.fetch }, req);
     record(t.ref.provider, t.ref.model, result.usage);
     return result;
   } catch (e) {
-    recordPartial(t.ref.provider, t.ref.model, { system: req.system, messages: req.messages }, '', req.signal);
+    const aborted = !!req.signal?.aborted;
+    if (countAborted || !aborted) recordPartial(t.ref.provider, t.ref.model, { system: req.system, messages: req.messages }, '', aborted, watch.responded());
     throw toAiError(e);
   }
 }
@@ -83,6 +101,7 @@ export async function chat(req: ChatRequest): Promise<ChatResult> {
 
 export async function agentStep(request: AgentStepRequest): Promise<AgentStep> {
   const t = await target('agent');
+  const watch = watchedFetch();
   // What has streamed in, to estimate a stopped or failed step's use.
   let streamed = '';
   const req: AgentStepRequest = {
@@ -94,15 +113,15 @@ export async function agentStep(request: AgentStepRequest): Promise<AgentStep> {
   };
   try {
     if (t.ref.provider === 'anthropic') {
-      const { result, model } = await anthropicAgentStep({ apiKey: t.apiKey ?? '', model: t.ref.model }, req);
+      const { result, model } = await anthropicAgentStep({ apiKey: t.apiKey ?? '', model: t.ref.model, fetch: watch.fetch }, req);
       record('anthropic', model, result.usage);
       return result;
     }
-    const result = await openAiAgentStep({ provider: t.ref.provider, baseUrl: t.baseUrl, apiKey: t.apiKey, model: t.ref.model }, req);
+    const result = await openAiAgentStep({ provider: t.ref.provider, baseUrl: t.baseUrl, apiKey: t.apiKey, model: t.ref.model, fetch: watch.fetch }, req);
     record(t.ref.provider, t.ref.model, result.usage);
     return result;
   } catch (e) {
-    recordPartial(t.ref.provider, t.ref.model, { system: req.system, history: req.history, tools: req.tools }, streamed, req.signal);
+    recordPartial(t.ref.provider, t.ref.model, { system: req.system, history: req.history, tools: req.tools }, streamed, !!req.signal?.aborted, watch.responded());
     throw toAiError(e);
   }
 }
@@ -134,13 +153,18 @@ export async function complete(req: CompletionRequest): Promise<string> {
   } catch {
     return '';
   }
-  const result = await chatWith(t, {
-    job: 'complete',
-    system: COMPLETE_SYSTEM,
-    messages: [{ role: 'user', content: completionPrompt(req) }],
-    maxTokens: COMPLETION_MAX_TOKENS,
-    signal: req.signal,
-  });
+  // Stopped means superseded by a newer completion (or turned off): not counted.
+  const result = await chatWith(
+    t,
+    {
+      job: 'complete',
+      system: COMPLETE_SYSTEM,
+      messages: [{ role: 'user', content: completionPrompt(req) }],
+      maxTokens: COMPLETION_MAX_TOKENS,
+      signal: req.signal,
+    },
+    { countAborted: false },
+  );
   if (result.stop === 'refusal' || !result.text) return '';
   return cleanCompletion(result.text, req.prefix, req.suffix);
 }

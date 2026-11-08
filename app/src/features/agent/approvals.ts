@@ -78,7 +78,12 @@ export function createApprovals(storage: StateStorage, identify: Identify = asyn
         const entry = saved[project];
         if (!entry?.keys.includes(key)) return false;
         const id = await known(project);
-        if (id === null) return false;
+        if (id === null) {
+          // The folder is gone: a project made later under this name (with no
+          // identity to tell them apart on Android) mustn't get these back.
+          await save(without(saved, project));
+          return false;
+        }
         if (!sameProject(entry.id, id)) {
           // Another project now has this name.
           await save(without(saved, project));

@@ -6,7 +6,7 @@ import type { Workspace } from '../files/workspace';
 import { STATE_DIR } from '../../state/storage';
 import { strFromU8 } from 'fflate';
 
-import { BackupError, fromBase64, SNAPSHOT_FILE_LIMIT, SNAPSHOT_MANIFEST, SnapshotManifest, toBase64, writeEntries, zipEntries, zipProject } from './zip';
+import { BackupError, fromBase64, LEGACY_SNAPSHOT_MANIFEST, SNAPSHOT_FILE_LIMIT, SnapshotManifest, snapshotEntries, toBase64, writeEntries, zipProject } from './zip';
 
 export type SnapshotReason = 'auto' | 'manual' | 'before-restore' | 'before-pull';
 
@@ -79,9 +79,11 @@ export function createSnapshots(fs: FsAdapter, workspace: Workspace, now: () => 
     async restore(project: string, id: string): Promise<void> {
       const path = joinPath(dirFor(project), id);
       if ((await fs.stat(path)) !== 'file') throw new BackupError('That snapshot is gone');
-      const all = zipEntries(fromBase64(await fs.readBase64(path)));
-      const entries = all.filter((e) => e.path !== SNAPSHOT_MANIFEST);
-      const skipped = new Set(readManifest(all.find((e) => e.path === SNAPSHOT_MANIFEST)?.bytes)?.skipped ?? []);
+      const { entries, manifest, legacy } = snapshotEntries(fromBase64(await fs.readBase64(path)));
+      const skipped = new Set(readManifest(manifest ?? undefined)?.skipped ?? []);
+      // An older snapshot couldn't hold a project file of the manifest's name,
+      // so one there now wasn't captured: it's left alone.
+      if (legacy) skipped.add(LEGACY_SNAPSHOT_MANIFEST);
       await take(project, 'before-restore');
       const keep = new Set(entries.map((e) => e.path));
       for (const file of await workspace.listFiles(project)) {

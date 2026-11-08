@@ -1,5 +1,7 @@
 import type { PersistStorage } from 'zustand/middleware';
 
+import { onStateFileReadable } from './storage';
+
 // Waits for a persisted zustand store to load its saved state.
 export type Persisted = {
   persist: {
@@ -7,6 +9,9 @@ export type Persisted = {
     onFinishHydration(fn: () => void): () => void;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     setOptions(options: { storage?: PersistStorage<any> }): void;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getOptions?(): { name?: string; storage?: PersistStorage<any> };
+    rehydrate?(): Promise<void> | void;
   };
 };
 
@@ -22,12 +27,49 @@ const HYDRATION_TIMEOUT_MS = 8000;
 // would replace the saved file it failed to load.
 const discard: PersistStorage<unknown> = { getItem: () => null, setItem: () => undefined, removeItem: () => undefined };
 
-export const hydrated = (store: Persisted, timeoutMs = HYDRATION_TIMEOUT_MS) =>
+// Each store's wait, so a store that timed out isn't waited for again.
+const outcomes = new WeakMap<Persisted, Promise<void>>();
+// The storage a store had before it was switched to `discard`.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const swapped = new WeakMap<Persisted, PersistStorage<any>>();
+const watched = new WeakSet<Persisted>();
+
+// A state file whose read timed out may be read after all (storage.ts). The
+// store then loads it again: its saved state is merged in (by the store's
+// `merge`) and saving is allowed again, instead of dropping every write for
+// the rest of the launch.
+const reloadWhenReadable = (store: Persisted) => {
+  const name = store.persist.getOptions?.().name;
+  if (watched.has(store) || !name || !store.persist.rehydrate) return;
+  watched.add(store);
+  onStateFileReadable((file) => {
+    if (file !== name) return;
+    const original = swapped.get(store);
+    if (original) {
+      swapped.delete(store);
+      store.persist.setOptions({ storage: original });
+    }
+    Promise.resolve(store.persist.rehydrate?.()).catch((e) => console.warn(`Could not reload ${file}`, e));
+  });
+};
+
+export const hydrated = (store: Persisted, timeoutMs = HYDRATION_TIMEOUT_MS): Promise<void> => {
+  reloadWhenReadable(store);
+  const known = outcomes.get(store);
+  if (known) return known;
+  const outcome = wait(store, timeoutMs);
+  outcomes.set(store, outcome);
+  return outcome;
+};
+
+const wait = (store: Persisted, timeoutMs: number) =>
   new Promise<void>((resolve) => {
     if (store.persist.hasHydrated()) return resolve();
     const timer = setTimeout(() => {
       unsubscribe();
       if (!store.persist.hasHydrated()) {
+        const original = store.persist.getOptions?.().storage;
+        if (original && original !== discard) swapped.set(store, original);
         store.persist.setOptions({ storage: discard });
         console.warn('A saved state file did not load in time; starting with defaults for it, without saving over it');
       }

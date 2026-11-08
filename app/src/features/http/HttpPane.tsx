@@ -33,7 +33,7 @@ import {
 } from './http';
 import { parseCurl, toCurl, toHttpText } from './curl';
 import { projectEnv } from '../env/store';
-import { onSendRequested, takeSend } from './pending';
+import { cancelSend, onSendRequested, takeSend } from './pending';
 import { HistoryEntry, historyKey, restoreRequest } from './history';
 import { HistorySheet } from './HistorySheet';
 import { WsSheet } from './WsSheet';
@@ -146,7 +146,15 @@ export function HttpPane({ project, path }: { project: string; path: string }) {
   // A link (the Send HTTP Request action in Shortcuts) asked to send one,
   // before the pane opened or, once confirmed, while it's open.
   const [sendAsked, setSendAsked] = useState(0);
-  useEffect(() => onSendRequested((p, f) => p === project && f === path && setSendAsked((n) => n + 1)), [project, path]);
+  useEffect(() => {
+    const opened = Date.now();
+    const off = onSendRequested((p, f) => p === project && f === path && setSendAsked((n) => n + 1));
+    // Closed before sending: the send isn't kept for the next time it opens.
+    return () => {
+      off();
+      cancelSend(project, path, opened);
+    };
+  }, [project, path]);
   useEffect(() => {
     const i = takeSend(project, path, parsed.requests.map((r) => r.name));
     if (i !== null) sendAt(i);

@@ -99,5 +99,54 @@ describe('linked folder sync', () => {
       expect((await workspace.listFiles('p')).includes('src/a.js')).toBe(true);
       expect((await workspace.readBase64('p', 'src/a.js')).length).toBeGreaterThan(MAX_FILE_BYTES);
     });
+
+    // M2: a huge file is never read into memory; its size says it's too big.
+    it('skips a file too large in the folder without reading it', async () => {
+      const { workspace, folder, manifest } = await setup();
+      const huge = MAX_FILE_BYTES * 50;
+      folder.files.set('video.mov', enc('stand-in'));
+      const read = folder.read;
+      const sized: Folder = {
+        ...folder,
+        size: async (p) => (p === 'video.mov' ? huge : folder.files.get(p)?.length ?? null),
+        read: async (p) => {
+          if (p === 'video.mov') throw new Error('read a file over the limit');
+          return read(p);
+        },
+      };
+      const r = await pull(sized, workspace, 'p', manifest);
+      expect(r.tooLarge).toEqual(['video.mov']);
+      expect((await workspace.listFiles('p')).includes('video.mov')).toBe(false);
+      // Nor on the way back, or when a save is pushed.
+      await expect(push(sized, workspace, 'p', r.manifest)).resolves.toMatchObject({ tooLarge: ['video.mov'], removed: 0 });
+      await workspace.createFile('p', '', 'video.mov', 'small here');
+      expect(await pushFile(sized, workspace, 'p', 'video.mov', r.manifest)).toBe(r.manifest);
+      expect(dec(folder.files.get('video.mov')!)).toBe('stand-in');
+    });
+
+    it('skips a file too large in the project without reading it', async () => {
+      const { workspace, folder, manifest } = await setup();
+      await workspace.writeBase64('p', 'src/a.js', Buffer.from(big()).toString('base64'));
+      const readBase64 = jest.spyOn(workspace, 'readBase64');
+      const r = await push(folder, workspace, 'p', manifest);
+      expect(r.tooLarge).toEqual(['src/a.js']);
+      expect(readBase64.mock.calls.map(([, p]) => p)).not.toContain('src/a.js');
+      // A save of it isn't pushed either.
+      expect(await pushFile(folder, workspace, 'p', 'src/a.js', manifest)).toBe(manifest);
+      expect(readBase64.mock.calls.map(([, p]) => p)).not.toContain('src/a.js');
+      expect(dec(folder.files.get('src/a.js')!)).toBe('a');
+    });
+
+    it("reads each file again when writing it, so a side's contents aren't all held at once", async () => {
+      const { workspace, folder, manifest } = await setup();
+      folder.files.set('index.js', enc('changed'));
+      const reads: string[] = [];
+      const read = folder.read;
+      const r = await pull({ ...folder, read: async (p) => (reads.push(p), read(p)) }, workspace, 'p', manifest);
+      expect(r.written).toBe(1);
+      // Listed (hashed) once each, and read once more for the one write.
+      expect(reads.sort()).toEqual(['index.js', 'index.js', 'src/a.js']);
+      expect(await workspace.readFile('p', 'index.js')).toBe('changed');
+    });
   });
 });

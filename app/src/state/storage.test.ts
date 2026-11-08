@@ -3,7 +3,7 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 
 import { createMemoryFs } from '../features/files/memoryFs';
 import { allLoaded, hydrated } from './hydrated';
-import { createFsStorage } from './storage';
+import { createFsStorage, onStateFileReadable, StateNotSavedError } from './storage';
 import { createTabsStore } from './tabs';
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -135,6 +135,58 @@ describe('createFsStorage', () => {
     expect(JSON.parse(await readFile('.tide/tabs.json')).state.byProject.p.open).toEqual(['saved.js']);
   });
 
+  it('tells a caller that needs the write that it was skipped (M1)', async () => {
+    const fs = createMemoryFs();
+    await fs.writeFile('.tide/a.json', '{"x":1}');
+    const spy = jest.spyOn(fs, 'readFile').mockReturnValueOnce(new Promise(() => undefined));
+    const storage = createFsStorage(fs, { readTimeoutMs: 10 });
+    expect(await storage.getItem('a')).toBeNull();
+    spy.mockRestore();
+    expect(storage.isBlocked('a')).toBe(true);
+    // persist's writes stay quiet; a write that must land rejects.
+    await expect(storage.setItem('a', '{}')).resolves.toBeUndefined();
+    await expect(storage.setItemStrict('a', '{}')).rejects.toBeInstanceOf(StateNotSavedError);
+    expect(await fs.readFile('.tide/a.json')).toBe('{"x":1}');
+    // A file never read is written as usual.
+    expect(storage.isBlocked('b')).toBe(false);
+    await storage.setItemStrict('b', '{"y":1}');
+    expect(await fs.readFile('.tide/b.json')).toBe('{"y":1}');
+  });
+
+  it('reloads a store whose read timed out once the read finishes, and saves it again (M1)', async () => {
+    const fs = createMemoryFs();
+    const saved = { state: { byProject: { p: { open: ['saved.js'], active: 'saved.js' } }, lastProject: 'p', recent: ['p'] }, version: 1 };
+    await fs.writeFile('.tide/tabs.json', JSON.stringify(saved));
+    const readFile = fs.readFile.bind(fs);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const slow = jest.spyOn(fs, 'readFile').mockImplementationOnce(async (p: string) => {
+      await gate;
+      return readFile(p);
+    });
+    const heard: string[] = [];
+    const off = onStateFileReadable((name) => heard.push(name));
+    const tabs = createTabsStore(createFsStorage(fs, { readTimeoutMs: 10 }));
+    await hydrated(tabs, 1000);
+    expect(tabs.getState().byProject).toEqual({});
+    tabs.getState().openTab('q', 'new.js');
+    await flush();
+    // Not saved over the file it couldn't read.
+    expect(JSON.parse(await readFile('.tide/tabs.json'))).toEqual(saved);
+
+    slow.mockRestore();
+    release();
+    for (let i = 0; i < 10 && !tabs.getState().byProject.p; i++) await flush();
+    off();
+    expect(heard).toEqual(['tabs']);
+    expect(tabs.getState().byProject.p.open).toEqual(['saved.js']);
+    // Saving works again.
+    tabs.getState().openTab('p', 'b.js');
+    await flush();
+    await flush();
+    expect(JSON.parse(await readFile('.tide/tabs.json')).state.byProject.p.open).toEqual(['saved.js', 'b.js']);
+  });
+
   it('ignores a damaged .tmp', async () => {
     const fs = createMemoryFs();
     await fs.writeFile('.tide/a.json.tmp', '{"x"');
@@ -196,6 +248,21 @@ describe('hydrated', () => {
     store.setState({ n: 1 });
     await flush();
     expect(await fs.readFile('.tide/m.json')).toBe(saved);
+    warn.mockRestore();
+  });
+
+  it("doesn't wait the full timeout again for a store that already timed out", async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const store = createStore<{ n: number }>()(
+      persist(() => ({ n: 0 }), {
+        name: 'never',
+        storage: createJSONStorage(() => ({ getItem: () => new Promise<string | null>(() => undefined), setItem: async () => undefined, removeItem: async () => undefined })),
+      }),
+    );
+    await hydrated(store, 20);
+    const started = Date.now();
+    await hydrated(store, 5_000);
+    expect(Date.now() - started).toBeLessThan(1000);
     warn.mockRestore();
   });
 

@@ -20,6 +20,19 @@ const realFetch = global.fetch;
 const claudeReply = (text: string, model = 'claude-haiku-5-5', usage = { input_tokens: 1000, output_tokens: 100 }) =>
   json({ id: 'm', type: 'message', role: 'assistant', model, content: [{ type: 'text', text }], stop_reason: 'end_turn', stop_sequence: null, usage });
 
+// A reply whose headers arrive but whose body never does, until the request
+// is stopped (`answered` runs once the headers are in).
+const stalledReply = (answered: () => void) =>
+  (async (_url: string, init: RequestInit = {}) => {
+    const body = new ReadableStream<Uint8Array>({
+      start(c) {
+        init.signal?.addEventListener('abort', () => c.error(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+      },
+    });
+    setTimeout(answered, 0);
+    return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+  }) as unknown as typeof fetch;
+
 beforeEach(async () => {
   items.clear();
   aiSettings.setState({ ...DEFAULTS, hasKey: null });
@@ -147,19 +160,42 @@ describe('usage and the spend limit', () => {
     expect(after.outputTokens).toBe(100);
     expect(after.inputTokens).toBeGreaterThan(1000);
 
-    // Stopped before anything came back: what was sent still counts.
+    // Stopped before the server answered at all: nothing was worked on, not counted.
     const controller = new AbortController();
     controller.abort();
     global.fetch = (async () => {
       throw Object.assign(new Error('aborted'), { name: 'AbortError' });
     }) as unknown as typeof fetch;
     await expect(agentStep({ system: 's', history, tools: [], signal: controller.signal })).rejects.toBeDefined();
+    expect(usageStore.getState().current().find((e) => e.model === 'gpt-5')!.requests).toBe(1);
+
+    // Stopped after the server answered, before any text: what was sent counts.
+    const later = new AbortController();
+    global.fetch = stalledReply(() => later.abort());
+    await expect(agentStep({ system: 's', history, tools: [], signal: later.signal })).rejects.toBeDefined();
     expect(usageStore.getState().current().find((e) => e.model === 'gpt-5')!.requests).toBe(2);
 
     // A request turned away before any reply (a bad key) isn't counted.
     global.fetch = fakeFetch(() => json({ error: { message: 'bad key' } }, 401)).fetch;
     await expect(agentStep({ system: 's', history, tools: [] })).rejects.toBeInstanceOf(AiError);
     expect(usageStore.getState().current().find((e) => e.model === 'gpt-5')!.requests).toBe(2);
+  });
+
+  it('never counts an inline completion that a newer one replaced', async () => {
+    await setKey('openai', 'sk-openai');
+    aiSettings.getState().setJob('complete', { provider: 'openai', model: 'gpt-5' });
+    // Stopped after the server answered (the user kept typing).
+    const superseded = new AbortController();
+    global.fetch = stalledReply(() => superseded.abort());
+    await expect(complete({ path: 'a.ts', language: 'typescript', prefix: 'const a = ', suffix: '', signal: superseded.signal })).rejects.toBeDefined();
+    // And stopped before it got anywhere.
+    const early = new AbortController();
+    early.abort();
+    global.fetch = (async () => {
+      throw Object.assign(new Error('aborted'), { name: 'AbortError' });
+    }) as unknown as typeof fetch;
+    await expect(complete({ path: 'a.ts', language: 'typescript', prefix: 'const a = ', suffix: '', signal: early.signal })).rejects.toBeDefined();
+    expect(usageStore.getState().current().find((e) => e.model === 'gpt-5')).toBeUndefined();
   });
 
   it('says what to set up when there is no key', async () => {

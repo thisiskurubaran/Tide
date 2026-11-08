@@ -5,6 +5,7 @@ import * as SecureStore from 'expo-secure-store';
 
 import { buffersStore, projectsStore, workspace } from '../../state';
 import { bufferKey } from '../../state/buffers';
+import { folderIdentity } from '../agent/projectIdentity';
 import { parseDotenv, removeDotenv, setDotenv } from './dotenv';
 import { createProjectKeychain, hexName } from './secretKeys';
 
@@ -15,9 +16,17 @@ export const ENV_FILE = '.env';
 export const secretsKeys = {
   key: (project: string) => `tide.secrets.env.${hexName(project)}`,
   legacy: (project: string) => `tide.env.${encodeURIComponent(project).replace(/[^A-Za-z0-9.-]/g, '_')}`,
+  index: 'tide.secrets.env.index',
 };
-// Follows project renames and deletes (registered in ../deploy/index.ts, which loads at start-up).
-export const projectSecrets = createProjectKeychain(SecureStore, secretsKeys, () => projectsStore.getState().projects);
+// The project list once it has loaded (null before: old keys wait for it).
+export const loadedProjects = () => {
+  const s = projectsStore.getState();
+  return s.loaded ? s.projects : null;
+};
+// Follows project renames and deletes, and is checked against the project
+// folders at start-up (registered in ../deploy/index.ts, which loads then).
+// Tied to the folder's identity where that's reliable (iOS).
+export const projectSecrets = createProjectKeychain(SecureStore, secretsKeys, loadedProjects, { identify: folderIdentity });
 
 export async function readSecrets(project: string): Promise<Record<string, string>> {
   try {

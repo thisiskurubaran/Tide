@@ -36,8 +36,12 @@ export function toBase64(bytes: Uint8Array): string {
 }
 
 // A snapshot's own record of what it left out, so a restore never deletes
-// files that were too big to keep. Not a project file; restore skips it.
-export const SNAPSHOT_MANIFEST = '.tide-snapshot.json';
+// files that were too big to keep. Its path starts with "/", which no project
+// file's can, so it never takes the place of one (zipEntries leaves it out).
+export const SNAPSHOT_MANIFEST = '/.tide-snapshot.json';
+// Where older snapshots kept it. In those, that entry is always the manifest:
+// a project file of the same name was replaced by it and isn't in the zip.
+export const LEGACY_SNAPSHOT_MANIFEST = '.tide-snapshot.json';
 
 export interface SnapshotManifest {
   version: 1;
@@ -83,12 +87,27 @@ export function zipEntries(zip: Uint8Array, { stripTopFolder = false } = {}): { 
   } catch {
     throw new BackupError('Not a zip file, or it is damaged');
   }
-  const paths = Object.keys(raw).filter((p) => !p.endsWith('/') && !p.startsWith('__MACOSX/') && !p.split('/').includes('.DS_Store'));
+  const paths = Object.keys(raw).filter((p) => p !== SNAPSHOT_MANIFEST && !p.endsWith('/') && !p.startsWith('__MACOSX/') && !p.split('/').includes('.DS_Store'));
   const tops = new Set(paths.map((p) => p.split('/')[0]));
   const strip = stripTopFolder && tops.size === 1 && paths.every((p) => p.includes('/')) ? `${[...tops][0]}/` : '';
   return paths
     .map((p) => ({ path: p.slice(strip.length), bytes: raw[p] }))
     .filter(({ path }) => path && !path.split('/').some((part) => part === '..' || part === '')); // No escaping the project.
+}
+
+// A snapshot's files and its manifest (null when it has none). In an older
+// snapshot the manifest is LEGACY_SNAPSHOT_MANIFEST; it's then not a file.
+export function snapshotEntries(zip: Uint8Array): { entries: { path: string; bytes: Uint8Array }[]; manifest: Uint8Array | null; legacy: boolean } {
+  let raw: Record<string, Uint8Array>;
+  try {
+    raw = unzipSync(zip, { filter: (f) => f.name === SNAPSHOT_MANIFEST });
+  } catch {
+    throw new BackupError('Not a zip file, or it is damaged');
+  }
+  const all = zipEntries(zip);
+  if (raw[SNAPSHOT_MANIFEST]) return { entries: all, manifest: raw[SNAPSHOT_MANIFEST], legacy: false };
+  const old = all.find((e) => e.path === LEGACY_SNAPSHOT_MANIFEST);
+  return { entries: all.filter((e) => e.path !== LEGACY_SNAPSHOT_MANIFEST), manifest: old?.bytes ?? null, legacy: !!old };
 }
 
 export async function writeEntries(workspace: Workspace, project: string, entries: { path: string; bytes: Uint8Array }[]) {

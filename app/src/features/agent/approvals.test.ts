@@ -43,6 +43,20 @@ describe('command approvals', () => {
     expect(await approvals.isAllowed('web', 'npm')).toBe(false);
   });
 
+  it("are dropped once the project's folder is gone, even where identities aren't reliable (Android)", async () => {
+    const unreliable: Identify = Object.assign(async (p: string) => (ids.has(p) ? '' : null), { reliable: () => false });
+    const storage = createFsStorage(createMemoryFs());
+    const approvals = createApprovals(storage, unreliable);
+    await approvals.setAllowed('web', 'npm', true);
+    // Deleted in the Files app: refused, and forgotten.
+    ids.delete('web');
+    expect(await approvals.isAllowed('web', 'npm')).toBe(false);
+    // A new project made later under the name doesn't get "Always allow" back.
+    ids.set('web', '');
+    expect(await approvals.isAllowed('web', 'npm')).toBe(false);
+    expect(await createApprovals(storage, unreliable).isAllowed('web', 'npm')).toBe(false);
+  });
+
   it('can all be reset', async () => {
     const approvals = createApprovals(createFsStorage(createMemoryFs()), identify);
     await approvals.setAllowed('web', 'npm', true);

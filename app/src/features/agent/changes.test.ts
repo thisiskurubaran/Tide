@@ -78,7 +78,7 @@ describe('pending changes', () => {
     await p.changes.getState().rejectFile(P, 'b.txt');
     expect(p.disk.get('a.txt')).toBe('A\n');
     expect(p.disk.get('b.txt')).toBe('b\n');
-    expect(p.changes.getState().byProject[P]).toEqual({});
+    expect(p.changes.getState().byProject[P]).toBeUndefined();
   });
 
   it('creates new files on keep and never writes rejected ones', async () => {
@@ -197,7 +197,7 @@ describe('pending changes across a relaunch', () => {
     await second.getState().undoAll(P);
     expect(p.disk.get('a.txt')).toBe(before);
     expect(p.disk.has('new.txt')).toBe(false);
-    expect(second.getState().byProject[P]).toEqual({});
+    expect(second.getState().byProject[P]).toBeUndefined();
 
     // Resolved changes are gone from the record too, once the coalesced save is written.
     await second.getState().flush();
@@ -215,7 +215,7 @@ describe('pending changes across a relaunch', () => {
     await second.getState().keepHunk(P, 'a.txt', 0);
     await second.getState().rejectHunk(P, 'a.txt', 0);
     expect(p.disk.get('a.txt')).toBe(lines(20, { 2: 'TWO' }));
-    expect(second.getState().byProject[P]['a.txt']).toBeUndefined();
+    expect(second.getState().byProject[P]?.['a.txt']).toBeUndefined();
   });
 
   it('starts empty from a damaged save', async () => {
@@ -250,7 +250,7 @@ describe('a crash between writing a file and saving the record', () => {
     const second = await relaunch(p, storage);
     await second.getState().rejectFile(P, 'a.txt');
     expect(p.disk.get('a.txt')).toBe('a\n');
-    expect(second.getState().byProject[P]).toEqual({});
+    expect(second.getState().byProject[P]).toBeUndefined();
   });
 
   it('reads the file even when an older record has no intent', async () => {
@@ -446,6 +446,87 @@ describe('races and failures', () => {
     failing = false;
     await store.getState().applyToDisk(P);
     expect(p.disk.get('a.txt')).toBe('A\n');
+    await store.getState().flush();
+  });
+});
+
+describe('2.0.2 fixes', () => {
+  const settle = () => new Promise((r) => setTimeout(r, 0));
+  const savedFile = async (fs: ReturnType<typeof createMemoryFs>) => JSON.parse(await fs.readFile(`.tide/${CHANGES_STORAGE_KEY}.json`)).state;
+
+  it("refuses to apply when its saved changes couldn't be read in time, and saves again once they are (M1)", async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const fs = createMemoryFs();
+    const earlier = { 'old.txt': { path: 'old.txt', original: 'o\n', proposed: 'O\n', disk: 'O\n', base: 'o\n' } };
+    await fs.writeFile(`.tide/${CHANGES_STORAGE_KEY}.json`, JSON.stringify({ state: { byProject: { [P]: earlier }, owners: {} }, version: 1 }));
+    // A slow disk: the read outlasts the timeout.
+    const readFile = fs.readFile.bind(fs);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const slow = jest.spyOn(fs, 'readFile').mockImplementationOnce(async (path: string) => {
+      await gate;
+      return readFile(path);
+    });
+    const p = memoryProject({ 'a.txt': 'a\n', 'old.txt': 'O\n' });
+    const store = createChangesStore(p.io, createFsStorage(fs, { readTimeoutMs: 10 }), { saveDelayMs: 10_000 });
+    await hydrated(store, 1000);
+    expect(store.getState().byProject[P]).toBeUndefined();
+
+    store.getState().stage(P, 'a.txt', 'a\n', 'A\n');
+    await expect(store.getState().applyToDisk(P)).rejects.toBeInstanceOf(ChangesNotSavedError);
+    expect(p.writes).toEqual([]);
+    expect(store.getState().byProject[P]['a.txt'].applying).toBeUndefined();
+    // The saved records weren't overwritten.
+    expect(Object.keys((await savedFile(fs)).byProject[P])).toEqual(['old.txt']);
+
+    // The read finishes after all: the saved changes load (merged with the new
+    // one) and saving works again.
+    slow.mockRestore();
+    release();
+    await settle();
+    await hydrated(store, 1000);
+    for (let i = 0; i < 5 && !store.getState().byProject[P]['old.txt']; i++) await settle();
+    expect(Object.keys(store.getState().byProject[P]).sort()).toEqual(['a.txt', 'old.txt']);
+    await store.getState().applyToDisk(P);
+    expect(p.disk.get('a.txt')).toBe('A\n');
+    expect(Object.keys((await savedFile(fs)).byProject[P]).sort()).toEqual(['a.txt', 'old.txt']);
+    await store.getState().flush();
+    warn.mockRestore();
+  });
+
+  it('drops an empty project entry where no owner is recorded (Android)', async () => {
+    const p = memoryProject({ 'a.txt': 'a\n' });
+    const android: Identify = Object.assign(async () => '', { reliable: () => false });
+    const store = createChangesStore(p.io, undefined, { identify: android });
+    store.getState().stage(P, 'a.txt', 'a\n', 'A\n');
+    await settle();
+    expect(store.getState().owners[P]).toBeUndefined();
+    await store.getState().rejectFile(P, 'a.txt');
+    expect(P in store.getState().byProject).toBe(false);
+
+    // One saved empty by an older version goes on reconcile.
+    store.setState({ byProject: { [P]: {} } });
+    await store.getState().reconcileAll();
+    expect(P in store.getState().byProject).toBe(false);
+  });
+
+  it('saves a rename and a delete at once, not after the coalescing delay', async () => {
+    const fs = createMemoryFs();
+    const storage = createFsStorage(fs);
+    const p = memoryProject({ 'a.txt': 'a\n' });
+    const store = createChangesStore(p.io, storage, { saveDelayMs: 60_000 });
+    await hydrated(store, 1000);
+    store.getState().stage(P, 'a.txt', 'a\n', 'A\n');
+    await store.getState().flush();
+
+    // Killed right after the rename: the next launch has the records under the new name.
+    await store.getState().renameProject(P, 'renamed');
+    const afterRename = await savedFile(fs);
+    expect(afterRename.byProject[P]).toBeUndefined();
+    expect(afterRename.byProject.renamed['a.txt'].proposed).toBe('A\n');
+
+    await store.getState().forget('renamed');
+    expect((await savedFile(fs)).byProject.renamed).toBeUndefined();
     await store.getState().flush();
   });
 });

@@ -3,7 +3,7 @@ import { zipSync } from 'fflate';
 import { createMemoryFs } from '../files/memoryFs';
 import { createWorkspace } from '../files/workspace';
 import { AUTO_INTERVAL_MS, createSnapshots, KEEP } from './snapshots';
-import { fromBase64, SNAPSHOT_FILE_LIMIT, SNAPSHOT_MANIFEST, toBase64, writeEntries, zipEntries, zipProject } from './zip';
+import { fromBase64, SNAPSHOT_FILE_LIMIT, LEGACY_SNAPSHOT_MANIFEST, SNAPSHOT_MANIFEST, toBase64, writeEntries, zipEntries, zipProject } from './zip';
 
 async function setup() {
   const fs = createMemoryFs();
@@ -99,7 +99,7 @@ describe('snapshots', () => {
     await snapshots.restore('p', first.id);
     expect(await workspace.readBase64('p', 'data/big.bin')).toBe(big);
     // The manifest is snapshot bookkeeping, not a project file.
-    expect(await workspace.stat('p', SNAPSHOT_MANIFEST)).toBeNull();
+    expect(await workspace.stat('p', LEGACY_SNAPSHOT_MANIFEST)).toBeNull();
     // And undoing the restore (whose snapshot skipped it too) keeps it.
     const [undo] = await snapshots.list('p');
     await snapshots.restore('p', undo.id);
@@ -117,6 +117,26 @@ describe('snapshots', () => {
     await snapshots.restore('p', '5-manual.zip');
     expect(await workspace.readBase64('p', 'big.bin')).toBe(big);
     expect(await workspace.stat('p', 'small.txt')).toBeNull();
+  });
+
+  it("keeps a project's own .tide-snapshot.json: the manifest can't take its place", async () => {
+    const { fs, workspace, snapshots, tick } = await setup();
+    await workspace.createFile('p', '', LEGACY_SNAPSHOT_MANIFEST, '{"mine":true}');
+    const snap = await snapshots.take('p', 'manual');
+    // It's in the snapshot as a file, next to the manifest.
+    const zip = fromBase64(await fs.readBase64(`.tide/snapshots/p/${snap.id}`));
+    expect(zipEntries(zip).find((e) => e.path === LEGACY_SNAPSHOT_MANIFEST)).toBeDefined();
+    expect(zipEntries(zip).some((e) => e.path === SNAPSHOT_MANIFEST)).toBe(false);
+    await workspace.writeFile('p', LEGACY_SNAPSHOT_MANIFEST, 'changed');
+    tick(1000);
+    await snapshots.restore('p', snap.id);
+    expect(await workspace.readFile('p', LEGACY_SNAPSHOT_MANIFEST)).toBe('{"mine":true}');
+
+    // An older snapshot, whose manifest had that name, doesn't delete it either.
+    const old = zipSync({ 'src/a.js': new Uint8Array(Buffer.from('one\n')), [LEGACY_SNAPSHOT_MANIFEST]: new Uint8Array(Buffer.from('{"version":1,"skipped":[]}')) });
+    await fs.writeBase64('.tide/snapshots/p/5-manual.zip', toBase64(old));
+    await snapshots.restore('p', '5-manual.zip');
+    expect(await workspace.readFile('p', LEGACY_SNAPSHOT_MANIFEST)).toBe('{"mine":true}');
   });
 
   it('restores a project whose files all live under one folder without moving them', async () => {

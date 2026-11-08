@@ -87,10 +87,10 @@ export interface ChangesState {
   applyToDisk(project: string): Promise<void>;
   // After a command: picks up what programs wrote to files with applied changes.
   syncFromDisk(project: string): Promise<void>;
-  // Drops everything without touching disk (project deleted).
-  forget(project: string): void;
-  // The project was renamed: its changes go with it.
-  renameProject(from: string, to: string): void;
+  // Drops everything without touching disk (project deleted). Saved at once.
+  forget(project: string): Promise<void>;
+  // The project was renamed: its changes go with it. Saved at once.
+  renameProject(from: string, to: string): Promise<void>;
   // Checks saved changes against the project and its files: drops them if the
   // project is gone or is a different one now, and corrects `disk` from what
   // the files really hold. Run after loading.
@@ -139,6 +139,17 @@ type Persisted = Pick<ChangesState, 'byProject' | 'owners'>;
 // Nothing saved: for tests. Hydrates synchronously.
 const noStorage: StateStorage = { getItem: () => null, setItem: () => undefined, removeItem: () => undefined };
 
+// App state storage (state/storage.ts) can say a write would be skipped (its
+// file hasn't loaded: setItem then resolves without writing); the awaited
+// save asks first.
+type ChangesStorage = StateStorage & { isBlocked?(name: string): boolean };
+
+export class ChangesFileNotLoadedError extends Error {
+  constructor() {
+    super("The agent's saved changes haven't loaded, so saving now would replace them.");
+  }
+}
+
 // Saved changes load under any staged before loading finished (those are newer).
 // Saved owners are dropped when identities can't be trusted here: on Android
 // they were folder modification times (see projectIdentity.ts).
@@ -158,19 +169,22 @@ const partialize = (s: ChangesState): Persisted => ({ byProject: s.byProject, ow
 // persist saves after every change, with full copies of each changed file.
 // This keeps only the latest state and writes it once things settle (or at
 // once, on flush), one write at a time.
-function coalescingStorage(storage: StateStorage, delayMs: number) {
+function coalescingStorage(storage: ChangesStorage, delayMs: number) {
   let latest: StorageValue<Persisted> | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let writing: Promise<void> = Promise.resolve();
 
   // Resolves once written; `attempt` rejects if this write failed.
-  const write = (): { writing: Promise<void>; attempt: Promise<void> } => {
+  const write = (strict = false): { writing: Promise<void>; attempt: Promise<void> } => {
     if (timer) clearTimeout(timer);
     timer = null;
     const value = latest;
     latest = null;
     if (!value) return { writing, attempt: writing };
     const attempt = writing.then(async () => {
+      // Checked right before the write (nothing in between): a skipped write
+      // must fail the save, not resolve as if it were on disk.
+      if (strict && storage.isBlocked?.(CHANGES_STORAGE_KEY)) throw new ChangesFileNotLoadedError();
       await storage.setItem(CHANGES_STORAGE_KEY, JSON.stringify(value));
     });
     writing = attempt.catch((e) => console.warn('Could not save the agent\'s pending changes', e));
@@ -191,11 +205,12 @@ function coalescingStorage(storage: StateStorage, delayMs: number) {
     removeItem: (name) => storage.removeItem(name),
   };
 
-  // Saves `state` now and resolves once it's written; rejects if it wasn't.
+  // Saves `state` now and resolves once it's written; rejects if it wasn't,
+  // including when the storage skipped the write (its file hasn't loaded).
   const saveNow = (state: Persisted): Promise<void> => {
     if (storage === noStorage) return Promise.resolve();
     latest = { state, version: CHANGES_VERSION };
-    return write().attempt;
+    return write(true).attempt;
   };
 
   return { persistStorage, flush, saveNow };
@@ -209,7 +224,7 @@ export interface ChangesOptions {
 }
 
 // `storage` keeps pending changes across launches (see the top of this file).
-export function createChangesStore(io: ChangeIo, storage: StateStorage = noStorage, { identify, saveDelayMs = 500 }: ChangesOptions = {}) {
+export function createChangesStore(io: ChangeIo, storage: ChangesStorage = noStorage, { identify, saveDelayMs = 500 }: ChangesOptions = {}) {
   const saving = coalescingStorage(storage, saveDelayMs);
   const trusted = identityReliable(identify);
   // The project's identity as far as it can be trusted here ('' = unknown).
@@ -221,16 +236,29 @@ export function createChangesStore(io: ChangeIo, storage: StateStorage = noStora
 
   return createStore<ChangesState>()(
     persist(
-      (set, get) => {
+      (set, get, api) => {
         const files = (project: string) => get().byProject[project] ?? EMPTY;
 
+        // A project left with no changes is dropped, with its owner, whether
+        // or not one was recorded (Android keeps none).
         const put = (project: string, change: FileChange | null, path: string) =>
           set((s) => {
             const next = { ...(s.byProject[project] ?? EMPTY) };
             if (change) next[path] = change;
             else delete next[path];
-            return { byProject: { ...s.byProject, [project]: next } };
+            if (Object.keys(next).length) return { byProject: { ...s.byProject, [project]: next } };
+            const { [project]: _gone, ...byProject } = s.byProject;
+            const { [project]: _owner, ...owners } = s.owners;
+            return { byProject, owners };
           });
+
+        // Renames and deletes are saved at once rather than coalesced: killed
+        // in between, the records would come back under the old name. Not
+        // before loading, which would replace the saved records.
+        const saveSoon = async () => {
+          if (!api.persist.hasHydrated()) return;
+          await saving.saveNow(partialize(get())).catch((e) => console.warn("Could not save the agent's pending changes", e));
+        };
 
         // put, after awaiting: only if the record is still there. A rename (or
         // delete) while a Keep or apply was writing has moved it; writing it
@@ -324,12 +352,14 @@ export function createChangesStore(io: ChangeIo, storage: StateStorage = noStora
             .finally(() => claiming.delete(project));
         };
 
-        const forget = (project: string) =>
+        const forget = async (project: string) => {
           set((s) => {
             const { [project]: _gone, ...rest } = s.byProject;
             const { [project]: _owner, ...owners } = s.owners;
             return { byProject: rest, owners };
           });
+          await saveSoon();
+        };
 
         return {
           byProject: {},
@@ -367,6 +397,9 @@ export function createChangesStore(io: ChangeIo, storage: StateStorage = noStora
             // The intent is on record, with the originals, before any file is written.
             const toApply = Object.values(files(project)).filter((c) => c.disk !== c.proposed);
             if (toApply.length) {
+              // Saved changes that never loaded can't be saved over (that
+              // would lose them), so the intent can't be recorded either.
+              if (storage !== noStorage && !api.persist.hasHydrated()) throw new ChangesNotSavedError(new Error('saved changes have not loaded'));
               for (const c of toApply) put(project, { ...c, applying: c.proposed }, c.path);
               try {
                 await saving.saveNow(partialize(get()));
@@ -417,7 +450,7 @@ export function createChangesStore(io: ChangeIo, storage: StateStorage = noStora
             }
           },
           forget,
-          renameProject(from, to) {
+          async renameProject(from, to) {
             if (from === to) return;
             set((s) => {
               const moved = s.byProject[from];
@@ -428,10 +461,12 @@ export function createChangesStore(io: ChangeIo, storage: StateStorage = noStora
               if (owner) owners[to] = owner;
               return { byProject, owners };
             });
+            await saveSoon();
           },
           async reconcile(project) {
             if (!Object.keys(files(project)).length) {
-              if (get().owners[project]) forget(project);
+              // An empty entry, with or without an owner (none on Android).
+              if (get().owners[project] || project in get().byProject) await forget(project);
               return;
             }
             if (identify) {
@@ -439,7 +474,7 @@ export function createChangesStore(io: ChangeIo, storage: StateStorage = noStora
               // Deleted outside Tide, or (only where identities are reliable) a
               // different project under the same name.
               if (id === null || (trusted && !sameProject(get().owners[project], id))) {
-                forget(project);
+                await forget(project);
                 return;
               }
               if (id && !get().owners[project] && Object.keys(files(project)).length) set((s) => ({ owners: { ...s.owners, [project]: id } }));

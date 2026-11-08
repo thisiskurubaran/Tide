@@ -44,6 +44,13 @@ export function folderAt(uri: string): Folder {
       walk(root, '');
       return out;
     },
+    // From the file's metadata, so a huge file is skipped without reading it.
+    async size(path) {
+      const f = find(path);
+      if (!(f instanceof File)) return null;
+      const size = f.size;
+      return typeof size === 'number' && Number.isFinite(size) ? size : null;
+    },
     async read(path) {
       const f = find(path);
       if (!(f instanceof File)) throw new Error(`"${path}" is no longer in the folder`);

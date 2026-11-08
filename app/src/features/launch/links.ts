@@ -46,7 +46,8 @@ export function launchParams(params: { file?: string; line?: string; run?: strin
     file: params.file || undefined,
     line: Number.isInteger(line) && line > 0 ? line : undefined,
     run: flag(params.run),
-    send: params.file && params.send ? params.send : undefined,
+    // A position is counted from 1; send=0 picks nothing.
+    send: params.file && params.send && !/^\s*0+\s*$/.test(params.send) ? params.send : undefined,
   };
   // Only present when asked for, so existing links read as before.
   if (flag(params.tests)) out.tests = true;
@@ -67,12 +68,26 @@ export interface LinkConfirmation {
 
 const quoted = (s: string) => `“${s}”`;
 
+const ORDINALS = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'];
+
+// The request a send= value picks, as http/pending.ts takeSend reads it: a
+// number is a position (not a request named "3"), anything else a name. A
+// position past the last request sends nothing.
+export function describeSend(send: string): string {
+  const t = send.trim();
+  if (/^\d+$/.test(t)) {
+    const n = Number(t);
+    return n >= 1 && n <= ORDINALS.length ? `the ${ORDINALS[n - 1]} request` : `request number ${n}`;
+  }
+  return `the request ${quoted(t)}`;
+}
+
 // What a project link would do that needs a yes first, or null for links that
 // only open things (or stop what's running).
 export function launchConfirmation(project: string, launch: ProjectLinkOptions | null): LinkConfirmation | null {
   if (!launch) return null;
   const actions: string[] = [];
-  if (launch.file && launch.send) actions.push(`send ${launch.send === '1' ? 'the first request' : `the request ${quoted(launch.send)}`} in ${quoted(launch.file)}`);
+  if (launch.file && launch.send) actions.push(`send ${describeSend(launch.send)} in ${quoted(launch.file)}`);
   if (launch.tests) actions.push('run its tests');
   if (launch.run) actions.push('run it');
   if (!actions.length) return null;

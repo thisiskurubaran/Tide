@@ -12,6 +12,12 @@ describe('isPublishable', () => {
     'keyboard.html',
     'img/monkey.png',
     'docs/env.md',
+    'environment.html',
+    'fonts/inter.woff2',
+    'data/products.json',
+    'downloads/app.zip',
+    'img/key-art.png',
+    'http-guide.html',
   ])('publishes %s', (path) => expect(isPublishable(path)).toBe(true));
 
   it.each([
@@ -45,5 +51,22 @@ describe('isPublishable', () => {
     'node_modules/x/index.js',
     'lib/__pycache__/a.pyc',
     '.well-known/.env',
+    'AuthKey_ABC123XYZ.p8',
+    'infra/terraform.tfstate',
+    'terraform.tfstate.backup',
+    'prod.tfvars',
+    'vars/staging.auto.tfvars',
+    'vpn/office.ovpn',
+    'keys/private.asc',
+    'backup.gpg',
+    'passwords.kdbx',
+    'api.http',
+    'requests/users.http',
+    'http-client.env.json',
+    'app.db',
+    'data/store.sqlite',
+    'data/store.sqlite3',
+    'prod.env',
+    'config/staging.env',
   ])('keeps %s private', (path) => expect(isPublishable(path)).toBe(false));
 });
