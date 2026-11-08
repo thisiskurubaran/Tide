@@ -10,7 +10,27 @@ export interface Release {
 export const CHANGELOG: Release[] = [
   {
     version: '2.0.1',
+    highlights: [
+      'Redesigned widgets: Recent Projects, Quick actions, Last run and Lock Screen widgets',
+      'Live Activities for git clone, pull and push, the AI agent and package installs',
+      'Find your projects in Spotlight',
+      'Reopen closed tabs (⇧⌘T), pin tabs, duplicate files and reveal a file in the tree',
+      'Tide follows .editorconfig, and can trim whitespace and add a final newline on save',
+      'Share code as an image, copy it as Markdown, and new line commands',
+      'Terminal history that survives restarts, and the screen stays awake while code runs',
+      'Many fixes for git, the editor, remote mode, Python and the AI agent',
+    ],
     items: [
+      'A new look for the Recent Projects widget in every size, plus Quick actions, Last run and Lock Screen widgets',
+      'Live Activities for git clone, pull and push, the AI agent (including when it needs your approval) and npm or pip installs; Run and Deploy activities are redesigned',
+      'Search for a project in Spotlight to open it',
+      'Reopen closed tabs with ⇧⌘T, pin tabs to keep them first, duplicate a file, and reveal the open file in the file tree',
+      'Tide follows a project\'s .editorconfig, and can trim trailing whitespace and insert a final newline on save (Settings › Editor)',
+      'Sort, reverse, join, duplicate and delete lines, and change case, from the palette or keyboard',
+      'Share a selection as an image in your editor theme, or copy it as a Markdown code block',
+      'Word count and reading time for Markdown files in the status bar',
+      'Terminal history is kept per project across restarts (commands that look like secrets are never saved); new history command',
+      'The screen stays awake while a program, task, test run or dev server is running (Settings)',
       'Git Pro merges and rebases keep files that changed from a file to a folder, or back',
       'Merging never writes through symbolic links, and discarding a change restores a link as a link',
       'Switching branches and pulling keep submodules as they are in the branch',

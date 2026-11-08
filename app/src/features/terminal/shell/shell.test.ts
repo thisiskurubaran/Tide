@@ -7,7 +7,9 @@ import { createBuffersStore } from '../../../state/buffers';
 import { createProjectsStore } from '../../../state/projects';
 import { createFsStorage } from '../../../state/storage';
 import { createTabsStore } from '../../../state/tabs';
-import { Shell } from './shell';
+import { Shell, ShellOptions } from './shell';
+import { createTerminalHistory } from './history';
+import { createRunningRegistry } from '../running';
 import { createShellFs } from './shellFs';
 import { tokenize } from './tokenize';
 import { resolvePath } from './paths';
@@ -30,10 +32,9 @@ class FakeRunner implements Runner {
   }
 }
 
-async function setup(projectEnv?: { values: Record<string, string>; secrets: string[] }) {
-  const memfs = createMemoryFs();
+async function setup(projectEnv?: { values: Record<string, string>; secrets: string[] }, extra: Partial<ShellOptions> = {}, memfs = createMemoryFs()) {
   const workspace = createWorkspace(memfs);
-  await workspace.createProject('demo', 'node-hello');
+  if (!(await memfs.stat('projects/demo'))) await workspace.createProject('demo', 'node-hello');
   const tabs = createTabsStore(createFsStorage(memfs));
   const buffers = createBuffersStore(workspace);
   const projects = createProjectsStore(workspace, tabs, buffers);
@@ -48,6 +49,7 @@ async function setup(projectEnv?: { values: Record<string, string>; secrets: str
     newId: () => 'r1',
     toolEnv: () => ({ TIDE_GIT_NAME: 'Ada' }),
     ...(projectEnv ? { projectEnv: async () => projectEnv } : {}),
+    ...extra,
   });
   shell.start();
   await tick();
@@ -476,5 +478,87 @@ describe('busy reporting', () => {
     runner.listener!({ type: 'exit', id: 'r1', code: 0 } as RunnerMessage);
     await tick();
     expect(busy).toEqual([true, false]);
+  });
+});
+
+describe('saved history', () => {
+  const up = '\x1b[A';
+  const down = '\x1b[B';
+
+  it('recalls earlier commands after a restart, shared by terminals of the project', async () => {
+    const memfs = createMemoryFs();
+    const first = await setup(undefined, { history: createTerminalHistory(memfs).forProject('demo') }, memfs);
+    await first.run('ls');
+    await first.run('pwd');
+    await first.run(' echo hidden');
+    await first.run('export GH_TOKEN=abc');
+    first.shell.dispose();
+
+    // A new app launch: a fresh store reading the saved file.
+    const store = createTerminalHistory(memfs);
+    const a = await setup(undefined, { history: store.forProject('demo') }, memfs);
+    const b = await setup(undefined, { history: store.forProject('demo') }, memfs);
+    a.clear();
+    a.shell.input(up);
+    await tick();
+    expect(a.out()).toContain('pwd');
+    a.shell.input(up);
+    await tick();
+    expect(a.out()).toContain('ls');
+    a.shell.input(`${down}${down}\x15`);
+    await a.run('cat tide.json');
+    // The other terminal sees it at its next prompt.
+    b.clear();
+    b.shell.input(up);
+    await tick();
+    expect(b.out()).toContain('cat tide.json');
+  });
+
+  it('lists history and clears it with history -c', async () => {
+    const memfs = createMemoryFs();
+    const store = createTerminalHistory(memfs);
+    const { run, shell, out, clear } = await setup(undefined, { history: store.forProject('demo') }, memfs);
+    await run('ls');
+    await run('pwd');
+    expect(await run('history')).toMatch(/1 {2}ls\n\s+2 {2}pwd\n\s+3 {2}history\n/);
+    expect(await run('history 2')).toMatch(/^history 2\n\s+3 {2}history\n\s+4 {2}history 2\n/);
+    expect(await run('history x')).toContain('numeric argument required');
+    await run('history -c');
+    expect(store.forProject('demo').entries).toEqual([]);
+    expect(await run('history')).toMatch(/1 {2}history\n/);
+    await tick();
+    const saved = JSON.parse(memfs.files.get('.tide/terminal-history/demo.json')!).entries;
+    expect(saved).toEqual(['history']);
+    clear();
+    shell.input(up);
+    await tick();
+    expect(out()).toContain('history');
+  });
+
+  it('lists the session history in a shell without a saved one', async () => {
+    const { run } = await setup();
+    await run('pwd');
+    expect(await run('history')).toMatch(/1 {2}pwd\n\s+2 {2}history\n/);
+    await run('history -c');
+    expect(await run('history')).toMatch(/^history\n\s+1 {2}history\n/);
+  });
+});
+
+describe('running registry', () => {
+  it('marks the shell as running while a command runs, and not after it ends or is disposed', async () => {
+    const activity = createRunningRegistry();
+    const { shell, runner } = await setup(undefined, { activity });
+    expect(activity.isRunning()).toBe(false);
+    shell.input('node index.js\r');
+    await tick();
+    expect(activity.isRunning()).toBe(true);
+    runner.listener!({ type: 'exit', id: 'r1', code: 1 } as RunnerMessage);
+    await tick();
+    expect(activity.isRunning()).toBe(false);
+    shell.input('node index.js\r');
+    await tick();
+    expect(activity.isRunning()).toBe(true);
+    shell.dispose();
+    expect(activity.isRunning()).toBe(false);
   });
 });

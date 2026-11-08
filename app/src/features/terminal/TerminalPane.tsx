@@ -14,7 +14,10 @@ import { autoDeployer } from '../deploy';
 import { parseFromTerminal, ToTerminal } from './bridge';
 import { gitEnv } from '../git/settings';
 import type { Shortcut } from '../project/shortcuts';
+import { startKeepAwake } from './keepAwake';
+import { createRemoteBusyTracker, running, runningKey } from './running';
 import { Shell } from './shell/shell';
+import { terminalHistory } from './terminalHistory';
 import { createShellFs } from './shell/shellFs';
 import terminalHtml from './terminalHtml.generated';
 import { makeStyles, useColorScheme } from '../../theme/theme';
@@ -102,9 +105,27 @@ export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(functi
     [flush],
   );
 
+  // A remote (or SSH) shell can't say when a command runs; this guesses from
+  // Enter and the prompt coming back, so the screen stays awake meanwhile.
+  const remoteBusy = useRef<ReturnType<typeof createRemoteBusyTracker> | null>(null);
+  const sendInput = useCallback((data: string) => {
+    remoteBusy.current?.input(data);
+    shell.current?.input(data);
+  }, []);
+
   // One backend per pane; it outlives WebView reloads.
   if (shell.current === null) {
-    shell.current = createBackend?.(write) ?? new Shell({
+    startKeepAwake();
+    if (createBackend) {
+      const key = runningKey('remote');
+      const tracker = createRemoteBusyTracker((busy) => running.set(key, busy));
+      remoteBusy.current = tracker;
+      shell.current = createBackend((data) => {
+        tracker.output(data);
+        write(data);
+      });
+    }
+    shell.current ??= new Shell({
       project,
       fs: createShellFs(project, workspace, projectsStore, buffersStore),
       runner: localRunner,
@@ -116,6 +137,8 @@ export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(functi
         const [values, secrets] = await Promise.all([projectEnv(project), readSecrets(project)]);
         return { values, secrets: Object.keys(secrets) };
       },
+      // Shared by the project's Local terminals and kept across restarts.
+      history: terminalHistory.forProject(project),
       onBusy: (busy) => busyRef.current?.(busy),
       onRunExit: (entry, args, code) => {
         exitRef.current?.(code);
@@ -128,6 +151,7 @@ export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(functi
     () => () => {
       if (timer.current !== null) clearTimeout(timer.current);
       shell.current?.dispose();
+      remoteBusy.current?.end();
     },
     [],
   );
@@ -135,13 +159,13 @@ export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(functi
   useImperativeHandle(
     ref,
     () => ({
-      input: (data) => shell.current?.input(data),
+      input: sendInput,
       blur: () => send({ type: 'blur' }),
       find: (query, backwards = false, caseSensitive = false) => send({ type: 'find', query, backwards, caseSensitive }),
       clearFind: () => send({ type: 'clearFind' }),
       recentOutput: () => recent.current,
     }),
-    [send],
+    [send, sendInput],
   );
 
   const started = useRef(false);
@@ -162,7 +186,7 @@ export const TerminalPane = forwardRef<TerminalHandle, TerminalPaneProps>(functi
         return;
       case 'input':
         if (msg.data.includes('\r')) submitRef.current?.();
-        shell.current?.input(msg.data);
+        sendInput(msg.data);
         return;
       case 'resize':
         shell.current?.resize(msg.cols, msg.rows);

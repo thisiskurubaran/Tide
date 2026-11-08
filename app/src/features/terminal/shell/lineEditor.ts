@@ -8,28 +8,54 @@ export interface LineEditorHost {
   complete(line: string, cursor: number): Promise<{ line: string; cursor: number; options?: string[] } | null>;
 }
 
-const HISTORY_LIMIT = 500;
+export const HISTORY_LIMIT = 500;
+
+// The lines ↑ and ↓ step through, oldest first. The shell's prompt shares one
+// per project (saved, see history.ts); other prompts keep their own in memory.
+export interface LineHistory {
+  readonly entries: readonly string[];
+  // Told about each submitted line; decides itself whether to keep it.
+  add(line: string): void;
+}
+
+// Keeps non-blank lines that differ from the one before, up to `limit`.
+export function memoryHistory(limit = HISTORY_LIMIT): LineHistory {
+  const entries: string[] = [];
+  return {
+    entries,
+    add(line) {
+      if (!line.trim() || entries[entries.length - 1] === line) return;
+      entries.push(line);
+      if (entries.length > limit) entries.splice(0, entries.length - limit);
+    },
+  };
+}
 
 // Readline-style editing on top of the raw bytes xterm.js sends.
 export class LineEditor {
   private buffer = '';
   private cursor = 0;
   private prompt = '';
-  private history: string[] = [];
-  private historyIndex = 0;
+  // How far back from the newest entry ↑ has gone; 0 is the line being typed.
+  // Counted from the end so entries loaded (or added by another terminal)
+  // while browsing don't move what ↓ comes back to.
+  private historyBack = 0;
   private draft = '';
   private active = false;
   private pendingEscape = '';
   private lastWasTab = false;
 
-  constructor(private host: LineEditorHost) {}
+  constructor(
+    private host: LineEditorHost,
+    private history: LineHistory = memoryHistory(),
+  ) {}
 
   // Starts editing a new line. `prompt` may contain color codes.
   read(prompt: string) {
     this.prompt = prompt;
     this.buffer = '';
     this.cursor = 0;
-    this.historyIndex = this.history.length;
+    this.historyBack = 0;
     this.draft = '';
     this.active = true;
     this.host.write(prompt);
@@ -44,7 +70,7 @@ export class LineEditor {
   }
 
   get historyEntries(): readonly string[] {
-    return this.history;
+    return this.history.entries;
   }
 
   // Returns whatever was not consumed because the line was submitted part way
@@ -165,19 +191,18 @@ export class LineEditor {
     const line = this.buffer;
     this.host.write('\n');
     this.active = false;
-    if (line.trim() && this.history[this.history.length - 1] !== line) {
-      this.history.push(line);
-      if (this.history.length > HISTORY_LIMIT) this.history.shift();
-    }
+    this.history.add(line);
     this.host.submit(line);
   }
 
+  // delta -1 is ↑ (older), 1 is ↓ (newer).
   private historyMove(delta: number) {
-    const next = this.historyIndex + delta;
-    if (next < 0 || next > this.history.length) return;
-    if (this.historyIndex === this.history.length) this.draft = this.buffer;
-    this.historyIndex = next;
-    this.buffer = next === this.history.length ? this.draft : this.history[next];
+    const entries = this.history.entries;
+    const back = Math.min(this.historyBack, entries.length) - delta;
+    if (back < 0 || back > entries.length) return;
+    if (this.historyBack === 0) this.draft = this.buffer;
+    this.historyBack = back;
+    this.buffer = back === 0 ? this.draft : entries[entries.length - back];
     this.cursor = this.buffer.length;
     this.redraw();
   }

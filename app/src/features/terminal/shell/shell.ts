@@ -4,7 +4,8 @@ import type { Runner } from '../../../runtime/runner';
 import { basename, dirname, joinPath } from '../../files/fs';
 import { WorkspaceError } from '../../files/workspace';
 import { ansi } from './ansi';
-import { LineEditor } from './lineEditor';
+import { LineEditor, LineHistory, memoryHistory } from './lineEditor';
+import { running, RunningRegistry, runningKey } from '../running';
 import { displayPath, PathError, resolvePath } from './paths';
 import type { ShellFs } from './shellFs';
 import { currentWord, escapeWord, ParseError, tokenize } from './tokenize';
@@ -31,6 +32,17 @@ export interface ShellOptions {
   // Told when a command starts and when the shell is back at its prompt, so
   // the Run button can turn into Stop while something runs.
   onBusy?(busy: boolean): void;
+  // The prompt's ↑/↓ history and what `history` lists: the project's saved
+  // one (shell/history.ts) for terminals; in memory when left out.
+  history?: ShellHistory;
+  // Where the shell says it's running something, for keeping the screen
+  // awake (running.ts); the app-wide registry unless a test passes its own.
+  activity?: RunningRegistry;
+}
+
+export interface ShellHistory extends LineHistory {
+  load?(): Promise<void>;
+  clear(): void | Promise<void>;
 }
 
 class CommandError extends Error {}
@@ -65,6 +77,7 @@ const COMMAND_HELP: [string, string][] = [
   ['git <command>', 'clone, status, add, commit, log, push, pull (git help)'],
   ['env [NAME]', "show the project's environment variables (.env and Keychain)"],
   ['sqlite3 <db> ["SQL"]', 'run SQL on a database file, or open a sqlite> prompt'],
+  ['history [n] [-c]', 'list earlier commands (the last n), or clear them with -c'],
   ['clear', 'clear the screen'],
   ['help', 'show this list'],
 ];
@@ -82,6 +95,13 @@ const errorMessage = (e: unknown) =>
     : e instanceof Error
       ? e.message
       : String(e);
+
+// History for a shell without a saved one (the agent's): this session only.
+function sessionHistory(): ShellHistory {
+  const mem = memoryHistory();
+  const entries = mem.entries as string[];
+  return { entries, add: (line) => mem.add(line), clear: () => void entries.splice(0) };
+}
 
 // The local mini-shell. iOS can't fork or exec, so this is not a real shell:
 // it implements a handful of file commands and hands `node`/`python` to a Runner.
@@ -103,17 +123,25 @@ export class Shell {
   private nextId: () => string;
   // The "not type-checked" note is shown once per terminal.
   private toldNoTypeCheck = false;
+  private history: ShellHistory;
+  private activity: RunningRegistry;
+  private activityKey = runningKey('shell');
 
   constructor(private opts: ShellOptions) {
     let counter = 0;
     this.nextId = opts.newId ?? (() => `run-${Date.now()}-${++counter}`);
-    this.editor = new LineEditor({
-      write: (d) => this.write(d),
-      submit: (line) => this.execute(line),
-      interrupt: () => this.prompt(),
-      clearScreen: () => this.write(ansi.clearScreen),
-      complete: (line, cursor) => this.complete(line, cursor),
-    });
+    this.history = opts.history ?? sessionHistory();
+    this.activity = opts.activity ?? running;
+    this.editor = new LineEditor(
+      {
+        write: (d) => this.write(d),
+        submit: (line) => this.execute(line),
+        interrupt: () => this.prompt(),
+        clearScreen: () => this.write(ansi.clearScreen),
+        complete: (line, cursor) => this.complete(line, cursor),
+      },
+      this.history,
+    );
     this.commands = this.buildCommands();
   }
 
@@ -122,6 +150,7 @@ export class Shell {
   }
 
   start() {
+    this.history.load?.().catch(() => undefined);
     this.write(`${ansi.dim}Tide local shell. Type help for commands.${ansi.reset}\n`);
     this.prompt();
   }
@@ -132,6 +161,7 @@ export class Shell {
     if (this.running) this.opts.runner.send({ type: 'kill', id: this.running.id });
     this.running = null;
     this.settleWaiters(null);
+    this.activity.set(this.activityKey, false);
   }
 
   resize(cols: number) {
@@ -162,6 +192,7 @@ export class Shell {
   private reportBusy(busy: boolean) {
     if (busy === this.reportedBusy) return;
     this.reportedBusy = busy;
+    this.activity.set(this.activityKey, busy);
     this.opts.onBusy?.(busy);
   }
 
@@ -397,6 +428,7 @@ export class Shell {
         }
       },
       clear: async () => this.write(ansi.clearScreen),
+      history: (args, io) => this.printHistory(args, io),
       env: (args, io) => this.printEnv(args, io),
       printenv: (args, io) => this.printEnv(args, io),
       node: (args) => this.runProgram('node', args),
@@ -517,6 +549,23 @@ export class Shell {
     if (name === 'tsx' && args[i] === 'watch') throw new CommandError('watch mode needs the Remote terminal; run tsx <file> again after a change');
     if (!args[i]) throw new CommandError(`usage: ${name} <file> [args]`);
     return this.runProgram('node', args.slice(i));
+  }
+
+  private async printHistory(args: string[], io: Io) {
+    const { flags, rest } = this.flags(args, 'c');
+    if (flags.has('c')) {
+      await this.history.clear();
+      return;
+    }
+    const all = this.history.entries;
+    let from = 0;
+    if (rest.length) {
+      const n = Number(rest[0]);
+      if (!Number.isInteger(n) || n < 0) throw new CommandError(`${rest[0]}: numeric argument required`);
+      from = Math.max(0, all.length - n);
+    }
+    const width = String(all.length).length;
+    io.out(all.slice(from).map((line, i) => `  ${String(from + i + 1).padStart(width)}  ${line}\n`).join(''));
   }
 
   private async printEnv(args: string[], io: Io) {
