@@ -5,7 +5,7 @@
 import type { ToolSpec } from '../ai/client';
 import { normalizePath, WorkspaceError } from '../files/workspace';
 import { SearchError, searchProject } from '../search/search';
-import { ChangeConflictError, ChangesStore, diffStats, FileChange } from './changes';
+import { ChangeConflictError, ChangesNotSavedError, ChangesStore, diffStats, FileChange } from './changes';
 
 // ---------------------------------------------------------------------------
 // What the tools work on
@@ -379,6 +379,7 @@ const runCommand: AgentTool = {
       await env.changes.getState().applyToDisk(env.project);
     } catch (e) {
       if (e instanceof ChangeConflictError) throw new ToolError(`${e.path} was changed outside the agent, so pending changes weren't written. Read it again before continuing.`);
+      if (e instanceof ChangesNotSavedError) throw new ToolError(`${e.message} The command wasn't run.`);
       throw e;
     }
     let result: CommandResult;

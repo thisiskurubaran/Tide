@@ -248,12 +248,28 @@ def _abs(path, cwd):
     return os.path.join(cwd, p) if p and not p.startswith("/") else path
 
 
-_real = {"getcwd": os.getcwd, "getcwdb": os.getcwdb, "chdir": os.chdir, "stat": os.stat, "open": io.open}
+_real = {"getcwd": os.getcwd, "getcwdb": os.getcwdb, "chdir": os.chdir, "stat": os.stat, "open": io.open, "scandir": os.scandir}
 _DIR_FDS = ("dir_fd", "src_dir_fd", "dst_dir_fd")
 
 
+class _Replacement:
+    """Wraps a replacement for a builtin (open, os.stat, ...). A plain Python
+    function stored as a class attribute (`opener = open`) would turn into a
+    bound method and get the instance as its first argument; builtins don't,
+    and neither does this, as it is not a descriptor."""
+
+    def __init__(self, fn, original):
+        functools.update_wrapper(self, original)
+        self._fn = fn
+
+    def __call__(self, *args, **kwargs):
+        return self._fn(*args, **kwargs)
+
+    def __repr__(self):
+        return repr(self.__wrapped__)
+
+
 def _path_function(fn, names, default_cwd):
-    @functools.wraps(fn)
     def wrapper(*args, **kwargs):
         run = _run_of_thread()
         cwd = None if run is None else run.cwd
@@ -267,11 +283,102 @@ def _path_function(fn, names, default_cwd):
                     args[i] = _abs(args[i], cwd)
                 elif name in kwargs:
                     kwargs[name] = _abs(kwargs[name], cwd)
-            if default_cwd and not args and "path" not in kwargs:
-                args = [cwd]
+            if default_cwd:
+                # No path, or None, means the cwd.
+                if not args and kwargs.get("path") is None:
+                    kwargs.pop("path", None)
+                    args = [cwd]
+                elif args and args[0] is None:
+                    args[0] = cwd
+
         return fn(*args, **kwargs)
 
-    return wrapper
+    return _Replacement(wrapper, fn)
+
+
+class _DirEntry:
+    """A DirEntry from scanning a run's virtual cwd: everything comes from the
+    real entry (scanned through the absolute path) except `path`, which is
+    built from the path the caller passed, as os.scandir() itself does.
+    pathlib and glob rely on that: they cut the given path's length off it."""
+
+    __slots__ = ("_entry", "path")
+
+    def __init__(self, entry, path):
+        self._entry = entry
+        self.path = path
+
+    name = property(lambda self: self._entry.name)
+
+    def inode(self):
+        return self._entry.inode()
+
+    def is_dir(self, *, follow_symlinks=True):
+        return self._entry.is_dir(follow_symlinks=follow_symlinks)
+
+    def is_file(self, *, follow_symlinks=True):
+        return self._entry.is_file(follow_symlinks=follow_symlinks)
+
+    def is_symlink(self):
+        return self._entry.is_symlink()
+
+    def is_junction(self):
+        return self._entry.is_junction()
+
+    def stat(self, *, follow_symlinks=True):
+        return self._entry.stat(follow_symlinks=follow_symlinks)
+
+    def __fspath__(self):
+        return self.path
+
+    def __repr__(self):
+        return f"<DirEntry {self.name!r}>"
+
+    def __class_getitem__(cls, item):
+        return os.DirEntry[item]
+
+
+class _ScandirIterator:
+    """os.scandir()'s iterator for a virtual cwd: yields _DirEntry objects."""
+
+    def __init__(self, it, given):
+        self._it = it
+        self._given = given
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        entry = next(self._it)
+        return _DirEntry(entry, os.path.join(self._given, entry.name))
+
+    def close(self):
+        self._it.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self._it.close()
+        return False
+
+
+def _scandir(path=None):
+    run = _run_of_thread()
+    cwd = None if run is None else run.cwd
+    if cwd is None or isinstance(path, int):
+        return _real["scandir"]() if path is None else _real["scandir"](path)
+    given = "." if path is None else os.fspath(path)  # TypeError like scandir
+    real = _abs(given, cwd)
+    if real is given:  # absolute (or empty, which fails as it would anyway)
+        return _real["scandir"](path)
+    try:
+        it = _real["scandir"](real)
+    except OSError as e:
+        if e.filename == real:
+            e.filename = given if path is None else path  # as given, like scandir
+        raise
+    return _ScandirIterator(it, given)
 
 
 def _getcwd():
@@ -296,7 +403,6 @@ def _chdir(path):
     run.cwd = target
 
 
-@functools.wraps(io.open)
 def _open(file, *args, **kwargs):
     cwd = _vcwd()
     if cwd is not None:
@@ -313,21 +419,30 @@ def _install_cwd_functions():
     )}
     specs.update({"rename": two, "replace": two, "link": two, "symlink": (None, "dst")})
     # A symlink's target is stored verbatim: relative to the link, not the cwd.
-    defaults = {"listdir": one, "scandir": one, "listxattr": one}
+    defaults = {"listdir": one, "listxattr": one}
     replaced = {}
     for name, names in [*specs.items(), *defaults.items()]:
         fn = getattr(os, name, None)
         if fn is not None:
             replaced[fn] = _path_function(fn, names, name in defaults)
             setattr(os, name, replaced[fn])
-    replaced[os.getcwd], replaced[os.getcwdb], replaced[os.chdir] = _getcwd, _getcwdb, _chdir
-    os.getcwd, os.getcwdb, os.chdir = _getcwd, _getcwdb, _chdir
+    for name, fn in (("getcwd", _getcwd), ("getcwdb", _getcwdb), ("chdir", _chdir), ("scandir", _scandir)):
+        replaced[_real[name]] = _Replacement(fn, _real[name])
+        setattr(os, name, replaced[_real[name]])
     # `os.stat in os.supports_dir_fd` and friends keep answering for the wrappers.
     for group in ("supports_dir_fd", "supports_fd", "supports_follow_symlinks", "supports_effective_ids"):
         supported = getattr(os, group, None)
         if isinstance(supported, set):
             supported.update(w for f, w in replaced.items() if f in supported)
-    builtins.open = io.open = _open
+    # glob (and so pathlib's glob) keeps os.scandir and os.lstat in class
+    # attributes; if it was imported before us, point those at the wrappers.
+    glob_module = sys.modules.get("glob")
+    for cls in vars(glob_module).values() if glob_module is not None else ():
+        if isinstance(cls, type):
+            for attr, value in list(vars(cls).items()):
+                if isinstance(value, staticmethod) and value.__func__ in replaced:
+                    setattr(cls, attr, staticmethod(replaced[value.__func__]))
+    builtins.open = io.open = _Replacement(_open, _real["open"])
 
 
 _install_cwd_functions()
@@ -450,8 +565,8 @@ def _argv_method(name):
     base = getattr(list, name)
     returns_self = name in ("__iadd__", "__imul__")
 
-    def method(self, *args):
-        result = base(_argv_target(self), *args)
+    def method(self, *args, **kwargs):
+        result = base(_argv_target(self), *args, **kwargs)
         return self if returns_self else result
 
     method.__name__ = name

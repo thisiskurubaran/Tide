@@ -1,7 +1,7 @@
 import { createMemoryFs } from '../files/memoryFs';
 import { hydrated } from '../../state/hydrated';
 import { createFsStorage } from '../../state/storage';
-import { CHANGES_STORAGE_KEY, ChangeConflictError, changeHunks, countLines, createChangesStore, diffStats } from './changes';
+import { CHANGES_STORAGE_KEY, ChangeConflictError, ChangesNotSavedError, changeHunks, countLines, createChangesStore, diffStats } from './changes';
 import type { Identify } from './projectIdentity';
 import { memoryProject } from './testUtils';
 
@@ -396,5 +396,56 @@ describe('pending changes follow the project', () => {
     const saved = JSON.parse(await fs.readFile(`.tide/${CHANGES_STORAGE_KEY}.json`)).state;
     expect(saved.byProject[P]).toBeUndefined();
     expect(saved.owners[P]).toBeUndefined();
+  });
+});
+
+describe('races and failures', () => {
+  it("a Keep finishing after a rename doesn't bring records back under the old name (L18)", async () => {
+    const p = memoryProject({ 'a.txt': 'a\n', 'b.txt': 'b\n' });
+    const store = createChangesStore(p.io);
+    store.getState().stage(P, 'a.txt', 'a\n', 'A\n');
+    store.getState().stage(P, 'b.txt', 'b\n', 'B\n');
+    let release!: () => void;
+    const write = p.io.write;
+    p.io.write = async (...args) => {
+      await new Promise<void>((r) => (release = r));
+      return write(...args);
+    };
+    const keeping = store.getState().keepFile(P, 'a.txt');
+    await new Promise((r) => setTimeout(r, 0));
+    store.getState().renameProject(P, 'renamed');
+    release();
+    await keeping;
+    expect(store.getState().byProject[P]).toBeUndefined();
+    expect(Object.keys(store.getState().byProject.renamed)).toEqual(['a.txt', 'b.txt']);
+  });
+
+  it("doesn't write to disk when the apply intent can't be saved (L19)", async () => {
+    const fs = createMemoryFs();
+    const inner = createFsStorage(fs);
+    let failing = false;
+    const storage = {
+      ...inner,
+      setItem: async (k: string, v: string) => {
+        if (failing) throw new Error('disk full');
+        return inner.setItem(k, v);
+      },
+    };
+    const p = memoryProject({ 'a.txt': 'a\n' });
+    const store = createChangesStore(p.io, storage, { saveDelayMs: 10_000 });
+    await hydrated(store, 1000);
+    store.getState().stage(P, 'a.txt', 'a\n', 'A\n');
+    failing = true;
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await expect(store.getState().applyToDisk(P)).rejects.toBeInstanceOf(ChangesNotSavedError);
+    warn.mockRestore();
+    expect(p.writes).toEqual([]);
+    expect(p.disk.get('a.txt')).toBe('a\n');
+    expect(store.getState().byProject[P]['a.txt']).toEqual({ path: 'a.txt', original: 'a\n', proposed: 'A\n', disk: 'a\n', base: 'a\n' });
+
+    failing = false;
+    await store.getState().applyToDisk(P);
+    expect(p.disk.get('a.txt')).toBe('A\n');
+    await store.getState().flush();
   });
 });

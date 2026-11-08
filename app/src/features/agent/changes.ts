@@ -23,12 +23,14 @@
 //
 // Records carry the project's identity (projectIdentity.ts), so a project
 // deleted in the Files app and made again under the same name doesn't get
-// them back. They move with a rename.
+// them back. They move with a rename. Where the identity isn't reliable
+// (Android) none is kept, and records are only dropped when the project's
+// folder is gone or the project is deleted in Tide.
 import { createStore } from 'zustand';
 import { persist, PersistStorage, StateStorage, StorageValue } from 'zustand/middleware';
 
 import { applyHunk, diffText, Hunk, revertHunk } from '../../extensions/gitPro/diff';
-import { Identify, sameProject } from './projectIdentity';
+import { Identify, identityReliable, sameProject } from './projectIdentity';
 
 export interface FileChange {
   path: string;
@@ -57,6 +59,14 @@ export interface ChangeIo {
 export class ChangeConflictError extends Error {
   constructor(readonly path: string) {
     super(`${path} changed since the agent edited it.`);
+  }
+}
+
+// run_command's intent to write pending changes couldn't be saved, so nothing
+// was written: after a crash the originals would be lost.
+export class ChangesNotSavedError extends Error {
+  constructor(readonly reason: unknown) {
+    super("The agent's pending changes couldn't be saved, so they weren't written to disk.");
   }
 }
 
@@ -130,14 +140,16 @@ type Persisted = Pick<ChangesState, 'byProject' | 'owners'>;
 const noStorage: StateStorage = { getItem: () => null, setItem: () => undefined, removeItem: () => undefined };
 
 // Saved changes load under any staged before loading finished (those are newer).
-function mergeSaved(saved: unknown, current: ChangesState): ChangesState {
+// Saved owners are dropped when identities can't be trusted here: on Android
+// they were folder modification times (see projectIdentity.ts).
+function mergeSaved(saved: unknown, current: ChangesState, trustOwners: boolean): ChangesState {
   const byProject = { ...current.byProject };
   const s = saved as Partial<Persisted> | undefined;
   const stored = s?.byProject;
   if (stored && typeof stored === 'object') {
     for (const [project, files] of Object.entries(stored)) byProject[project] = { ...files, ...current.byProject[project] };
   }
-  const owners = { ...(s?.owners && typeof s.owners === 'object' ? s.owners : {}), ...current.owners };
+  const owners = { ...(trustOwners && s?.owners && typeof s.owners === 'object' ? s.owners : {}), ...current.owners };
   return { ...current, byProject, owners };
 }
 
@@ -151,20 +163,20 @@ function coalescingStorage(storage: StateStorage, delayMs: number) {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let writing: Promise<void> = Promise.resolve();
 
-  const flush = (): Promise<void> => {
+  // Resolves once written; `attempt` rejects if this write failed.
+  const write = (): { writing: Promise<void>; attempt: Promise<void> } => {
     if (timer) clearTimeout(timer);
     timer = null;
     const value = latest;
     latest = null;
-    if (value) {
-      writing = writing
-        .then(async () => {
-          await storage.setItem(CHANGES_STORAGE_KEY, JSON.stringify(value));
-        })
-        .catch((e) => console.warn('Could not save the agent\'s pending changes', e));
-    }
-    return writing;
+    if (!value) return { writing, attempt: writing };
+    const attempt = writing.then(async () => {
+      await storage.setItem(CHANGES_STORAGE_KEY, JSON.stringify(value));
+    });
+    writing = attempt.catch((e) => console.warn('Could not save the agent\'s pending changes', e));
+    return { writing, attempt };
   };
+  const flush = (): Promise<void> => write().writing;
 
   const persistStorage: PersistStorage<Persisted> = {
     async getItem(name) {
@@ -179,10 +191,11 @@ function coalescingStorage(storage: StateStorage, delayMs: number) {
     removeItem: (name) => storage.removeItem(name),
   };
 
-  // Saves `state` now and resolves once it's written.
-  const saveNow = (state: Persisted) => {
+  // Saves `state` now and resolves once it's written; rejects if it wasn't.
+  const saveNow = (state: Persisted): Promise<void> => {
+    if (storage === noStorage) return Promise.resolve();
     latest = { state, version: CHANGES_VERSION };
-    return flush();
+    return write().attempt;
   };
 
   return { persistStorage, flush, saveNow };
@@ -198,6 +211,13 @@ export interface ChangesOptions {
 // `storage` keeps pending changes across launches (see the top of this file).
 export function createChangesStore(io: ChangeIo, storage: StateStorage = noStorage, { identify, saveDelayMs = 500 }: ChangesOptions = {}) {
   const saving = coalescingStorage(storage, saveDelayMs);
+  const trusted = identityReliable(identify);
+  // The project's identity as far as it can be trusted here ('' = unknown).
+  const known = async (project: string): Promise<string | null> => {
+    if (!identify) return '';
+    const id = await identify(project).catch(() => '');
+    return id === null ? null : trusted ? id : '';
+  };
 
   return createStore<ChangesState>()(
     persist(
@@ -211,6 +231,13 @@ export function createChangesStore(io: ChangeIo, storage: StateStorage = noStora
             else delete next[path];
             return { byProject: { ...s.byProject, [project]: next } };
           });
+
+        // put, after awaiting: only if the record is still there. A rename (or
+        // delete) while a Keep or apply was writing has moved it; writing it
+        // back under the old name would bring the old project's records back.
+        const update = (project: string, change: FileChange | null, path: string) => {
+          if (get().byProject[project]?.[path]) put(project, change, path);
+        };
 
         // Changes to one file run one after another, so two taps can't race.
         const queues = new Map<string, Promise<unknown>>();
@@ -235,7 +262,7 @@ export function createChangesStore(io: ChangeIo, storage: StateStorage = noStora
           if (disk === change.disk && change.applying === undefined) return { change, actual };
           const { applying: _done, ...rest } = change;
           const next = { ...rest, disk };
-          put(project, next, path);
+          update(project, next, path);
           return { change: next, actual };
         };
 
@@ -260,13 +287,13 @@ export function createChangesStore(io: ChangeIo, storage: StateStorage = noStora
               const final = dropped ? null : original;
               await writeDisk(project, change, actual, final, force);
               if (final !== null && final !== change.base) await io.recordHistory?.(project, path, final, change.base);
-              put(project, null, path);
+              update(project, null, path);
               return;
             }
             // The disk follows whichever side it was showing.
             const target = change.disk === change.proposed ? proposed : change.disk === change.original ? original : change.disk;
             await writeDisk(project, change, actual, target, force);
-            put(project, { ...change, original, proposed, disk: target }, path);
+            update(project, { ...change, original, proposed, disk: target }, path);
           });
 
         const keepEverything = (c: FileChange) => ({ original: c.proposed, proposed: c.proposed });
@@ -287,9 +314,9 @@ export function createChangesStore(io: ChangeIo, storage: StateStorage = noStora
         // Notes whose project these changes are, the first time one is staged.
         const claiming = new Set<string>();
         const claim = (project: string) => {
-          if (!identify || get().owners[project] || claiming.has(project)) return;
+          if (!identify || !trusted || get().owners[project] || claiming.has(project)) return;
           claiming.add(project);
-          identify(project)
+          known(project)
             .then((id) => {
               if (id && !get().owners[project] && Object.keys(files(project)).length) set((s) => ({ owners: { ...s.owners, [project]: id } }));
             })
@@ -341,7 +368,20 @@ export function createChangesStore(io: ChangeIo, storage: StateStorage = noStora
             const toApply = Object.values(files(project)).filter((c) => c.disk !== c.proposed);
             if (toApply.length) {
               for (const c of toApply) put(project, { ...c, applying: c.proposed }, c.path);
-              await saving.saveNow(partialize(get()));
+              try {
+                await saving.saveNow(partialize(get()));
+              } catch (e) {
+                // Without the intent on record, a crash mid-write would lose the
+                // originals: write nothing.
+                for (const c of toApply) {
+                  const now = files(project)[c.path];
+                  if (now?.applying !== undefined) {
+                    const { applying: _undo, ...rest } = now;
+                    put(project, rest, c.path);
+                  }
+                }
+                throw new ChangesNotSavedError(e);
+              }
             }
             for (const path of Object.keys(files(project))) {
               await serial(project, path, async () => {
@@ -355,12 +395,12 @@ export function createChangesStore(io: ChangeIo, storage: StateStorage = noStora
                 const actual = await io.read(project, path);
                 if (actual !== change.proposed) {
                   if (actual !== change.disk) {
-                    put(project, done, path);
+                    update(project, done, path);
                     throw new ChangeConflictError(path);
                   }
                   await io.write(project, path, change.proposed);
                 }
-                put(project, { ...done, disk: change.proposed }, path);
+                update(project, { ...done, disk: change.proposed }, path);
               });
             }
           },
@@ -371,8 +411,8 @@ export function createChangesStore(io: ChangeIo, storage: StateStorage = noStora
                 if (!change || change.disk !== change.proposed) return;
                 const now = await io.read(project, path);
                 if (now === null || now === change.disk) return;
-                if (now === change.original) put(project, null, path);
-                else put(project, { ...change, proposed: now, disk: now }, path);
+                if (now === change.original) update(project, null, path);
+                else update(project, { ...change, proposed: now, disk: now }, path);
               });
             }
           },
@@ -395,13 +435,14 @@ export function createChangesStore(io: ChangeIo, storage: StateStorage = noStora
               return;
             }
             if (identify) {
-              const id = await identify(project).catch(() => '');
-              // Deleted outside Tide, or a different project under the same name.
-              if (id === null || !sameProject(get().owners[project], id)) {
+              const id = await known(project);
+              // Deleted outside Tide, or (only where identities are reliable) a
+              // different project under the same name.
+              if (id === null || (trusted && !sameProject(get().owners[project], id))) {
                 forget(project);
                 return;
               }
-              if (id && !get().owners[project]) set((s) => ({ owners: { ...s.owners, [project]: id } }));
+              if (id && !get().owners[project] && Object.keys(files(project)).length) set((s) => ({ owners: { ...s.owners, [project]: id } }));
             }
             for (const path of Object.keys(files(project))) await serial(project, path, () => settle(project, path)).catch(() => undefined);
           },
@@ -416,7 +457,7 @@ export function createChangesStore(io: ChangeIo, storage: StateStorage = noStora
         version: CHANGES_VERSION,
         storage: saving.persistStorage,
         partialize,
-        merge: mergeSaved,
+        merge: (saved, current) => mergeSaved(saved, current, trusted),
       },
     ),
   );

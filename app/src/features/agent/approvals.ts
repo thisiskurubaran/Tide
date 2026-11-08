@@ -5,7 +5,7 @@
 // Settings, AI assistant.
 import type { StateStorage } from 'zustand/middleware';
 
-import { Identify, sameProject } from './projectIdentity';
+import { Identify, identityReliable, sameProject } from './projectIdentity';
 
 export const APPROVALS_KEY = 'agent-approvals';
 // Before approvals had an identity: { [project]: string[] }.
@@ -19,6 +19,13 @@ type Saved = Record<string, Entry>;
 
 export function createApprovals(storage: StateStorage, identify: Identify = async () => '') {
   let cache: Saved | null = null;
+  // Where identities can't be trusted (Android, see projectIdentity.ts) none is
+  // kept or compared: approvals match by name, and go with a delete or rename.
+  const trusted = () => identityReliable(identify);
+  const known = async (project: string) => {
+    const id = await identify(project);
+    return id === null ? null : trusted() ? id : '';
+  };
   // Changes run one after another so none is lost.
   let queue: Promise<unknown> = Promise.resolve();
   const serial = <T>(fn: () => Promise<T>): Promise<T> => {
@@ -45,6 +52,12 @@ export function createApprovals(storage: StateStorage, identify: Identify = asyn
     } catch {
       cache = {};
     }
+    // Identities saved before they were known to be unreliable here (an
+    // Android folder's last-modified time) would revoke approvals once the
+    // folder changes: they're dropped.
+    if (!trusted() && Object.values(cache!).some((e) => e?.id)) {
+      await save(Object.fromEntries(Object.entries(cache!).map(([p, e]) => [p, { ...e, id: '' }])));
+    }
     return cache!;
   }
 
@@ -64,7 +77,7 @@ export function createApprovals(storage: StateStorage, identify: Identify = asyn
         const saved = await load();
         const entry = saved[project];
         if (!entry?.keys.includes(key)) return false;
-        const id = await identify(project);
+        const id = await known(project);
         if (id === null) return false;
         if (!sameProject(entry.id, id)) {
           // Another project now has this name.
@@ -77,7 +90,7 @@ export function createApprovals(storage: StateStorage, identify: Identify = asyn
     setAllowed: (project: string, key: string, allowed: boolean) =>
       serial(async () => {
         const saved = await load();
-        const id = (await identify(project)) ?? '';
+        const id = (await known(project)) ?? '';
         const prev = saved[project];
         const keys = new Set(prev && sameProject(prev.id, id) ? prev.keys : []);
         if (allowed) keys.add(key);

@@ -413,5 +413,66 @@ class RunnerTest(unittest.TestCase):
         self.assertNotIn("TIDE_K", os.environ)
         self.assertEqual(os.getcwd(), cwd_before)
 
+    def test_a_joined_run_in_a_subfolder_lists_directories_like_a_lone_run(self):
+        self.h.file("projects/x/wait.py", "print('up', flush=True)\ninput()\n")
+        self.h.file("projects/x/sub/a.py", "")
+        self.h.file("projects/x/sub/t/f.txt", "f")
+        self.h.file("projects/x/sub/t/deep/d.py", "")
+        self.h.file(
+            "projects/x/sub/ls.py",
+            "import glob, os, shutil\nfrom pathlib import Path\n"
+            "def show(label, value):\n    print(label, sorted(map(str, value)))\n"
+            "show('rglob', Path().rglob('*.py'))\n"
+            "show('glob', Path('.').glob('*'))\n"
+            "show('iterdir', Path().iterdir())\n"
+            "show('iterdir_t', Path('t').iterdir())\n"
+            "show('walk', (str(d) for d, _, _ in Path('t').walk()))\n"
+            "with os.scandir('t') as it:\n    show('scandir', ((e.path, e.name, e.is_dir(), e.is_file(), os.fspath(e)) for e in it))\n"
+            "show('scandir_dot', (e.path for e in os.scandir()))\n"
+            "show('scandir_bytes', (e.path for e in os.scandir(b't')))\n"
+            "show('glob.glob', glob.glob('**/*', recursive=True))\n"
+            "show('glob_root', glob.glob('*', root_dir='t'))\n"
+            "show('os.walk', (d for d, _, _ in os.walk('t')))\n"
+            "show('fwalk', (d for d, _, _, _ in os.fwalk('t')))\n"
+            "show('listdir', os.listdir('t') + os.listdir() + os.listdir(None))\n"
+            "shutil.rmtree('copy', ignore_errors=True)\nshutil.copytree('t', 'copy')\n"
+            "show('copytree', glob.glob('copy/**', recursive=True))\nshutil.rmtree('copy')\n"
+            "try:\n    os.scandir('missing')\nexcept FileNotFoundError as e:\n    print('missing', e.filename)\n",
+        )
+        self.assertEqual(self.h.run("lone", "projects/x/sub/ls.py", cwd="projects/x/sub"), (0, False), self.h.text("lone", "stderr"))
+        thread, result = self.h.start("w", "projects/x/wait.py", cwd="projects/x")
+        self.h.wait_for("w", "up")
+        try:
+            self.assertEqual(self.h.run("joined", "projects/x/sub/ls.py", cwd="projects/x/sub"), (0, False), self.h.text("joined", "stderr"))
+        finally:
+            tide_runner.feed("w", "\n")
+            thread.join(10)
+        self.assertEqual(result["value"], (0, False))
+        lone = self.h.text("lone")
+        self.assertIn("iterdir_t ['t/deep', 't/f.txt']", lone)
+        self.assertIn("rglob ['a.py', 'ls.py', 't/deep/d.py']", lone)
+        self.assertEqual(self.h.text("joined"), lone)
+        self.assert_idle()
+
+    def test_replaced_functions_stay_unbound_as_class_attributes(self):
+        self.h.file("projects/y/wait.py", "print('up', flush=True)\ninput()\n")
+        self.h.file("projects/y/sub/n.txt", "n")
+        self.h.file(
+            "projects/y/sub/cls.py",
+            "import os, sys\n"
+            "class C:\n    opener = open\n    stat = os.stat\n    listdir = os.listdir\n    scandir = os.scandir\n    getcwd = os.getcwd\n"
+            "c = C()\nprint(c.opener('n.txt').read(), c.stat('n.txt').st_size, sorted(c.listdir()), sorted(e.path for e in c.scandir()), os.path.basename(c.getcwd()))\n"
+            "sys.argv[1:] = ['bb', 'a', 'ccc']\nsys.argv.sort(key=len)\nprint(sys.argv[:3])\n",
+        )
+        thread, result = self.h.start("w", "projects/y/wait.py", cwd="projects/y")
+        self.h.wait_for("w", "up")
+        try:
+            self.assertEqual(self.h.run("c", "projects/y/sub/cls.py", cwd="projects/y/sub"), (0, False), self.h.text("c", "stderr"))
+        finally:
+            tide_runner.feed("w", "\n")
+            thread.join(10)
+        self.assertEqual(self.h.text("c"), "n 1 ['cls.py', 'n.txt'] ['./cls.py', './n.txt'] sub\n['a', 'bb', 'ccc']\n")
+        self.assert_idle()
+
 if __name__ == "__main__":
     unittest.main()
