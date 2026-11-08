@@ -272,18 +272,70 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     openFile(tabs.open[(i + step + tabs.open.length) % tabs.open.length]);
   }
 
+  // The editors send typing on a short debounce: get their last keystrokes
+  // into the buffers before saving, closing or running.
+  const flushEditorPanes = () => Promise.all([leftEditor.current?.flush(), rightEditor.current?.flush()]);
+
+  // A file deleted on disk with unsaved edits: what to do with them on close.
+  const askDeletedClose = (path: string) =>
+    new Promise<'save' | 'discard' | 'cancel'>((resolve) =>
+      Alert.alert(
+        `${path.split('/').pop()} was deleted`,
+        'It has unsaved changes that are only kept in this tab.',
+        [
+          { text: 'Cancel', style: 'cancel', onPress: () => resolve('cancel') },
+          { text: "Don't save", style: 'destructive', onPress: () => resolve('discard') },
+          { text: 'Save as new file', onPress: () => resolve('save') },
+        ],
+        { cancelable: true, onDismiss: () => resolve('cancel') },
+      ),
+    );
+
   async function closeFile(path: string) {
-    // The editors send typing on a short debounce, and the tab's X is native:
-    // get their last keystrokes into the buffer before saving it.
-    await Promise.all([leftEditor.current?.flush(), rightEditor.current?.flush()]);
-    await buffersStore.getState().save(project, path);
-    const rest = tabs.open.filter((p) => p !== path);
+    // The tab's X is native, so the editor may still hold the last keystrokes.
+    await flushEditorPanes();
+    try {
+      await buffersStore.getState().save(project, path);
+    } catch (e) {
+      Alert.alert("Couldn't save", `${path} wasn't saved, so its tab stays open. ${e instanceof Error ? e.message : String(e)}`);
+      return;
+    }
+    const buffer = buffersStore.getState().buffers[bufferKey(project, path)];
+    if (buffer?.deleted && isDirty(buffer)) {
+      const choice = await askDeletedClose(path);
+      if (choice === 'cancel') return;
+      if (choice === 'discard') buffersStore.getState().discard(project, path);
+      else {
+        try {
+          await buffersStore.getState().save(project, path, { recreate: true });
+          await projectsStore.getState().loadTree(project);
+        } catch (e) {
+          Alert.alert("Couldn't save", e instanceof Error ? e.message : String(e));
+          return;
+        }
+      }
+    }
+    // Read now, not from the render: tabs may have changed during the awaits.
+    const open = projectTabs(tabsStore.getState(), project).open;
+    const rest = open.filter((p) => p !== path);
     // The right pane moves to a neighbour too.
-    if (split?.path === path) setSplit({ path: rest[Math.min(tabs.open.indexOf(path), rest.length - 1)] ?? null });
+    setSplit((s) => (s?.path === path ? { path: rest[Math.min(open.indexOf(path), rest.length - 1)] ?? null } : s));
     tabsStore.getState().closeTab(project, path);
     // Reopening reads the file fresh, so changes made on disk meanwhile show up.
     buffersStore.getState().drop(project, path);
   }
+
+  // The right pane's file went away without closeFile (deleted on disk or in
+  // the tree, renamed, moved): it follows a rename, or moves to a neighbour.
+  const previousOpen = useRef(tabs.open);
+  useEffect(() => {
+    const before = previousOpen.current;
+    previousOpen.current = tabs.open;
+    if (!split?.path || tabs.open.includes(split.path)) return;
+    const i = before.indexOf(split.path);
+    const renamed = i !== -1 && before.length === tabs.open.length && !before.includes(tabs.open[i]) ? tabs.open[i] : undefined;
+    setSplit({ path: renamed ?? tabs.open[Math.min(Math.max(i, 0), tabs.open.length - 1)] ?? null });
+  }, [tabs.open, split]);
 
   function toggleSplit() {
     if (!wide) return;
@@ -310,6 +362,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     const line = configLine(config, runnerStore.getState().mode);
     haptic('press');
     countRun();
+    await flushEditorPanes();
     await buffersStore.getState().flushProject(project);
     setTerminalHidden(false);
     startActivity(line);
@@ -382,6 +435,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     const line = taskLine(task, runnerStore.getState().mode);
     if (!line) return;
     haptic('press');
+    await flushEditorPanes();
     await buffersStore.getState().flushProject(project);
     setTerminalHidden(false);
     startActivity(line);
@@ -733,6 +787,16 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
   const sidebarWidth = sidebarRatio > 0 && bodyWidth > 0 ? Math.round(sidebarRatio * bodyWidth) : SIDEBAR_WIDTH;
   // iPad: Markdown, HTML and the like show beside their source.
   const sidePreview = wide && !splitOn && !!tabs.active && canToggle(tabs.active) && previewing(tabs.active);
+  // A viewer covering an editor (a rendered preview) takes the keyboard away
+  // from it, so typing doesn't go on editing the file out of sight.
+  const leftCovered = !sidePreview && previewing(tabs.active);
+  const rightCovered = splitOn && previewing(split.path);
+  useEffect(() => {
+    if (leftCovered) leftEditor.current?.send({ type: 'blur' });
+  }, [leftCovered, tabs.active]);
+  useEffect(() => {
+    if (rightCovered) rightEditor.current?.send({ type: 'blur' });
+  }, [rightCovered, split?.path]);
   const chromeHidden = keyboardOpen && !wide;
   const terminalShown = !terminalHidden || (keyboardOpen && typingIn === 'terminal');
 

@@ -170,6 +170,38 @@ describe('buffers with tree changes', () => {
   });
 });
 
+describe('rename onto a buffer that is still open', () => {
+  it("doesn't clobber the buffer already at the destination: its edits are recovered", async () => {
+    const { buffers, workspace } = await setup();
+    await workspace.createFile('p', '', 'b.js', 'b on disk');
+    await buffers.getState().load('p', 'b.js');
+    buffers.getState().edit('p', 'b.js', 'b edits');
+    await workspace.deleteEntry('p', 'b.js');
+    await buffers.getState().reload('p', 'b.js');
+    await buffers.getState().load('p', 'index.js');
+    await workspace.renameEntry('p', 'index.js', 'b.js');
+    buffers.getState().renamePath('p', 'index.js', 'b.js');
+    await settle();
+    await jest.runAllTimersAsync();
+    expect(buf(buffers, 'b.js')?.content).toContain('Hello');
+    expect(await workspace.readFile('p', 'b.recovered.js')).toBe('b edits');
+  });
+});
+
+describe('loading an unchanged file again', () => {
+  it("skips the reread when the file's size and time haven't changed", async () => {
+    const { buffers, workspace } = await setup();
+    await buffers.getState().load('p', 'index.js');
+    const read = jest.spyOn(workspace, 'readFile');
+    await buffers.getState().load('p', 'index.js');
+    expect(read).not.toHaveBeenCalled();
+    await workspace.writeFile('p', 'index.js', 'changed');
+    expect((await buffers.getState().load('p', 'index.js')).content).toBe('changed');
+    expect(read).toHaveBeenCalledTimes(1);
+    read.mockRestore();
+  });
+});
+
 describe('buffers with moves and copies', () => {
   it('moves tabs and buffers with a file moved to another folder', async () => {
     const { buffers, projects, fs } = await setup();
@@ -284,15 +316,93 @@ describe('files deleted on disk', () => {
     expect(buf(buffers, 'index.js')).toEqual({ content: 'mine, more', saved: 'mine, more' });
   });
 
-  it('clears the mark when the file comes back, keeping the edits unsaved', async () => {
+  it('clears the mark when the same file comes back, keeping the edits unsaved', async () => {
     const { buffers, workspace } = await setup();
-    await buffers.getState().load('p', 'index.js');
+    const { content } = await buffers.getState().load('p', 'index.js');
     buffers.getState().edit('p', 'index.js', 'mine');
     await workspace.deleteEntry('p', 'index.js');
     await buffers.getState().reload('p', 'index.js');
-    await workspace.createFile('p', '', 'index.js', 'restored');
+    // e.g. git checkout the other way.
+    await workspace.createFile('p', '', 'index.js', content);
     await buffers.getState().reload('p', 'index.js');
-    expect(buf(buffers, 'index.js')).toEqual({ content: 'mine', saved: 'restored' });
+    expect(buf(buffers, 'index.js')).toEqual({ content: 'mine', saved: content });
+  });
+
+  it("never autosaves a deleted file's edits over a new file at its path; they go to a recovered copy", async () => {
+    const recovered = jest.fn();
+    const fs = createMemoryFs();
+    const workspace = createWorkspace(fs);
+    await workspace.createProject('p', 'node-hello');
+    const buffers = createBuffersStore(workspace, AUTOSAVE_MS, { recovered });
+    await buffers.getState().load('p', 'index.js');
+    buffers.getState().edit('p', 'index.js', 'old edits');
+    await workspace.deleteEntry('p', 'index.js');
+    await buffers.getState().reload('p', 'index.js');
+    await workspace.createFile('p', '', 'index.js', 'a new file');
+    // Opening the tab again (load) notices, without a false "Deleted on disk".
+    const loaded = await buffers.getState().load('p', 'index.js');
+    expect(loaded).toEqual({ content: 'a new file', saved: 'a new file', recoveredTo: 'index.recovered.js' });
+    expect(await workspace.readFile('p', 'index.recovered.js')).toBe('old edits');
+    expect(recovered).toHaveBeenCalledWith('p', 'index.js', 'index.recovered.js');
+    jest.advanceTimersByTime(AUTOSAVE_MS * 2);
+    await settle();
+    await buffers.getState().reloadProject('p');
+    await buffers.getState().flushAll();
+    expect(await workspace.readFile('p', 'index.js')).toBe('a new file');
+    buffers.getState().clearRecovered('p', 'index.js');
+    expect(buf(buffers, 'index.js')).toEqual({ content: 'a new file', saved: 'a new file' });
+  });
+
+  it('marks a buffer deleted when an autosave finds its file removed, and stops blocking flushes', async () => {
+    const { buffers, workspace, fs } = await setup();
+    await buffers.getState().load('p', 'index.js');
+    buffers.getState().edit('p', 'index.js', 'typed');
+    // Removed behind the app's back, e.g. by a remote sync.
+    fs.files.delete('projects/p/index.js');
+    await expect(buffers.getState().save('p', 'index.js')).resolves.toBeUndefined();
+    expect(buf(buffers, 'index.js')).toMatchObject({ content: 'typed', deleted: true });
+    await expect(buffers.getState().flushProject('p')).resolves.toBeUndefined();
+    expect(await workspace.stat('p', 'index.js')).toBeNull();
+  });
+
+  it("keeps the editor's last keystrokes: they're flushed in before the buffer is treated as gone", async () => {
+    const fs = createMemoryFs();
+    const workspace = createWorkspace(fs);
+    await workspace.createProject('p', 'node-hello');
+    const gone = jest.fn();
+    let buffers!: ReturnType<typeof createBuffersStore>;
+    const beforeGone = jest.fn(async () => buffers.getState().edit('p', 'index.js', 'typed just now'));
+    buffers = createBuffersStore(workspace, AUTOSAVE_MS, { gone, beforeGone });
+    await buffers.getState().load('p', 'index.js');
+    await workspace.deleteEntry('p', 'index.js');
+    await buffers.getState().reload('p', 'index.js');
+    expect(beforeGone).toHaveBeenCalled();
+    expect(gone).not.toHaveBeenCalled();
+    expect(buf(buffers, 'index.js')).toMatchObject({ content: 'typed just now', deleted: true });
+  });
+
+  it("doesn't treat a file mid-rename as deleted", async () => {
+    const fs = createMemoryFs();
+    const workspace = createWorkspace(fs);
+    await workspace.createProject('p', 'node-hello');
+    const gone = jest.fn();
+    const buffers = createBuffersStore(workspace, AUTOSAVE_MS, { gone });
+    await buffers.getState().load('p', 'index.js');
+    const release = buffers.getState().hold('p', 'index.js');
+    await workspace.renameEntry('p', 'index.js', 'main.js');
+    await buffers.getState().reload('p', 'index.js');
+    expect(gone).not.toHaveBeenCalled();
+    buffers.getState().renamePath('p', 'index.js', 'main.js');
+    release();
+    expect(buf(buffers, 'main.js')).toBeDefined();
+  });
+
+  it('discard forgets a buffer with unsaved edits', async () => {
+    const { buffers } = await setup();
+    await buffers.getState().load('p', 'index.js');
+    buffers.getState().edit('p', 'index.js', 'unwanted');
+    buffers.getState().discard('p', 'index.js');
+    expect(buf(buffers, 'index.js')).toBeUndefined();
   });
 
   it('leaves the buffer alone when the file is only unreadable for a moment', async () => {

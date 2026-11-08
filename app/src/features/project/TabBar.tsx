@@ -30,6 +30,7 @@ export function TabBar({ open, active, dirty, onSelect, onClose }: TabBarProps) 
         const selected = path === active;
         const name = basename(path);
         const folder = selected ? folderOf(path) : '';
+        const unsaved = dirty.has(path);
         return (
           <Pressable
             key={path}
@@ -37,7 +38,16 @@ export function TabBar({ open, active, dirty, onSelect, onClose }: TabBarProps) 
             onPress={() => onSelect(path)}
             accessibilityRole="tab"
             accessibilityState={{ selected }}
+            // VoiceOver reads the tab as one element, so the close button
+            // inside it can't be reached on its own: closing is an action of
+            // the tab (swipe up or down), and the unsaved dot is in the label.
+            accessibilityLabel={unsaved ? `${name}, unsaved changes` : name}
             accessibilityHint={path}
+            accessibilityActions={[{ name: 'activate' }, { name: 'close', label: `Close ${name}` }]}
+            onAccessibilityAction={(e) => {
+              if (e.nativeEvent.actionName === 'activate') onSelect(path);
+              else if (e.nativeEvent.actionName === 'close') onClose(path);
+            }}
             style={({ pressed }) => [styles.tab, selected && styles.selected, pressed && !selected && styles.pressed]}
           >
             <FileIcon name={name} fallback={<FileBadge name={name} size={14} />} />
@@ -45,9 +55,16 @@ export function TabBar({ open, active, dirty, onSelect, onClose }: TabBarProps) 
               {folder ? <Text style={[styles.name, { color: colors.mutedForeground }]}>{folder.length > 18 ? `…${folder.slice(-17)}` : folder}</Text> : null}
               {name}
             </Text>
-            <Pressable accessibilityRole="button" hitSlop={spacing.sm} onPress={() => onClose(path)} accessibilityLabel={`Close ${name}`} style={styles.close}>
-              {dirty.has(path) ? (
-                <View style={styles.dirty} accessibilityLabel="Unsaved changes" testID={`dirty-${path}`} />
+            <Pressable
+              accessibilityRole="button"
+              hitSlop={spacing.sm}
+              onPress={() => onClose(path)}
+              accessibilityLabel={`Close ${name}`}
+              testID={`close-${path}`}
+              style={styles.close}
+            >
+              {unsaved ? (
+                <View style={styles.dirty} testID={`dirty-${path}`} />
               ) : (
                 <Feather name="x" size={13} color={colors.mutedForeground} />
               )}

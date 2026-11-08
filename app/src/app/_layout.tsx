@@ -16,7 +16,7 @@ import { keyBarStore } from '../features/keybar/store';
 import { startQuickActions } from '../features/launch/quickActions';
 import { startCrashReports } from '../features/privacy/crashReports';
 import { remoteSettingsStore } from '../features/remote/settings';
-import { projectsStore, runnerStore, settingsStore, tabsStore, useSettings } from '../state';
+import { projectsStore, recentsStore, runnerStore, settingsStore, tabsStore, useSettings } from '../state';
 import { allLoaded, hydrated } from '../state/hydrated';
 import { useChromeTheme, useColors } from '../theme/theme';
 import { captureConsole } from '../features/support/logs';
@@ -52,6 +52,9 @@ export default function RootLayout() {
     // before the rest have loaded.
     allLoaded([
       hydrated(tabsStore),
+      // Recent projects and files: loaded before any screen touches them, or
+      // the saved list would replace those early updates once it loads.
+      hydrated(recentsStore),
       hydrated(runnerStore),
       hydrated(settingsStore),
       hydrated(extensionsStore),

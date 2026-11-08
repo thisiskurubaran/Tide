@@ -1,6 +1,7 @@
 // The split editor on an iPad-width screen. WebViews, the terminal and the
 // extensions are stubbed; this checks which pane gets which file.
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { Alert } from 'react-native';
 
 jest.mock('expo-router', () => ({ router: { back: jest.fn(), push: jest.fn() } }));
 jest.mock('@expo/vector-icons/Feather', () => 'Feather');
@@ -26,6 +27,7 @@ jest.mock('../../state', () => {
     tabsStore,
     projectsStore,
     runnerStore,
+    settingsStore: settings,
     useTabs: (sel: (s: unknown) => unknown) => useStore(tabsStore, sel),
     useBuffers: (sel: (s: unknown) => unknown) => useStore(buffersStore, sel),
     useProjects: (sel: (s: unknown) => unknown) => useStore(projectsStore, sel),
@@ -51,6 +53,7 @@ jest.mock('../git/status', () => {
 });
 jest.mock('../../state/recents', () => ({ recentsStore: { getState: () => ({ touchProject: () => undefined }) } }));
 jest.mock('./TerminalPanel', () => ({ TerminalPanel: () => null }));
+jest.mock('../../components/haptics', () => ({ haptic: () => undefined }));
 jest.mock('../git/SourceControlSheet', () => ({ SourceControlSheet: () => null }));
 jest.mock('../ai/AiSheet', () => ({ AiSheet: () => null }));
 jest.mock('../notebook/NotebookBar', () => ({ NotebookBar: () => null }));
@@ -190,4 +193,92 @@ it('saves the keystrokes the editor still held back when a tab closes', async ()
   }
   expect(await workspace.readFile('closing', 'x.js')).toBe('typed just now');
   expect(tabsStore.getState().byProject.closing.open).toEqual([]);
+});
+
+describe('a deleted file with unsaved edits', () => {
+  async function deletedTab(project: string) {
+    await workspace.createEmptyProject(project);
+    await workspace.createFile(project, '', 'gone.js', 'old');
+    await buffersStore.getState().load(project, 'gone.js');
+    tabsStore.getState().openTab(project, 'gone.js');
+    buffersStore.getState().edit(project, 'gone.js', 'unsaved');
+    await workspace.deleteEntry(project, 'gone.js');
+    await buffersStore.getState().reload(project, 'gone.js');
+  }
+  type Buttons = { text: string; onPress?(): void }[];
+  const answer = (text: string) =>
+    jest.spyOn(Alert, 'alert').mockImplementation((_title, _message, buttons) => (buttons as Buttons).find((b) => b.text === text)!.onPress!());
+
+  it('asks before closing its tab, and keeps it on Cancel', async () => {
+    await deletedTab('ask');
+    const alert = answer('Cancel');
+    let calls: unknown[][] = [];
+    try {
+      await render(<ProjectScreen project="ask" />);
+      await act(async () => mockCommands.find((c) => c.id === 'close-tab')!.run());
+      calls = alert.mock.calls;
+    } finally {
+      alert.mockRestore();
+    }
+    expect(calls).toEqual([['gone.js was deleted', expect.any(String), expect.any(Array), expect.anything()]]);
+    expect(tabsStore.getState().byProject.ask.open).toEqual(['gone.js']);
+    expect(buffersStore.getState().buffers['ask\u0000gone.js']).toMatchObject({ content: 'unsaved', deleted: true });
+  });
+
+  it("discards the edits on Don't save, and saves them again on Save as new file", async () => {
+    await deletedTab('discard');
+    let alert = answer("Don't save");
+    try {
+      await render(<ProjectScreen project="discard" />);
+      await act(async () => mockCommands.find((c) => c.id === 'close-tab')!.run());
+    } finally {
+      alert.mockRestore();
+    }
+    expect(tabsStore.getState().byProject.discard.open).toEqual([]);
+    expect(buffersStore.getState().buffers['discard\u0000gone.js']).toBeUndefined();
+
+    await deletedTab('recreate');
+    alert = answer('Save as new file');
+    try {
+      await render(<ProjectScreen project="recreate" />);
+      await act(async () => mockCommands.find((c) => c.id === 'close-tab')!.run());
+    } finally {
+      alert.mockRestore();
+    }
+    expect(await workspace.readFile('recreate', 'gone.js')).toBe('unsaved');
+    expect(tabsStore.getState().byProject.recreate.open).toEqual([]);
+  });
+});
+
+it('moves the right pane off a file that was deleted or renamed outside closeFile', async () => {
+  tabsStore.getState().openTab('follow', 'a.js');
+  tabsStore.getState().openTab('follow', 'b.js', false);
+  await render(<ProjectScreen project="follow" />);
+  await act(async () => mockCommands.find((c) => c.id === 'split')!.run());
+  await act(async () => mockCommands.find((c) => c.id === 'next-tab')!.run());
+  expect(screen.getByText('file:b.js')).toBeTruthy();
+  // Renamed in the tree: the pane follows.
+  await act(async () => tabsStore.getState().renamePath('follow', 'b.js', 'c.js'));
+  expect(screen.getByText('file:c.js')).toBeTruthy();
+  // Deleted on disk (the buffers' gone hook): the pane moves to what's left.
+  await act(async () => tabsStore.getState().removePath('follow', 'c.js'));
+  expect(screen.queryByText('file:c.js')).toBeNull();
+  expect(screen.getAllByText('file:a.js')).toHaveLength(2);
+});
+
+it('gets the editor’s last keystrokes in before Run', async () => {
+  await workspace.createEmptyProject('running');
+  await workspace.createFile('running', '', 'tide.json', JSON.stringify({ runtime: 'node', entry: 'index.js' }));
+  await workspace.createFile('running', '', 'index.js', 'old');
+  await buffersStore.getState().load('running', 'index.js');
+  tabsStore.getState().openTab('running', 'index.js');
+  mockFlush = async () => buffersStore.getState().edit('running', 'index.js', 'typed just now');
+  try {
+    await render(<ProjectScreen project="running" />);
+    await act(async () => new Promise((r) => setTimeout(r, 0)));
+    await act(async () => mockCommands.find((c) => c.id === 'run')!.run());
+  } finally {
+    mockFlush = async () => undefined;
+  }
+  expect(await workspace.readFile('running', 'index.js')).toBe('typed just now');
 });

@@ -5,7 +5,7 @@
 import { spawnSync } from 'child_process';
 
 import type { Notebook } from '../preview/render';
-import { clearOutputs, codeCells, driverScript, parseResults, withOutputs } from './run';
+import { clearOutputs, codeCells, driverScript, parseResults, RESULT_PREFIX, RunStopped, startDriver, withOutputs } from './run';
 
 const nb: Notebook = {
   cells: [
@@ -42,5 +42,53 @@ describe('notebooks', () => {
     expect(out.cells[3].outputs!.map((o) => o.output_type)).toEqual(['stream', 'error']);
     expect(out.cells[4]).toEqual(nb.cells[4]);
     expect(clearOutputs(out).cells[1]).toMatchObject({ execution_count: null, outputs: [] });
+  });
+});
+
+describe('startDriver', () => {
+  const req = { type: 'run' as const, id: 'nb-1', runtime: 'python' as const, entry: 'x.py', cwd: '.', args: [], env: {} };
+  const fakeRunner = () => {
+    const sent: unknown[] = [];
+    let emit: (msg: { type: string; id: string; data?: string; code?: number }) => void = () => undefined;
+    return {
+      sent,
+      emit: (msg: { type: string; data?: string; code?: number }) => emit({ id: req.id, ...msg }),
+      runner: {
+        run: (_req: unknown, onMessage: typeof emit) => {
+          emit = onMessage;
+        },
+        send: (msg: unknown) => sent.push(msg),
+      },
+    };
+  };
+
+  it('resolves with the output once the driver exits', async () => {
+    const fake = fakeRunner();
+    const run = startDriver(fake.runner as never, req);
+    fake.emit({ type: 'stdout', data: `${RESULT_PREFIX}{}\n` });
+    fake.emit({ type: 'exit', code: 0 });
+    await expect(run.result).resolves.toContain('tide-nb');
+  });
+
+  it('Stop kills the run and gives up at once, even if the runtime never exits', async () => {
+    const fake = fakeRunner();
+    const run = startDriver(fake.runner as never, req);
+    run.stop();
+    await expect(run.result).rejects.toBeInstanceOf(RunStopped);
+    expect(fake.sent).toEqual([{ type: 'kill', id: 'nb-1' }]);
+  });
+
+  it('times out a run that never finishes', async () => {
+    jest.useFakeTimers();
+    try {
+      const fake = fakeRunner();
+      const run = startDriver(fake.runner as never, req, 1000);
+      const settled = run.result.catch((e) => e);
+      jest.advanceTimersByTime(1000);
+      expect(await settled).toBeInstanceOf(RunStopped);
+      expect(fake.sent).toEqual([{ type: 'kill', id: 'nb-1' }]);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

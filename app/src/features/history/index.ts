@@ -18,4 +18,8 @@ buffersStore.subscribe((s, prev) => {
 onProjectChange({
   renamed: (from, to) => fileHistory.renameProject(from, to),
   deleted: (project) => fileHistory.removeProject(project),
+  // Renames and moves in the tree take a file's (or a folder's) history along;
+  // a delete, or a new file at an old path, starts it afresh.
+  pathRenamed: (project, from, to) => fileHistory.renamePath(project, from, to),
+  pathRemoved: (project, path) => fileHistory.removePath(project, path),
 });

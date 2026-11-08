@@ -34,6 +34,11 @@ export interface ProjectsState {
 export interface ProjectHooks {
   renamed?(from: string, to: string): Promise<void>;
   deleted?(project: string): Promise<void>;
+  // A file or folder in the tree was renamed or moved (local history follows it).
+  pathRenamed?(project: string, from: string, to: string): Promise<void>;
+  // A file or folder was deleted in the tree, or a new file was created where
+  // an old one may have been: data kept for the old path doesn't carry over.
+  pathRemoved?(project: string, path: string): Promise<void>;
 }
 
 export function createProjectsStore(workspace: Workspace, tabs: TabsStore, buffers: BuffersStore, hooks: ProjectHooks = {}) {
@@ -41,6 +46,23 @@ export function createProjectsStore(workspace: Workspace, tabs: TabsStore, buffe
     const reloadTree = async (project: string) => {
       const tree = await workspace.readTree(project);
       set((s) => ({ trees: { ...s.trees, [project]: tree } }));
+    };
+
+    // Rename or move: tabs, buffers and local history follow. While it runs,
+    // a reload that finds the old path missing doesn't close its tab.
+    const relocate = async (project: string, from: string, move: () => Promise<string>) => {
+      await buffers.getState().flushProject(project);
+      const release = buffers.getState().hold(project, from);
+      try {
+        const to = await move();
+        tabs.getState().renamePath(project, from, to);
+        buffers.getState().renamePath(project, from, to);
+        if (to !== from) await hooks.pathRenamed?.(project, from, to).catch(() => undefined);
+        await reloadTree(project);
+        return to;
+      } finally {
+        release();
+      }
     };
 
     return {
@@ -93,6 +115,7 @@ export function createProjectsStore(workspace: Workspace, tabs: TabsStore, buffe
       loadTree: reloadTree,
       async createFile(project, parent, name) {
         const path = await workspace.createFile(project, parent, name);
+        await hooks.pathRemoved?.(project, path).catch(() => undefined);
         await reloadTree(project);
         tabs.getState().openTab(project, path);
         return path;
@@ -102,22 +125,8 @@ export function createProjectsStore(workspace: Workspace, tabs: TabsStore, buffe
         await reloadTree(project);
         return path;
       },
-      async renameEntry(project, path, newName) {
-        await buffers.getState().flushProject(project);
-        const to = await workspace.renameEntry(project, path, newName);
-        tabs.getState().renamePath(project, path, to);
-        buffers.getState().renamePath(project, path, to);
-        await reloadTree(project);
-        return to;
-      },
-      async moveEntry(project, from, to) {
-        await buffers.getState().flushProject(project);
-        const target = await workspace.moveEntry(project, from, to);
-        tabs.getState().renamePath(project, from, target);
-        buffers.getState().renamePath(project, from, target);
-        await reloadTree(project);
-        return target;
-      },
+      renameEntry: (project, path, newName) => relocate(project, path, () => workspace.renameEntry(project, path, newName)),
+      moveEntry: (project, from, to) => relocate(project, from, () => workspace.moveEntry(project, from, to)),
       async copyEntry(project, from, to) {
         // Copy what the user sees in the editor, not a stale file.
         await buffers.getState().flushProject(project);
@@ -126,9 +135,13 @@ export function createProjectsStore(workspace: Workspace, tabs: TabsStore, buffe
         return target;
       },
       async deleteEntry(project, path) {
-        buffers.getState().removePath(project, path);
+        // Delete first: if it fails, the open tab and its buffer stay as they
+        // were, so typing in it is still saved. An autosave that lands
+        // meanwhile finds no file and keeps its edits (see buffers.ts).
         await workspace.deleteEntry(project, path);
+        buffers.getState().removePath(project, path);
         tabs.getState().removePath(project, path);
+        await hooks.pathRemoved?.(project, path).catch(() => undefined);
         await reloadTree(project);
       },
     };

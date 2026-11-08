@@ -2,6 +2,8 @@
 // cells run in order in one namespace, like a kernel, through a small driver
 // script; each cell's output comes back as one JSON line, and is written into
 // the notebook so the preview shows it.
+import type { KillMsg, RunnerMessage, RunRequest } from '@shared/protocol';
+
 import { toBase64 } from '../backup/zip';
 import type { Notebook } from '../preview/render';
 
@@ -95,3 +97,48 @@ export function clearOutputs(nb: Notebook): Notebook {
 
 // Jupyter writes notebooks with one-space indentation and a final newline.
 export const notebookText = (nb: Notebook) => `${JSON.stringify(nb, null, 1)}\n`;
+
+// A run gives up after this long without finishing (an endless loop, input()).
+export const RUN_TIMEOUT_MS = 10 * 60 * 1000;
+
+export class RunStopped extends Error {}
+
+interface DriverRunner {
+  run(req: RunRequest, onMessage: (msg: RunnerMessage) => void): void;
+  send(msg: KillMsg): void;
+}
+
+// Starts the driver and resolves with what it printed once it exits. stop()
+// kills it and rejects right away, without waiting for the exit, so the
+// buttons come back even if the runtime never answers; so does the timeout.
+export function startDriver(runner: DriverRunner, req: RunRequest, timeoutMs = RUN_TIMEOUT_MS): { result: Promise<string>; stop(): void } {
+  let finish: (error: Error | null, out?: string) => void = () => undefined;
+  const result = new Promise<string>((resolve, reject) => {
+    let done = false;
+    finish = (error, out) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      if (error) reject(error);
+      else resolve(out ?? '');
+    };
+    const timer = setTimeout(() => {
+      runner.send({ type: 'kill', id: req.id });
+      finish(new RunStopped(`Stopped after ${Math.round(timeoutMs / 60000)} min without finishing.`));
+    }, timeoutMs);
+    let out = '';
+    let err = '';
+    runner.run(req, (msg) => {
+      if (msg.type === 'stdout') out += msg.data;
+      else if (msg.type === 'stderr') err += msg.data;
+      else if (msg.type === 'exit') finish(out.includes('tide-nb') || msg.code === 0 ? null : new Error(err.trim() || 'Python stopped before running the notebook.'), out);
+    });
+  });
+  return {
+    result,
+    stop() {
+      runner.send({ type: 'kill', id: req.id });
+      finish(new RunStopped('Stopped.'));
+    },
+  };
+}

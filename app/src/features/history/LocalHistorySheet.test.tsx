@@ -9,8 +9,10 @@ jest.mock('../../state', () => ({
   settingsStore: { getState: () => ({ haptics: false }) },
   useSettings: (select: (s: object) => unknown) => select({ theme: 'dark', contrast: 'system', editorFontSize: 14 }),
 }));
+const mockKeepNext = jest.fn();
 jest.mock('.', () => ({
   fileHistory: {
+    keepNext: (...args: unknown[]) => mockKeepNext(...args),
     list: async () => [
       { id: '2000.txt', time: 2000, bytes: 8 },
       { id: '1000.txt', time: 1000, bytes: 8 },
@@ -30,5 +32,8 @@ it('lists versions, compares one with the current text and restores it', async (
   await fireEvent.press(screen.getByTestId('history-restore'));
   await waitFor(() => expect(mockSave).toHaveBeenCalledWith('p', 'a.txt'));
   expect(mockEdit).toHaveBeenCalledWith('p', 'a.txt', 'old text');
+  // The restore gets a version of its own, so the text it replaced is kept.
+  expect(mockKeepNext).toHaveBeenCalledWith('p', 'a.txt');
+  expect(mockKeepNext.mock.invocationCallOrder[0]).toBeLessThan(mockEdit.mock.invocationCallOrder[0]);
   expect(onClose).toHaveBeenCalled();
 });

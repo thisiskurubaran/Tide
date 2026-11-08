@@ -201,7 +201,11 @@ export type ToEditor =
   | { type: 'dismissCompletion' }
   | { type: 'nextCompletion' }
   // Send any typing still waiting on the change debounce now, then answer 'flushed'.
-  | { type: 'flush'; id: number };
+  | { type: 'flush'; id: number }
+  // Sends pending typing, then shows an empty read-only document and drops
+  // focus, so nothing typed afterwards edits the file that was open. The
+  // next 'open' brings an editable document back.
+  | { type: 'close' };
 
 export type FromEditor =
   | { type: 'ready' }

@@ -47,7 +47,9 @@ export function LocalHistorySheet({ project, path, onClose }: { project: string;
   };
   const restore = async () => {
     if (!path || text === null) return;
-    // Edit, then save: the editor can undo it, and history keeps what it replaced.
+    // Edit, then save: the editor can undo it, and history keeps what it
+    // replaced as a version of its own, however recent the newest one is.
+    fileHistory.keepNext(project, path);
     buffersStore.getState().edit(project, path, text);
     await buffersStore.getState().save(project, path);
     haptic('success');

@@ -140,6 +140,69 @@ describe('projects store', () => {
   });
 });
 
+describe('tree changes and open files', () => {
+  it('keeps the tab and its typing when a delete fails', async () => {
+    const { fs, tabs, buffers, projects } = setup();
+    const workspace = createWorkspace(fs);
+    await projects.getState().createProject('p', 'node-hello');
+    await buffers.getState().load('p', 'index.js');
+    tabs.getState().openTab('p', 'index.js');
+    const failing = createProjectsStore({ ...workspace, deleteEntry: async () => Promise.reject(new Error('EACCES')) }, tabs, buffers);
+    await expect(failing.getState().deleteEntry('p', 'index.js')).rejects.toThrow('EACCES');
+    expect(projectTabs(tabs.getState(), 'p').open).toEqual(['index.js']);
+    buffers.getState().edit('p', 'index.js', 'still saved');
+    await buffers.getState().flushAll();
+    expect(await workspace.readFile('p', 'index.js')).toBe('still saved');
+  });
+
+  it('tells history about renames, moves and deletes, and new files at old paths', async () => {
+    const fs = createMemoryFs();
+    const workspace = createWorkspace(fs);
+    const tabs = createTabsStore(createFsStorage(fs));
+    const buffers = createBuffersStore(workspace);
+    const pathRenamed = jest.fn(async () => undefined);
+    const pathRemoved = jest.fn(async () => undefined);
+    const projects = createProjectsStore(workspace, tabs, buffers, { pathRenamed, pathRemoved });
+    await projects.getState().createProject('p', 'node-hello');
+    await projects.getState().renameEntry('p', 'index.js', 'main.js');
+    expect(pathRenamed).toHaveBeenCalledWith('p', 'index.js', 'main.js');
+    await projects.getState().createFolder('p', '', 'src');
+    await projects.getState().moveEntry('p', 'main.js', 'src/main.js');
+    expect(pathRenamed).toHaveBeenCalledWith('p', 'main.js', 'src/main.js');
+    await projects.getState().deleteEntry('p', 'src/main.js');
+    expect(pathRemoved).toHaveBeenCalledWith('p', 'src/main.js');
+    await projects.getState().createFile('p', 'src', 'main.js');
+    expect(pathRemoved).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a renamed file's tab even if a reload runs mid-rename", async () => {
+    const fs = createMemoryFs();
+    const workspace = createWorkspace(fs);
+    const tabs = createTabsStore(createFsStorage(fs));
+    const buffers = createBuffersStore(workspace, 800, { gone: (project, path) => tabs.getState().removePath(project, path) });
+    // A reload (e.g. after a run) lands between the rename on disk and the tabs following it.
+    const realRename = workspace.renameEntry.bind(workspace);
+    const projects = createProjectsStore(
+      {
+        ...workspace,
+        renameEntry: async (project: string, path: string, name: string) => {
+          const to = await realRename(project, path, name);
+          await buffers.getState().reload(project, path);
+          return to;
+        },
+      },
+      tabs,
+      buffers,
+    );
+    await projects.getState().createProject('p', 'node-hello');
+    await buffers.getState().load('p', 'index.js');
+    tabs.getState().openTab('p', 'index.js');
+    await projects.getState().renameEntry('p', 'index.js', 'main.js');
+    expect(projectTabs(tabs.getState(), 'p').open).toEqual(['main.js']);
+    expect(buffers.getState().buffers['p\u0000main.js']).toBeDefined();
+  });
+});
+
 describe('cloneProject', () => {
   it('keeps the project when the clone works and removes it when it fails', async () => {
     const { projects, fs } = setup();

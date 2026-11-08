@@ -1,5 +1,6 @@
 // The explorer: filtering, git colors, collapse all and the long-press menu.
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { Alert } from 'react-native';
 
 import type { TreeNode } from './workspace';
 
@@ -100,5 +101,25 @@ describe('FileTree', () => {
     await fireEvent.press(screen.getByText('Move'));
     await screen.findByText('U');
     expect(projectsStore.getState().moveEntry).toHaveBeenCalledWith('p', 'new.ts', 'src/lib/new.ts');
+  });
+
+  it('says when a delete fails instead of leaving the rejection unhandled', async () => {
+    (projectsStore.getState().deleteEntry as jest.Mock).mockRejectedValueOnce(new Error('Permission denied'));
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation((_title, _message, buttons) => {
+      buttons?.find((b) => b.text === 'Delete')?.onPress?.();
+    });
+    const calls: unknown[][] = [];
+    try {
+      await setup();
+      await fireEvent(screen.getByTestId('tree-new.ts'), 'longPress');
+      await fireEvent.press(screen.getByText('Delete'));
+      await act(async () => new Promise((r) => setTimeout(r, 0)));
+      calls.push(...alert.mock.calls);
+    } finally {
+      alert.mockRestore();
+    }
+    expect(projectsStore.getState().deleteEntry).toHaveBeenCalledWith('p', 'new.ts');
+    expect(calls).toContainEqual(["Couldn't delete new.ts", 'Permission denied']);
+    await screen.findByText('U');
   });
 });

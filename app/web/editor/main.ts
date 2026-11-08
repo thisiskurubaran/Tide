@@ -305,6 +305,17 @@ function open(path: string, content: string, lang: Language) {
   restoreFileState(path);
 }
 
+// No file: the open one's typing goes out first, and what's shown can't be edited.
+function close() {
+  flushChange();
+  dismissCompletion(view);
+  if (currentPath !== null) states.set(currentPath, view.state);
+  currentPath = null;
+  currentLang = 'plain';
+  view.contentDOM.blur();
+  view.setState(EditorState.create({ doc: '', extensions: [...baseExtensions('plain'), EditorState.readOnly.of(true), EditorView.editable.of(false)] }));
+}
+
 function setContent(path: string, content: string, base: string | undefined) {
   if (path !== currentPath) {
     // open() compares the cached text with what it is given, so a stale state is dropped there.
@@ -498,6 +509,8 @@ function handle(msg: ToEditor) {
       return acceptGhost(view, msg.part);
     case 'dismissCompletion':
       return dismissCompletion(view);
+    case 'close':
+      return close();
     case 'flush':
       // Messages arrive in order, so the app has the change before 'flushed'.
       flushChange();

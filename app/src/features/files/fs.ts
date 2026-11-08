@@ -15,6 +15,9 @@ export interface FsAdapter {
   readFile(path: string): Promise<string>;
   // In bytes, so huge files can be turned away before reading them.
   size(path: string): Promise<number>;
+  // When the file last changed (any number that changes with it), or null if
+  // it's missing. Optional: lets an open tab skip rereading an unchanged file.
+  modified?(path: string): Promise<number | null>;
   // Creates missing parents.
   writeFile(path: string, content: string): Promise<void>;
   // Renames within the same parent directory.

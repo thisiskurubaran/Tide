@@ -267,6 +267,16 @@ export function createWorkspace(fs: FsAdapter) {
       return fs.size(abs(project, path));
     },
 
+    // Size and modification time as one string that changes when the file
+    // does, or null when the file is missing or the disk can't say.
+    async fileStamp(project: string, path: string): Promise<string | null> {
+      if (!fs.modified) return null;
+      const target = abs(project, path);
+      const modified = await fs.modified(target);
+      if (modified === null) return null;
+      return `${await fs.size(target)}:${modified}`;
+    },
+
     async writeFile(project: string, path: string, content: string): Promise<void> {
       await requireKind(abs(project, path), 'file');
       await fs.writeFile(abs(project, path), content);

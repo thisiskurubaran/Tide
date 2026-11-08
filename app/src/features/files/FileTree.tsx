@@ -95,7 +95,11 @@ export function FileTree({ project, nodes, activePath, onOpenFile }: FileTreePro
     const what = node.kind === 'dir' ? 'folder and everything in it' : 'file';
     Alert.alert(`Delete ${node.name}?`, `This deletes the ${what}.`, [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => store.deleteEntry(project, node.path) },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => store.deleteEntry(project, node.path).catch((e: Error) => Alert.alert(`Couldn't delete ${node.name}`, e.message)),
+      },
     ]);
   }
 

@@ -4,6 +4,7 @@ import { createSnapshots } from '../features/backup/snapshots';
 import { createExpoFs } from '../features/files/expoFs';
 import { createWorkspace } from '../features/files/workspace';
 import { AUTOSAVE_MS, BuffersState, createBuffersStore } from './buffers';
+import { flushEditors } from './editorFlush';
 import { createProjectsStore, ProjectHooks, ProjectsState } from './projects';
 import { recentsStore } from './recents';
 import { createRunnerStore, RunnerState } from './runner';
@@ -23,8 +24,16 @@ export const tabsStore = createTabsStore(storage, { opened: (project, path) => r
 export const runnerStore = createRunnerStore(storage);
 export const settingsStore = createSettingsStore(storage);
 // A file deleted on disk (git, a snapshot restore, rm) closes its tab, as a
-// delete in the file tree does, unless it has unsaved edits.
-export const buffersStore = createBuffersStore(workspace, AUTOSAVE_MS, { gone: (project, path) => tabsStore.getState().removePath(project, path) });
+// delete in the file tree does, unless it has unsaved edits (including the
+// last keystrokes the editors still hold, flushed first).
+export const buffersStore = createBuffersStore(workspace, AUTOSAVE_MS, {
+  gone: (project, path) => tabsStore.getState().removePath(project, path),
+  beforeGone: flushEditors,
+  // Unsaved edits written to a new file show up in the tree.
+  recovered: (project) => {
+    projectsStore.getState().loadTree(project).catch(() => undefined);
+  },
+});
 export const snapshots = createSnapshots(appFs, workspace);
 // Features that keep per-project data elsewhere follow renames and deletes here.
 const projectHooks: ProjectHooks[] = [
@@ -41,6 +50,12 @@ export const projectsStore = createProjectsStore(workspace, tabsStore, buffersSt
   },
   deleted: async (project) => {
     for (const h of projectHooks) await h.deleted?.(project).catch(() => undefined);
+  },
+  pathRenamed: async (project, from, to) => {
+    for (const h of projectHooks) await h.pathRenamed?.(project, from, to).catch(() => undefined);
+  },
+  pathRemoved: async (project, path) => {
+    for (const h of projectHooks) await h.pathRemoved?.(project, path).catch(() => undefined);
   },
 });
 

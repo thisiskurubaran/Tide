@@ -11,8 +11,10 @@ import { useShallow } from 'zustand/react/shallow';
 
 import { diagnosticsStore, EDITOR_SOURCE, fileDiagnostics, lineStarts, positionAt, useDiagnostics } from '../../extensions/diagnostics';
 import { useEditorTheme } from '../../extensions/themes';
-import { buffersStore, settingsStore, useBuffers, useSettings, workspace } from '../../state';
+import { buffersStore, projectsStore, settingsStore, useBuffers, useSettings, workspace } from '../../state';
 import { bufferKey } from '../../state/buffers';
+import { registerEditorFlush } from '../../state/editorFlush';
+import { basename } from '../files/fs';
 import { spacing } from '../../theme/tokens';
 import { ALL_GESTURES, CompletionResult, DEFAULT_CODE_FONT, EditorFeatures, EditorRequest, HoverResult, isCodeFont, languageFor, NO_FEATURES, NO_GESTURES, parseFromEditor, ToEditor } from './bridge';
 import type { PeekTarget } from './bridge';
@@ -105,6 +107,8 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
   const bufferContent = useBuffers((s) => (path ? s.buffers[bufferKey(project, path)]?.content : undefined));
   // Deleted on disk while it had unsaved edits (see buffers.ts).
   const deleted = useBuffers((s) => (path ? s.buffers[bufferKey(project, path)]?.deleted === true : false));
+  // Where unsaved edits went when another file took this one's path (see buffers.ts).
+  const recoveredTo = useBuffers((s) => (path ? s.buffers[bufferKey(project, path)]?.recoveredTo : undefined));
   // fileDiagnostics builds a new array; compare its items so a re-render isn't a new value every time.
   const diagnostics = useDiagnostics(useShallow((s) => (path ? fileDiagnostics(s, project, path, EDITOR_SOURCE) : null)));
   const breakpoints = useBreakpoints((s) => (path ? fileBreakpoints(s, project, path) : null));
@@ -135,9 +139,54 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
   const opened = useRef<string | null>(null);
   const flushes = useRef(new Map<number, () => void>());
   const nextFlush = useRef(0);
+  // Files the WebView just stopped showing: their last typing (sent when the
+  // next file opens or the document closes) is still taken until the editor
+  // confirms it has sent everything. Any other file's changes are ignored.
+  const retiring = useRef(new Map<string, number>());
   // Unblocks waiting flush() calls, e.g. when the web content reloads.
   const settleFlushes = () => {
     for (const done of [...flushes.current.values()]) done();
+  };
+
+  // Resolves once the editor has sent everything it held back before this call.
+  const flush = useCallback(() => {
+    if (!ready.current) return Promise.resolve();
+    const id = ++nextFlush.current;
+    return new Promise<void>((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        flushes.current.delete(id);
+        resolve();
+      };
+      const timer = setTimeout(done, FLUSH_TIMEOUT_MS);
+      flushes.current.set(id, done);
+      send({ type: 'flush', id });
+    });
+  }, [send]);
+
+  // The state flushes every editor before treating a file as deleted.
+  useEffect(() => registerEditorFlush(flush), [flush]);
+
+  const retire = (prev: string | null) => {
+    if (prev === null) return;
+    retiring.current.set(prev, (retiring.current.get(prev) ?? 0) + 1);
+    flush().then(() => {
+      const n = (retiring.current.get(prev) ?? 1) - 1;
+      if (n > 0) retiring.current.set(prev, n);
+      else retiring.current.delete(prev);
+    });
+  };
+
+  // No file to edit here (none selected, a viewer, refused, failed to open):
+  // the WebView drops the open document and focus, so typing, the key bar
+  // or a hardware keyboard can't keep editing the file shown before.
+  const closeDocument = () => {
+    const prev = opened.current;
+    opened.current = null;
+    editorContent.current = null;
+    if (!ready.current) return;
+    send({ type: 'close' });
+    retire(prev);
   };
 
   useImperativeHandle(
@@ -148,22 +197,9 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
         if (opened.current === target && pathRef.current === target) send({ type: 'goto', path: target, line, column });
         else pendingReveal.current = { path: target, line, column };
       },
-      flush() {
-        if (!ready.current) return Promise.resolve();
-        const id = ++nextFlush.current;
-        return new Promise<void>((resolve) => {
-          const done = () => {
-            clearTimeout(timer);
-            flushes.current.delete(id);
-            resolve();
-          };
-          const timer = setTimeout(done, FLUSH_TIMEOUT_MS);
-          flushes.current.set(id, done);
-          send({ type: 'flush', id });
-        });
-      },
+      flush,
     }),
-    [send],
+    [send, flush],
   );
 
   const sendTheme = useCallback(
@@ -224,22 +260,32 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
 
   const openCurrent = useCallback(async () => {
     const target = pathRef.current;
-    if (!ready.current || !target) return;
-    if (!buffersStore.getState().buffers[bufferKey(project, target)]) {
-      const bytes = await workspace.fileSize(project, target);
-      if (bytes > TOO_LARGE_BYTES) {
-        if (pathRef.current === target) setRefused({ path: target, message: `This file is ${formatBytes(bytes)}, too big to edit here.` });
-        return;
-      }
+    if (!ready.current) return;
+    if (!target) {
+      closeDocument();
+      return;
     }
-    const buffer = await buffersStore.getState().load(project, target);
+    const refuse = (message: string) => {
+      // The user may have switched tabs meanwhile.
+      if (pathRef.current !== target) return;
+      setRefused({ path: target, message });
+      closeDocument();
+    };
+    let buffer;
+    try {
+      if (!buffersStore.getState().buffers[bufferKey(project, target)]) {
+        const bytes = await workspace.fileSize(project, target);
+        if (bytes > TOO_LARGE_BYTES) return refuse(`This file is ${formatBytes(bytes)}, too big to edit here.`);
+      }
+      buffer = await buffersStore.getState().load(project, target);
+    } catch (e) {
+      console.warn('Could not open file', e);
+      return refuse(`Couldn't open ${basename(target)}. It may have been deleted or moved.`);
+    }
     // The user may have switched tabs while the file was loading.
     if (pathRef.current !== target) return;
     const kind = classify(buffer.content);
-    if (kind === 'binary') {
-      setRefused({ path: target, message: "This looks like a binary file, so it can't be edited as text." });
-      return;
-    }
+    if (kind === 'binary') return refuse("This looks like a binary file, so it can't be edited as text.");
     setRefused(null);
     setLarge(kind === 'large' ? target : null);
     if (kind === 'large') {
@@ -248,8 +294,10 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
       send({ type: 'features', features: NO_FEATURES });
     }
     editorContent.current = buffer.content;
+    const prev = opened.current;
     send({ type: 'open', path: target, content: buffer.content, language: kind === 'large' ? 'plain' : languageFor(target) });
     opened.current = target;
+    if (prev !== target) retire(prev);
     const reveal = pendingReveal.current;
     if (reveal?.path === target) {
       pendingReveal.current = null;
@@ -302,6 +350,10 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
         });
         return;
       case 'change':
+        // Only the selected file, the one the WebView still shows while the
+        // next loads, or one it just stopped showing. Never a file it isn't
+        // showing, e.g. the previous tab after the selected one failed to open.
+        if (msg.path !== pathRef.current && msg.path !== opened.current && !retiring.current.has(msg.path)) return;
         if (msg.path === pathRef.current) editorContent.current = msg.content;
         buffersStore.getState().edit(project, msg.path, msg.content);
         return;
@@ -443,8 +495,23 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
           <Button
             title="Save as new file"
             variant="outline"
-            onPress={() => buffersStore.getState().save(project, path, { recreate: true }).catch((e) => console.warn('Save failed', e))}
+            onPress={() =>
+              buffersStore
+                .getState()
+                .save(project, path, { recreate: true })
+                // The file is back, so the tree shows it again.
+                .then(() => projectsStore.getState().loadTree(project))
+                .catch((e) => console.warn('Save failed', e))
+            }
           />
+        </View>
+      )}
+      {path && recoveredTo && !deleted && (
+        <View style={styles.deleted} testID="editor-recovered">
+          <Text variant="muted" style={styles.deletedText}>
+            {`Another file now has this name. Your unsaved edits were kept in ${recoveredTo}.`}
+          </Text>
+          <Button title="OK" variant="outline" onPress={() => buffersStore.getState().clearRecovered(project, path)} />
         </View>
       )}
       {path && refused?.path === path && (

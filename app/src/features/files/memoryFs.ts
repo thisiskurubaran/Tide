@@ -50,6 +50,15 @@ export function createMemoryFs(): FsAdapter & { files: Map<string, string>; dirs
       const b = binary.get(path);
       return b ? Buffer.from(b, 'base64').length : Buffer.byteLength(content, 'utf8');
     },
+    // A hash of the content stands in for a modification time, so files
+    // changed straight through `files` count as changed too.
+    async modified(path) {
+      const content = files.get(path);
+      if (content === undefined) return null;
+      let h = 0;
+      for (let i = 0; i < content.length; i++) h = (Math.imul(h, 31) + content.charCodeAt(i)) | 0;
+      return h;
+    },
     async writeFile(path, content) {
       if (dirs.has(path)) throw new Error(`EISDIR: ${path}`);
       mkdirp(dirname(path));
