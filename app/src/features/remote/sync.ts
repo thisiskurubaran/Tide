@@ -8,7 +8,19 @@ export interface SyncFiles {
   readBase64(project: string, path: string): Promise<string>;
   writeBase64(project: string, path: string, data: string): Promise<void>;
   removeIfPresent(project: string, path: string): Promise<void>;
+  // What is at `path` ('file', 'dir'), or null when nothing is.
+  stat(project: string, path: string): Promise<string | null>;
 }
+
+// The init as this side sends it. `skippedPaths` (optional, so servers that
+// predate it just ignore it) names files the phone has but can't send: over
+// MAX_SYNC_BYTES or unreadable. The server must neither take their absence from
+// `files` as a phone-side delete nor send its own copy over them.
+export type SyncInitMessage = Extract<SyncToServer, { type: 'init' }>;
+
+// What the phone has at a path: nothing, a file it can't send (too big or
+// unreadable), or a file and its content.
+type Local = { kind: 'none' } | { kind: 'unsendable' } | { kind: 'file'; data: string };
 
 export interface SyncHooks {
   // A file the editor may have open changed on disk.
@@ -127,7 +139,7 @@ export class RemoteSync {
     this.queue = this.queue.then(task).catch(() => undefined);
   }
 
-  private send(msg: SyncToServer) {
+  private send(msg: SyncToServer | SyncInitMessage) {
     if (!this.closed && this.socket.readyState === 1) this.socket.send(JSON.stringify(msg));
   }
 
@@ -138,8 +150,17 @@ export class RemoteSync {
   }
 
   private async read(path: string): Promise<string | null> {
+    const local = await this.local(path);
+    return local.kind === 'file' ? local.data : null;
+  }
+
+  // Looks at the disk, not `known`: a file the phone couldn't send is on disk
+  // but was never known to the container.
+  private async local(path: string): Promise<Local> {
     const data = await this.files.readBase64(this.project, path).catch(() => null);
-    return data !== null && base64Bytes(data) <= MAX_SYNC_BYTES ? data : null;
+    if (data !== null) return base64Bytes(data) <= MAX_SYNC_BYTES ? { kind: 'file', data } : { kind: 'unsendable' };
+    const kind = await this.files.stat(this.project, path).catch(() => null);
+    return kind === null ? { kind: 'none' } : { kind: 'unsendable' };
   }
 
   // Flow-controlled: each batch waits for the server's 'init-ack' of the one
@@ -148,9 +169,14 @@ export class RemoteSync {
   private async sendInit() {
     let files: { path: string; data: string }[] = [];
     let size = 0;
+    const unsendable: string[] = [];
     for (const path of await this.list()) {
-      const data = await this.read(path);
-      if (data === null) continue;
+      const local = await this.local(path);
+      if (local.kind !== 'file') {
+        if (local.kind === 'unsendable') unsendable.push(path);
+        continue;
+      }
+      const { data } = local;
       if (files.length && size + data.length > INIT_BATCH_BYTES) {
         const acked = new Promise<void>((resolve) => (this.initAck = resolve));
         this.send({ type: 'init', files, more: true });
@@ -163,7 +189,8 @@ export class RemoteSync {
       files.push({ path, data });
       size += data.length + path.length;
     }
-    this.send({ type: 'init', files });
+    // Listed in the last batch, which is when the server looks for what the init left out.
+    this.send(unsendable.length ? { type: 'init', files, skippedPaths: unsendable } : { type: 'init', files });
   }
 
   private async apply(msg: SyncToApp) {
@@ -189,12 +216,19 @@ export class RemoteSync {
       // has as agreed (and never takes a path it couldn't store as deleted).
       case 'file': {
         const { path, data } = msg;
-        this.skipped.delete(path);
+        const wasSkipped = this.skipped.delete(path);
         let ok = true;
         if (this.known.get(path) !== data) {
-          const isNew = !this.known.has(path);
           try {
-            if (!this.ready && !isNew) await this.keepLocalEdit(path);
+            const local = await this.local(path);
+            // A file the phone has but can't send (too big, unreadable): the
+            // container never had it, so its version must not replace it. Not
+            // stored, so the container keeps its own copy too (ok: false).
+            if (local.kind === 'unsendable') throw new Error("The phone's copy is too big to sync or can't be read, so it was kept");
+            const isNew = local.kind === 'none';
+            if (!this.ready && !wasSkipped && local.kind === 'file' && local.data !== data && local.data !== this.known.get(path)) {
+              await this.keepLocalEdit(path, local.data);
+            }
             await this.files.writeBase64(this.project, path, data);
             this.known.set(path, data);
             this.hooks.onFileChanged(path);
@@ -210,11 +244,18 @@ export class RemoteSync {
       case 'delete': {
         const { path } = msg;
         const wasSkipped = this.skipped.delete(path);
+        const had = this.known.get(path);
         let ok = true;
         if (this.known.delete(path) || wasSkipped) {
           try {
-            await this.files.removeIfPresent(this.project, path);
-            this.hooks.onTreeChanged();
+            if (!this.ready && !wasSkipped && (await this.editedSince(path, had))) {
+              // Saved after the init read it: that edit is newer than the
+              // container's delete, so it stays and is sent once 'ready' arrives.
+              this.addPending(path);
+            } else {
+              await this.files.removeIfPresent(this.project, path);
+              this.hooks.onTreeChanged();
+            }
           } catch (e) {
             ok = false;
             this.disown(path, e);
@@ -226,15 +267,36 @@ export class RemoteSync {
     }
   }
 
+  // Whether the phone's file at `path` differs from `had`, what the init sent.
+  private async editedSince(path: string, had: string | undefined): Promise<boolean> {
+    const local = await this.local(path);
+    return local.kind === 'unsendable' || (local.kind === 'file' && local.data !== had);
+  }
+
+  private addPending(path: string) {
+    if (this.pending === 'all') return;
+    this.pending ??= new Set();
+    this.pending.add(path);
+  }
+
   // Before 'ready' the container's reconcile result can arrive for a file the
   // user saved after the init read it (that edit is still pending): keep the
   // edit as a conflict copy, which is sent once 'ready' arrives.
-  private async keepLocalEdit(path: string) {
-    const local = await this.read(path);
-    if (local === null || local === this.known.get(path)) return;
-    await this.files.writeBase64(this.project, `${path}${CONFLICT_SUFFIX}`, local);
-    this.pending = 'all';
+  private async keepLocalEdit(path: string, local: string) {
+    const copy = await this.conflictName(path);
+    await this.files.writeBase64(this.project, copy, local);
+    this.addPending(copy);
     this.hooks.onTreeChanged();
+  }
+
+  // Same names as the server's: `.phone-conflict`, then `-2`, `-3`... The first
+  // one free on disk, so an earlier unresolved copy is never overwritten.
+  private async conflictName(path: string): Promise<string> {
+    for (let n = 1; ; n++) {
+      const name = `${path}${CONFLICT_SUFFIX}${n > 1 ? `-${n}` : ''}`;
+      if (this.known.has(name) || this.skipped.has(name)) continue;
+      if ((await this.files.stat(this.project, name).catch(() => null)) === null) return name;
+    }
   }
 
   // The phone couldn't apply a container change to `path`: the container owns

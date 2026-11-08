@@ -29,6 +29,12 @@ type WatcherMsg =
   | { type: 'skipped'; path: string }
   | { type: 'ports'; ports: number[] };
 
+// The init as the app sends it. `skippedPaths` (optional: older apps don't send
+// it) names files the phone has but can't send (over the size limit, or
+// unreadable). Their absence from `files` is not a phone-side delete, and the
+// container's copy is not sent over them.
+export type SyncInitMessage = SyncInit;
+
 export type Resolution = 'same' | 'phone' | 'container' | 'conflict' | 'delete-phone';
 
 // Three-way decision for a path the app sent in its init. `agreed` is the hash
@@ -50,11 +56,16 @@ type InitState = {
   first: boolean;
   // The container's files (hash) from the watcher's snapshot, kept current by its events.
   container: Map<string, string>;
-  // Paths the init covered, including conflict copies written for it.
+  // Paths the init covered: every phone path (sent or in skippedPaths) and the conflict copies written for it.
   seen: Set<string>;
+  // Phone files the app could not send (skippedPaths): never deleted or overwritten on either side.
+  unsent: Set<string>;
   // Paths whose container copy the app must get (container won, or a conflict).
   toApp: Set<string>;
   deleteOnApp: Set<string>;
+  // Both sides changed `path`: the phone's version (base64 `data`) gets a
+  // conflict copy. Named only after the last batch, once every phone path is
+  // known, so a copy never lands on a path the phone sends later in the init.
   conflicts: { path: string; data: string; hash: string }[];
   // Watcher reports that arrived during the init, delivered after it.
   later: (() => void)[];
@@ -311,14 +322,17 @@ export function attachSync(
     }
   };
 
+  // A free name for the phone's side of a conflict: not a container file (owned
+  // ones included), nor any path the phone has (sent, unsent, or already a copy).
+  // Only called after the last init batch, when `seen` holds every phone path.
   const conflictName = (state: InitState, path: string) => {
     for (let n = 1; ; n++) {
       const name = `${path}${CONFLICT_SUFFIX}${n > 1 ? `-${n}` : ''}`;
-      if (!state.container.has(name) && !state.seen.has(name)) return name;
+      if (!state.container.has(name) && !state.seen.has(name) && !containerOwned(name)) return name;
     }
   };
 
-  const handleInit = async (msg: SyncInit) => {
+  const handleInit = async (msg: SyncInitMessage) => {
     if (initDone) {
       // A second init on one connection (the app doesn't send one): plain writes.
       for (const f of msg.files) await handle({ type: 'file', path: f.path, data: f.data });
@@ -327,13 +341,23 @@ export function attachSync(
     }
     if (!init) {
       const first = !session.agreed;
-      init = { first, container: new Map(), seen: new Set(), toApp: new Set(), deleteOnApp: new Set(), conflicts: [], later: [] };
+      init = { first, container: new Map(), seen: new Set(), unsent: new Set(), toApp: new Set(), deleteOnApp: new Set(), conflicts: [], later: [] };
       await startWatcher(init);
       session.agreed ??= new Map();
     }
     const state = init;
     const agreed = session.agreed!;
     const writes: { path: string; data: Buffer; hash: string }[] = [];
+    for (const p of Array.isArray(msg.skippedPaths) ? msg.skippedPaths : []) {
+      let path: string;
+      try {
+        path = safePath(p);
+      } catch {
+        continue;
+      }
+      state.seen.add(path);
+      state.unsent.add(path);
+    }
     for (const f of msg.files) {
       const path = safePath(f.path);
       if (!writable(path)) continue;
@@ -358,18 +382,12 @@ export function attachSync(
         case 'delete-phone':
           state.deleteOnApp.add(path);
           break;
-        case 'conflict': {
-          // The container's file keeps its name; the phone's version is kept next to it.
-          const copy = conflictName(state, path);
-          state.seen.add(copy);
-          const mode = session.modes.get(path);
-          if (mode !== undefined) session.modes.set(copy, mode);
-          writes.push({ path: copy, data, hash });
-          state.conflicts.push({ path: copy, data: f.data, hash });
+        case 'conflict':
+          // The container's file keeps its name; the phone's version is kept next to it (named after the last batch).
+          state.conflicts.push({ path, data: f.data, hash });
           known.set(path, container!);
           state.toApp.add(path);
           break;
-        }
       }
     }
     await write(writes);
@@ -377,6 +395,21 @@ export function attachSync(
       send({ type: 'init-ack' });
       return;
     }
+
+    // Every phone path is known now: name and write the conflict copies.
+    const copies: { path: string; data: string; hash: string }[] = [];
+    for (const c of state.conflicts) {
+      const copy = conflictName(state, c.path);
+      state.seen.add(copy);
+      const mode = session.modes.get(c.path);
+      if (mode !== undefined) session.modes.set(copy, mode);
+      copies.push({ path: copy, data: c.data, hash: c.hash });
+    }
+    await write(copies.map((c) => ({ path: c.path, data: Buffer.from(c.data, 'base64'), hash: c.hash })));
+
+    // A file the phone has but couldn't send: the container's copy (if any)
+    // stays, and isn't sent over the phone's.
+    for (const path of state.unsent) state.toApp.delete(path);
 
     // Container files the init didn't cover.
     const removeHere: string[] = [];
@@ -389,7 +422,7 @@ export function attachSync(
       } else state.toApp.add(path); // New (or changed) in the container.
     }
     await remove(removeHere);
-    for (const c of state.conflicts) sendFile(c.path, c.data, c.hash);
+    for (const c of copies) sendFile(c.path, c.data, c.hash);
     await sendFromContainer(state, [...state.toApp]);
     for (const path of state.deleteOnApp) sendDelete(path);
     init = null;

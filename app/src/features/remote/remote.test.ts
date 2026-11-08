@@ -134,6 +134,82 @@ describe('RemoteSync', () => {
     expect(changes(socket)).toEqual([{ type: 'file', path: 'index.js.phone-conflict', data: b64('saved during init') }]);
   });
 
+  it('numbers conflict copies instead of overwriting an earlier unresolved one', async () => {
+    const { socket, workspace, sync } = await setup(async (workspace) => {
+      await workspace.createFile('demo', '', 'index.js.phone-conflict', 'older copy');
+    });
+    await workspace.writeFile('demo', 'index.js', 'saved during init');
+    sync.changed(['index.js']);
+    socket.receive({ type: 'file', path: 'index.js', data: b64('container won') });
+    await flush();
+    expect(await workspace.readFile('demo', 'index.js.phone-conflict')).toBe('older copy');
+    expect(await workspace.readFile('demo', 'index.js.phone-conflict-2')).toBe('saved during init');
+
+    await workspace.writeFile('demo', 'index.js', 'saved again');
+    socket.receive({ type: 'file', path: 'index.js', data: b64('container won again') });
+    await flush();
+    expect(await workspace.readFile('demo', 'index.js.phone-conflict-3')).toBe('saved again');
+
+    socket.sent.length = 0;
+    socket.receive({ type: 'ready' });
+    await flush();
+    expect(changes(socket)).toEqual([
+      { type: 'file', path: 'index.js.phone-conflict-2', data: b64('saved during init') },
+      { type: 'file', path: 'index.js.phone-conflict-3', data: b64('saved again') },
+    ]);
+  });
+
+  it('keeps an edit saved during the init when the container deletes the file before ready', async () => {
+    const { socket, workspace, sync, hooks } = await setup(async (workspace) => {
+      await workspace.createFile('demo', '', 'untouched.txt', 'same');
+    });
+    await workspace.writeFile('demo', 'index.js', 'saved during init');
+    sync.changed(['index.js']);
+    socket.receive({ type: 'delete', path: 'index.js' });
+    socket.receive({ type: 'delete', path: 'untouched.txt' });
+    await flush();
+    expect(await workspace.readFile('demo', 'index.js')).toBe('saved during init');
+    expect(await workspace.stat('demo', 'untouched.txt')).toBeNull();
+    expect(sent(socket).filter((m) => m.type === 'ack')).toEqual([
+      { type: 'ack', path: 'index.js', ok: true },
+      { type: 'ack', path: 'untouched.txt', ok: true },
+    ]);
+    socket.sent.length = 0;
+    socket.receive({ type: 'ready' });
+    await flush();
+    expect(changes(socket)).toEqual([{ type: 'file', path: 'index.js', data: b64('saved during init') }]);
+    expect(hooks.onReady).toHaveBeenCalled();
+  });
+
+  it('tells the server about files too big to send and never overwrites them', async () => {
+    const big = 'a'.repeat(MAX_SYNC_BYTES + 1);
+    const { socket, workspace, hooks } = await setup(async (workspace) => {
+      await workspace.createFile('demo', '', 'big.bin', big);
+    });
+    const onSyncError = jest.fn();
+    (hooks as { onSyncError?: unknown }).onSyncError = onSyncError;
+    const init = sent(socket)[0] as SyncToServer & { skippedPaths?: string[] };
+    expect(init.type === 'init' && init.files.map((f) => f.path)).not.toContain('big.bin');
+    expect(init.skippedPaths).toEqual(['big.bin']);
+
+    // A container version arriving for it (before or after ready) is refused, not written.
+    socket.receive({ type: 'file', path: 'big.bin', data: b64('container copy') });
+    socket.receive({ type: 'ready' });
+    socket.receive({ type: 'file', path: 'big.bin', data: b64('container copy') });
+    await flush();
+    expect(await workspace.readFile('demo', 'big.bin')).toBe(big);
+    expect(sent(socket).filter((m) => m.type === 'ack')).toEqual([
+      { type: 'ack', path: 'big.bin', ok: false },
+      { type: 'ack', path: 'big.bin', ok: false },
+    ]);
+    expect(onSyncError).toHaveBeenCalledWith('big.bin', expect.any(String));
+  });
+
+  it('sends no skippedPaths when every file fits', async () => {
+    const { socket } = await setup();
+    expect(sent(socket)[0]).not.toHaveProperty('skippedPaths');
+  });
+
   it('skips build and cache folders', async () => {
     const { socket } = await setup(async (workspace) => {
       await workspace.createFolder('demo', '', '.next');

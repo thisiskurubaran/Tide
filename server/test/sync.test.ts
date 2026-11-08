@@ -233,7 +233,8 @@ test('reconnect reconciles three ways against the last agreed content', async ()
   c.writes.length = 0;
   const ws2 = await connect(c, session, { 'same.txt': 's', 'phone.txt': 'p1', 'cont.txt': 'c0', 'both.txt': 'b-phone', 'gone-cont.txt': 'x0' });
 
-  assert.deepEqual(c.writes, [['phone.txt', 'both.txt.phone-conflict']]);
+  // Conflict copies are named and written after the last init batch.
+  assert.deepEqual(c.writes, [['phone.txt'], ['both.txt.phone-conflict']]);
   assert.deepEqual(c.removed, ['gone-phone.txt']);
   assert.deepEqual(Object.fromEntries([...c.files].map(([p, d]) => [p, d.toString()])), {
     'same.txt': 's',
@@ -261,6 +262,83 @@ test('reconnect reconciles three ways against the last agreed content', async ()
   assert.deepEqual(ws3.sent, [{ type: 'ready' }]);
   assert.deepEqual(c.writes, []);
   assert.deepEqual(c.removed, []);
+});
+
+test('a conflict copy never lands on a path the phone sends later in the init', async () => {
+  const c = fakeContainer();
+  const session = fakeSession();
+  const ws1 = await connect(c, session, { 'x.txt': 'x0' });
+  await ackAll(ws1);
+  ws1.close();
+
+  // The phone has x.txt.phone-conflict (unsent, or deleted in the container) and both sides edit x.txt.
+  c.files.set('x.txt', Buffer.from('x-container'));
+  const ws2 = new FakeWs();
+  attachSync(c.manager, session, ws2 as never, () => {});
+  ws2.receive({ type: 'init', files: [{ path: 'x.txt', data: b64('x-phone') }], more: true });
+  await settle(ws2, 'init-ack');
+  ws2.receive({ type: 'init', files: [{ path: 'x.txt.phone-conflict', data: b64('older copy') }] });
+  await settle(ws2, 'ready');
+
+  assert.equal(c.text('x.txt'), 'x-container');
+  assert.equal(c.text('x.txt.phone-conflict'), 'older copy');
+  assert.equal(c.text('x.txt.phone-conflict-2'), 'x-phone');
+  assert.deepEqual(decoded(ws2), [
+    { type: 'init-ack' },
+    { type: 'file', path: 'x.txt.phone-conflict-2', data: 'x-phone' },
+    { type: 'file', path: 'x.txt', data: 'x-container' },
+    { type: 'ready' },
+  ]);
+
+  // Next reconnect: nothing is lost, nothing changes.
+  await ackAll(ws2);
+  ws2.close();
+  c.writes.length = 0;
+  c.removed.length = 0;
+  const ws3 = await connect(c, session, { 'x.txt': 'x-container', 'x.txt.phone-conflict': 'older copy', 'x.txt.phone-conflict-2': 'x-phone' });
+  assert.deepEqual(ws3.sent, [{ type: 'ready' }]);
+  assert.deepEqual(c.writes, []);
+  assert.deepEqual(c.removed, []);
+});
+
+test('a conflict copy avoids phone files the app could not send', async () => {
+  const c = fakeContainer();
+  const session = fakeSession();
+  const ws1 = await connect(c, session, { 'x.txt': 'x0' });
+  await ackAll(ws1);
+  ws1.close();
+  c.files.set('x.txt', Buffer.from('x-container'));
+  const ws2 = new FakeWs();
+  attachSync(c.manager, session, ws2 as never, () => {});
+  ws2.receive({ type: 'init', files: [{ path: 'x.txt', data: b64('x-phone') }], skippedPaths: ['x.txt.phone-conflict'] });
+  await settle(ws2, 'ready');
+  assert.equal(c.text('x.txt.phone-conflict'), undefined);
+  assert.equal(c.text('x.txt.phone-conflict-2'), 'x-phone');
+});
+
+test('phone files too big to send are never deleted or overwritten', async () => {
+  const c = fakeContainer();
+  const session = fakeSession();
+  const ws1 = await connect(c, session, { 'big.bin': 'small once', 'a.txt': 'a' });
+  await ackAll(ws1);
+  ws1.close();
+
+  // The phone's big.bin grew past the limit; the container's copy is unchanged. A
+  // container-only file the phone also has but can't send isn't sent over it.
+  c.files.set('other.bin', Buffer.from('container copy'));
+  const ws2 = new FakeWs();
+  attachSync(c.manager, session, ws2 as never, () => {});
+  ws2.receive({ type: 'init', files: [{ path: 'a.txt', data: b64('a') }], skippedPaths: ['big.bin', 'other.bin', '../escape'] });
+  await settle(ws2, 'ready');
+  assert.deepEqual(c.removed, []);
+  assert.equal(c.text('big.bin'), 'small once');
+  assert.equal(c.text('other.bin'), 'container copy');
+  assert.deepEqual(ws2.sent, [{ type: 'ready' }]);
+
+  // Without skippedPaths (an older app) its absence is still a phone-side delete.
+  ws2.close();
+  await connect(c, session, { 'a.txt': 'a' });
+  assert.deepEqual(c.removed, ['big.bin']);
 });
 
 test('a container file the app did not store is never deleted from the container', async () => {

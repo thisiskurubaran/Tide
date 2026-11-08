@@ -109,7 +109,10 @@ export type SyncDelete = { type: 'delete'; path: string };
 // container's file keeps its name and the phone's version is written next to it
 // as `<name>.phone-conflict` (both are then sent to the app). Container changes
 // made while disconnected reach the app as 'file' / 'delete' before 'ready'.
-export type SyncInit = { type: 'init'; files: { path: string; data: string }[]; more?: boolean };
+// `skippedPaths` (last batch only, optional): files the phone has but can't
+// send (over the size limit or unreadable). The server neither treats their
+// absence from `files` as a phone-side delete nor sends its copy over them.
+export type SyncInit = { type: 'init'; files: { path: string; data: string }[]; more?: boolean; skippedPaths?: string[] };
 // Server -> app: the init batch before this was applied; send the next one.
 export type SyncInitAck = { type: 'init-ack' };
 // App -> server, once for every 'file' or 'delete' the server sent, in order,
