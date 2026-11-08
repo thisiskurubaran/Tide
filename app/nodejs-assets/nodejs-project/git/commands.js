@@ -22,13 +22,15 @@ function createCommands({ git, http, author, onAuth, onAuthFailure, GitError, fi
     for (const f of files) console.log(`CONFLICT: merge conflict in ${f}`);
   }
 
-  // Lines like `git diff --stat` for a list of { path, before, after } blob ids.
+  // Lines like `git diff --stat` for a list of { path, before, after } blob
+  // ids. A submodule (gitlink, `beforeGitlink` / `afterGitlink`) counts as
+  // the line real git diffs for it: "Subproject commit <oid>".
   async function printStat(dir, files) {
     let added = 0;
     let removed = 0;
     for (const f of files) {
-      const text = async (oid) => (oid ? (await tree.blob(dir, oid)).toString('utf8') : '');
-      const stat = lineStat(await text(f.before), await text(f.after));
+      const text = async (oid, gitlink) => (!oid ? '' : gitlink ? `Subproject commit ${oid}\n` : (await tree.blob(dir, oid)).toString('utf8'));
+      const stat = lineStat(await text(f.before, f.beforeGitlink), await text(f.after, f.afterGitlink));
       if (!stat) {
         console.log(` ${f.path} | (too large to count)`);
         continue;
@@ -166,7 +168,12 @@ function createCommands({ git, http, author, onAuth, onAuthFailure, GitError, fi
         if (r.status === 'empty') console.log('Nothing was staged, so the cherry-pick made no commit.');
         return 0;
       }
-      if (takeFlag(args, '--abort', '--skip', '--quit')) {
+      if (takeFlag(args, '--quit')) {
+        // Forgets the cherry-pick, keeping the working tree and index as they are.
+        sequencer.cherryPickQuit(dir);
+        return 0;
+      }
+      if (takeFlag(args, '--abort', '--skip')) {
         await sequencer.cherryPickAbort(dir);
         return 0;
       }

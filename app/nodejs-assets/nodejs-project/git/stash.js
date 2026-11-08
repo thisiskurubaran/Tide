@@ -16,7 +16,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { conflicts } = require('./state');
-const { lstatWork } = require('./tree');
+const { lstatWork, GITLINK } = require('./tree');
 
 const ZERO = '0'.repeat(40);
 const LOG = path.join('logs', 'refs', 'stash');
@@ -102,7 +102,10 @@ function createStash({ git, author, changes, GitError, tree }) {
     const all = await changes(dir);
     const tracked = all.filter((c) => c.code !== '??');
     const extra = untracked ? all.filter((c) => c.code === '??') : [];
-    if (!tracked.length && !extra.length) return null;
+    // As in real git, submodule changes alone are nothing to save; with other
+    // changes, a staged submodule move is saved in the index commit and
+    // undone with the rest.
+    if (!tracked.some((c) => !c.gitlink) && !extra.length) return null;
 
     const me = author();
     const make = async (/** @type {string} */ msg, /** @type {Map<string, any>} */ files, /** @type {string[]} */ parent) =>
@@ -117,6 +120,8 @@ function createStash({ git, author, changes, GitError, tree }) {
     // here, as real git saves them.
     const work = new Map(index);
     for (const c of tracked) {
+      // A submodule is saved as the index has it; its folder isn't touched.
+      if (c.gitlink) continue;
       // lstat, so a symlink whose target is gone is still saved as the link.
       if (lstatWork(dir, c.path)) work.set(c.path, await hashFile(dir, c.path));
       else work.delete(c.path);
@@ -154,8 +159,17 @@ function createStash({ git, author, changes, GitError, tree }) {
     }
     const r = await tree.applyChange(dir, { base, ours: head, theirs: oid, labels: { ours: 'Updated upstream', theirs: 'Stashed changes' } });
     const inHead = await tree.files(dir, head);
+    const inStash = await tree.files(dir, oid);
+    // A file whose folder the stash made a file (x/a, now that x is one) can't
+    // be in the index beside it: it stays deleted there, as real git leaves it.
+    const fileAbove = (/** @type {string} */ p) => {
+      for (let d = path.posix.dirname(p); d !== '.'; d = path.posix.dirname(d)) if (inStash.has(d)) return true;
+      return false;
+    };
     for (const filepath of r.changed) {
-      if (inHead.has(filepath) && !r.conflicts.includes(filepath)) await git.resetIndex({ fs, dir, filepath });
+      if (!inHead.has(filepath) || r.conflicts.includes(filepath)) continue;
+      if (!inStash.has(filepath) && fileAbove(filepath)) continue;
+      await tree.resetPath(dir, filepath);
     }
     for (const [filepath, e] of untrackedFiles) tree.writeFile(dir, filepath, await tree.blob(dir, e.oid), e.mode);
     return { conflicts: r.conflicts, files: [...r.changed, ...untrackedFiles.keys()] };
@@ -188,13 +202,20 @@ function createStash({ git, author, changes, GitError, tree }) {
     const { commit } = await git.readCommit({ fs, dir, oid });
     const [before, after] = [await tree.files(dir, commit.parent[0]), await tree.files(dir, oid)];
     if (commit.parent[2]) for (const [p, e] of await tree.files(dir, commit.parent[2])) after.set(p, e);
-    /** @type {{ path: string, status: 'added' | 'deleted' | 'modified', before: string | null, after: string | null }[]} */
+    /** @type {{ path: string, status: 'added' | 'deleted' | 'modified', before: string | null, after: string | null, beforeGitlink: boolean, afterGitlink: boolean }[]} */
     const files = [];
     for (const p of [...new Set([...before.keys(), ...after.keys()])].sort()) {
       const a = before.get(p);
       const b = after.get(p);
       if (a && b && a.oid === b.oid && a.mode === b.mode) continue;
-      files.push({ path: p, status: !a ? 'added' : !b ? 'deleted' : 'modified', before: a ? a.oid : null, after: b ? b.oid : null });
+      files.push({
+        path: p,
+        status: !a ? 'added' : !b ? 'deleted' : 'modified',
+        before: a ? a.oid : null,
+        after: b ? b.oid : null,
+        beforeGitlink: !!a && a.mode === GITLINK,
+        afterGitlink: !!b && b.mode === GITLINK,
+      });
     }
     return files;
   }

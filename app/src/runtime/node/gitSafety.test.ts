@@ -1158,3 +1158,501 @@ describe('credentials', () => {
     }
   });
 });
+
+withGit('Git Pro abort-merge', () => {
+  it('never writes through a link, and keeps +x and links in the index', async () => {
+    const parent = tmp();
+    const dir = path.join(parent, 'repo');
+    fs.mkdirSync(dir);
+    write(parent, 'outside.txt', 'OUTSIDE\n');
+    await git(dir, ['init']);
+    write(dir, 'c.txt', 'c\n');
+    write(dir, 'run.sh', 'echo hi\n');
+    fs.chmodSync(path.join(dir, 'run.sh'), 0o755);
+    fs.symlinkSync('../outside.txt', path.join(dir, 'out'));
+    fs.symlinkSync('c.txt', path.join(dir, 'zlink'));
+    await git(dir, ['add', '-A']);
+    await git(dir, ['commit', '-m', 'base']);
+    await git(dir, ['checkout', '-b', 'feat']);
+    write(dir, 'c.txt', 'feat\n');
+    await git(dir, ['commit', '-am', 'feat']);
+    await git(dir, ['checkout', 'main']);
+    write(dir, 'c.txt', 'main\n');
+    await git(dir, ['commit', '-am', 'main']);
+    expect(JSON.parse((await git(dir, ['__tide', 'merge', 'feat'])).out).conflicts).toEqual(['c.txt']);
+
+    expect((await git(dir, ['__tide', 'abort-merge'])).code).toBe(0);
+    expect(read(parent, 'outside.txt')).toBe('OUTSIDE\n');
+    expect(fs.readlinkSync(path.join(dir, 'out'))).toBe('../outside.txt');
+    expect(fs.readlinkSync(path.join(dir, 'zlink'))).toBe('c.txt');
+    expect(fs.statSync(path.join(dir, 'run.sh')).mode & 0o111).not.toBe(0);
+    expect(read(dir, 'c.txt')).toBe('main\n');
+    expect(real(dir, 'ls-files', '-s', 'out', 'run.sh', 'zlink')).toMatch(/^120000 \w+ 0\tout\n100755 \w+ 0\trun\.sh\n120000 \w+ 0\tzlink\n$/);
+    expect(real(dir, 'status', '--porcelain')).toBe('');
+    expect(fs.existsSync(path.join(dir, '.git', 'MERGE_HEAD'))).toBe(false);
+    // The next commit keeps the modes.
+    write(dir, 'c.txt', 'next\n');
+    expect((await git(dir, ['commit', '-am', 'next'])).code).toBe(0);
+    expect(real(dir, 'ls-tree', 'HEAD', 'out', 'run.sh', 'zlink')).toMatch(/^120000 blob \w+\tout\n100755 blob \w+\trun\.sh\n120000 blob \w+\tzlink\n$/);
+  });
+});
+
+withGit('submodule changes are shown and staged', () => {
+  /** A repo `sub` with commits A, B, C, and a parent repo whose `lib` is a gitlink at A. */
+  async function parentWithSubmodule() {
+    const subrepo = tmp();
+    real(subrepo, 'init', '-q');
+    const shas: string[] = [];
+    for (const n of ['A', 'B', 'C']) {
+      write(subrepo, 's.txt', `${n}\n`);
+      real(subrepo, 'add', '-A');
+      real(subrepo, 'commit', '-qm', n);
+      shas.push(real(subrepo, 'rev-parse', 'HEAD').trim());
+    }
+    const dir = tmp();
+    real(dir, 'init', '-q');
+    write(dir, 'a.txt', 'a\n');
+    real(dir, 'add', '-A');
+    real(dir, 'update-index', '--add', '--cacheinfo', `160000,${shas[0]},lib`);
+    real(dir, 'commit', '-qm', 'base');
+    fs.mkdirSync(path.join(dir, 'lib'));
+    return { dir, subrepo, shas };
+  }
+  /** Sets the submodule's folder up as a clone at `sha`. */
+  function populate(dir: string, subrepo: string, sha: string) {
+    fs.rmSync(path.join(dir, 'lib'), { recursive: true, force: true });
+    real(dir, 'clone', '-q', subrepo, 'lib');
+    real(path.join(dir, 'lib'), 'checkout', '-q', sha);
+  }
+
+  it.each(['add lib', 'add -A', 'commit -a'])('a submodule moved to a new commit shows as  M and goes in with %s', async (how) => {
+    const { dir, subrepo, shas } = await parentWithSubmodule();
+    populate(dir, subrepo, shas[0]);
+    expect((await git(dir, ['status', '-s'])).out).toBe('');
+    real(path.join(dir, 'lib'), 'checkout', '-q', shas[1]);
+    expect(real(dir, 'status', '--porcelain')).toBe(' M lib\n');
+    expect((await git(dir, ['status', '-s'])).out).toBe(' M lib\n');
+    expect(JSON.parse((await git(dir, ['__tide', 'status'])).out).changes).toEqual([{ path: 'lib', code: ' M' }]);
+    if (how === 'commit -a') expect((await git(dir, ['commit', '-am', 'bump'])).code).toBe(0);
+    else {
+      expect((await git(dir, how.split(' '))).code).toBe(0);
+      expect(real(dir, 'status', '--porcelain')).toBe('M  lib\n');
+      expect((await git(dir, ['status', '-s'])).out).toBe('M  lib\n');
+      expect((await git(dir, ['commit', '-m', 'bump'])).code).toBe(0);
+    }
+    expect(real(dir, 'rev-parse', 'HEAD:lib')).toBe(`${shas[1]}\n`);
+    // Never the submodule's own files.
+    expect(real(dir, 'ls-files')).toBe('a.txt\nlib\n');
+    expect(real(dir, 'status', '--porcelain')).toBe('');
+  });
+
+  it("Git Pro's Stage stages a populated submodule as one entry, and Unstage puts HEAD's back", async () => {
+    const { dir, subrepo, shas } = await parentWithSubmodule();
+    populate(dir, subrepo, shas[2]);
+    write(dir, 'lib/new.txt', 'untracked in the submodule\n');
+    expect((await git(dir, ['__tide', 'stage', 'lib'])).code).toBe(0);
+    expect(real(dir, 'ls-files', '-s')).toMatch(new RegExp(`^100644 \\w+ 0\\ta\\.txt\\n160000 ${shas[2]} 0\\tlib\\n$`));
+    expect(real(dir, 'diff', '--cached', '--name-only')).toBe('lib\n');
+    expect((await git(dir, ['__tide', 'unstage', 'lib'])).code).toBe(0);
+    expect(real(dir, 'ls-files', '-s', 'lib')).toBe(`160000 ${shas[0]} 0\tlib\n`);
+  });
+
+  it('git diff --stat shows a moved submodule as real git does', async () => {
+    const { dir, subrepo, shas } = await parentWithSubmodule();
+    populate(dir, subrepo, shas[1]);
+    const r = await git(dir, ['diff', '--stat']);
+    expect(r.code).toBe(0);
+    expect(r.out).toMatch(/ lib \| 2 /);
+    expect(real(dir, 'diff', '--stat')).toMatch(/ lib \| 2 /);
+  });
+
+  /** main moved lib to C; `other` moved it to B: a cherry-pick of other conflicts in lib. */
+  async function bothMoved() {
+    const env = await parentWithSubmodule();
+    const { dir, shas } = env;
+    real(dir, 'checkout', '-qb', 'other');
+    real(dir, 'update-index', '--cacheinfo', `160000,${shas[1]},lib`);
+    real(dir, 'commit', '-qm', 'to B');
+    real(dir, 'checkout', '-q', 'main');
+    real(dir, 'update-index', '--cacheinfo', `160000,${shas[2]},lib`);
+    real(dir, 'commit', '-qm', 'to C');
+    return env;
+  }
+
+  it('a submodule conflict from cherry-pick shows as UU, and git add keeps ours when the folder is not set up', async () => {
+    const { dir, shas } = await bothMoved();
+    const r = await git(dir, ['cherry-pick', 'other']);
+    expect(r.code).toBe(1);
+    expect(r.out).toMatch(/CONFLICT: merge conflict in lib/);
+    expect((await git(dir, ['status', '-s'])).out).toBe('UU lib\n');
+    expect(JSON.parse((await git(dir, ['__tide', 'status'])).out).changes).toEqual([{ path: 'lib', code: 'UU' }]);
+    expect((await git(dir, ['commit', '-m', 'x'])).out).toMatch(/unmerged files: lib/);
+    expect((await git(dir, ['add', 'lib'])).code).toBe(0);
+    expect(fs.existsSync(path.join(dir, '.git', 'TIDE_CONFLICTS'))).toBe(false);
+    expect(real(dir, 'ls-files', '-s', 'lib')).toBe(`160000 ${shas[2]} 0\tlib\n`);
+    const c = await git(dir, ['cherry-pick', '--continue']);
+    expect(c.code).toBe(0);
+    expect(c.out).toMatch(/Nothing was staged/);
+    expect(fs.existsSync(path.join(dir, '.git', 'CHERRY_PICK_HEAD'))).toBe(false);
+    expect(real(dir, 'status', '--porcelain')).toBe('');
+  });
+
+  it('a submodule conflict from rebase is resolved by staging the commit the folder has checked out', async () => {
+    const { dir, subrepo, shas } = await bothMoved();
+    const r = await git(dir, ['rebase', 'other']);
+    // main's "to C" replayed onto other's "to B".
+    expect(r.code).toBe(1);
+    expect((await git(dir, ['status', '-s'])).out).toBe('UU lib\n');
+    populate(dir, subrepo, shas[2]);
+    expect((await git(dir, ['__tide', 'stage', 'lib'])).code).toBe(0);
+    expect(real(dir, 'ls-files', '-s')).toBe(`${real(dir, 'ls-files', '-s', 'a.txt')}160000 ${shas[2]} 0\tlib\n`);
+    expect((await git(dir, ['rebase', '--continue'])).code).toBe(0);
+    expect(real(dir, 'rev-parse', 'HEAD:lib')).toBe(`${shas[2]}\n`);
+    expect(real(dir, 'rev-parse', 'HEAD~1')).toBe(real(dir, 'rev-parse', 'other'));
+    expect(real(dir, 'status', '--porcelain')).toBe('');
+  });
+
+  it('a Git Pro merge where both sides moved a submodule stops with it conflicted instead of failing', async () => {
+    const { dir, shas } = await bothMoved();
+    // A change elsewhere on their side merges cleanly alongside.
+    real(dir, 'checkout', '-q', 'other');
+    write(dir, 'b.txt', 'b\n');
+    real(dir, 'add', 'b.txt');
+    real(dir, 'commit', '-qm', 'b');
+    real(dir, 'checkout', '-q', 'main');
+    const r = await git(dir, ['__tide', 'merge', 'other']);
+    expect(r.code).toBe(0);
+    expect(JSON.parse(r.out).conflicts).toEqual(['lib']);
+    expect(real(dir, 'status', '--porcelain')).toBe('A  b.txt\n');
+    expect(JSON.parse((await git(dir, ['__tide', 'status'])).out).changes).toEqual([
+      { path: 'b.txt', code: 'A ' },
+      { path: 'lib', code: 'UU' },
+    ]);
+    expect((await git(dir, ['__tide', 'stage', 'lib'])).code).toBe(0);
+    expect((await git(dir, ['__tide', 'commit', Buffer.from('merge').toString('base64')])).code).toBe(0);
+    expect(real(dir, 'log', '-1', '--format=%p').trim().split(' ')).toHaveLength(2);
+    expect(real(dir, 'rev-parse', 'HEAD:lib')).toBe(`${shas[2]}\n`);
+    expect(real(dir, 'show', 'HEAD:b.txt')).toBe('b\n');
+    expect(real(dir, 'status', '--porcelain')).toBe('');
+  });
+
+  it('stash saves and undoes a staged submodule move with other changes, and show prints it', async () => {
+    const { dir, shas } = await parentWithSubmodule();
+    real(dir, 'update-index', '--cacheinfo', `160000,${shas[1]},lib`);
+    // Alone, real git has nothing to save; neither has this git.
+    expect((await git(dir, ['stash'])).out).toMatch(/No local changes to save/);
+    expect(real(dir, 'status', '--porcelain')).toBe('M  lib\n');
+    write(dir, 'a.txt', 'edit\n');
+    expect((await git(dir, ['stash'])).code).toBe(0);
+    expect(real(dir, 'status', '--porcelain')).toBe('');
+    expect(real(dir, 'ls-files', '-s', 'lib')).toBe(`160000 ${shas[0]} 0\tlib\n`);
+    expect(real(dir, 'rev-parse', 'stash^2:lib')).toBe(`${shas[1]}\n`);
+    const show = await git(dir, ['stash', 'show']);
+    expect(show.code).toBe(0);
+    expect(show.out).toMatch(/ a\.txt \| 2 /);
+    expect(show.out).toMatch(/ lib \| 2 /);
+    expect(show.out).toMatch(/2 files changed/);
+    expect(real(dir, 'stash', 'show', '--stat')).toMatch(/ lib +\| 2 /);
+    expect((await git(dir, ['stash', 'pop'])).code).toBe(0);
+    expect(read(dir, 'a.txt')).toBe('edit\n');
+    // As real git leaves it: changes unstaged, the submodule back as HEAD has it in the index.
+    expect(real(dir, 'ls-files', '-s', 'lib')).toBe(`160000 ${shas[0]} 0\tlib\n`);
+    expect(real(dir, 'status', '--porcelain')).toBe(' M a.txt\n');
+  });
+});
+
+withGit('cherry-pick, rebase and stash across a folder that became a file', () => {
+  /** main has x/a and x/b; `tofile` replaces them with a file x; `tofolder` (from tofile) goes back. */
+  async function typeChange() {
+    const dir = tmp();
+    await git(dir, ['init']);
+    write(dir, 'x/a', 'a\n');
+    write(dir, 'x/b', 'b\n');
+    write(dir, 'm', 'm\n');
+    await git(dir, ['add', '-A']);
+    await git(dir, ['commit', '-m', 'base']);
+    await git(dir, ['checkout', '-b', 'tofile']);
+    await git(dir, ['rm', '-rq', 'x']);
+    write(dir, 'x', 'file\n');
+    await git(dir, ['add', '-A']);
+    await git(dir, ['commit', '-m', 'tofile']);
+    await git(dir, ['checkout', 'main']);
+    write(dir, 'm', 'main\n');
+    await git(dir, ['commit', '-am', 'main']);
+    return dir;
+  }
+
+  it('cherry-pick takes a folder to a file and back', async () => {
+    const dir = await typeChange();
+    const r = await git(dir, ['cherry-pick', 'tofile']);
+    expect(r.out).not.toMatch(/EISDIR/);
+    expect(r.code).toBe(0);
+    expect(read(dir, 'x')).toBe('file\n');
+    expect(real(dir, 'ls-tree', '-r', '--name-only', 'HEAD')).toBe('m\nx\n');
+    expect(real(dir, 'status', '--porcelain')).toBe('');
+    real(dir, 'revert', '--no-edit', 'HEAD');
+    expect(read(dir, 'x/a')).toBe('a\n');
+    await git(dir, ['checkout', '-b', 'again']);
+    const back = real(dir, 'rev-parse', 'HEAD').trim();
+    real(dir, 'reset', '-q', '--hard', 'HEAD~1');
+    expect((await git(dir, ['cherry-pick', back])).code).toBe(0);
+    expect(read(dir, 'x/a')).toBe('a\n');
+    expect(read(dir, 'x/b')).toBe('b\n');
+    expect(real(dir, 'status', '--porcelain')).toBe('');
+  });
+
+  it('rebase replays it', async () => {
+    const dir = await typeChange();
+    await git(dir, ['checkout', 'tofile']);
+    // tofile's own commit replayed onto main.
+    const r = await git(dir, ['rebase', 'main']);
+    expect(r.code).toBe(0);
+    expect(read(dir, 'x')).toBe('file\n');
+    expect(real(dir, 'ls-tree', '-r', '--name-only', 'HEAD')).toBe('m\nx\n');
+    expect(real(dir, 'show', 'HEAD:m')).toBe('main\n');
+    expect(real(dir, 'status', '--porcelain')).toBe('');
+  });
+
+  it('stash apply puts a stashed folder-to-file change back', async () => {
+    const dir = await typeChange();
+    await git(dir, ['rm', '-rq', 'x']);
+    write(dir, 'x', 'stashed file\n');
+    await git(dir, ['add', 'x']);
+    expect((await git(dir, ['stash'])).code).toBe(0);
+    expect(read(dir, 'x/a')).toBe('a\n');
+    const r = await git(dir, ['stash', 'apply']);
+    expect(r.out).not.toMatch(/EISDIR/);
+    expect(r.code).toBe(0);
+    expect(read(dir, 'x')).toBe('stashed file\n');
+    expect(real(dir, 'status', '--porcelain')).toBe('A  x\nD  x/a\nD  x/b\n');
+  });
+
+  it('refuses before changing anything when an untracked file is in the folder', async () => {
+    const dir = await typeChange();
+    write(dir, 'x/notes', 'mine\n');
+    const before = real(dir, 'rev-parse', 'HEAD');
+    const r = await git(dir, ['cherry-pick', 'tofile']);
+    expect(r.code).toBe(128);
+    expect(r.out).toMatch(/untracked working tree files would be overwritten by merge:\n\tx\/notes/);
+    expect(read(dir, 'x/a')).toBe('a\n');
+    expect(read(dir, 'x/notes')).toBe('mine\n');
+    expect(real(dir, 'rev-parse', 'HEAD')).toBe(before);
+    expect(real(dir, 'status', '--porcelain')).toBe('?? x/notes\n');
+    expect(fs.existsSync(path.join(dir, '.git', 'CHERRY_PICK_HEAD'))).toBe(false);
+  });
+});
+
+withGit('a conflict with a symlink on one side', () => {
+  it('keeps ours and never makes a link to the conflict markers', async () => {
+    const dir = tmp();
+    await git(dir, ['init']);
+    write(dir, 'f', 'one\n');
+    await git(dir, ['add', '-A']);
+    await git(dir, ['commit', '-m', 'base']);
+    await git(dir, ['checkout', '-b', 'side']);
+    write(dir, 'f', 'one\nTWO\n');
+    await git(dir, ['commit', '-am', 'edit']);
+    await git(dir, ['checkout', 'main']);
+    fs.unlinkSync(path.join(dir, 'f'));
+    fs.symlinkSync('target', path.join(dir, 'f'));
+    await git(dir, ['add', '-A']);
+    await git(dir, ['commit', '-m', 'link']);
+    const r = await git(dir, ['cherry-pick', 'side']);
+    expect(r.code).toBe(1);
+    expect(r.out).toMatch(/CONFLICT: merge conflict in f/);
+    expect(fs.readlinkSync(path.join(dir, 'f'))).toBe('target');
+    expect(JSON.parse((await git(dir, ['__tide', 'status'])).out).changes).toEqual([{ path: 'f', code: 'UU' }]);
+    expect((await git(dir, ['status', '-s'])).out).toBe('UU f\n');
+    expect(real(dir, 'status', '--porcelain')).toBe('');
+    // Staging it as it is (ours) resolves it.
+    expect((await git(dir, ['add', 'f'])).code).toBe(0);
+    expect((await git(dir, ['status', '-s'])).out).toBe('');
+    expect((await git(dir, ['cherry-pick', '--continue'])).code).toBe(0);
+    expect(fs.readlinkSync(path.join(dir, 'f'))).toBe('target');
+    // The other way round: their link onto our edited file.
+    expect((await git(dir, ['cherry-pick', 'side'])).code).toBe(1);
+    await git(dir, ['cherry-pick', '--abort']);
+    await git(dir, ['checkout', 'side']);
+    const p = await git(dir, ['cherry-pick', 'main']);
+    expect(p.code).toBe(1);
+    expect(fs.lstatSync(path.join(dir, 'f')).isFile()).toBe(true);
+    expect(read(dir, 'f')).toBe('one\nTWO\n');
+  });
+});
+
+withGit('cherry-pick --quit', () => {
+  it('forgets the cherry-pick and keeps the working tree and index', async () => {
+    const dir = await twoBranches();
+    await git(dir, ['checkout', 'other']);
+    write(dir, 'f.txt', 'other\n');
+    write(dir, 'n.txt', 'n\n');
+    await git(dir, ['add', '-A']);
+    await git(dir, ['commit', '-m', 'other']);
+    await git(dir, ['checkout', 'main']);
+    const head = real(dir, 'rev-parse', 'HEAD');
+    expect((await git(dir, ['cherry-pick', 'other'])).code).toBe(1);
+    const markers = read(dir, 'f.txt');
+    expect(markers).toMatch(/<<<<<<< /);
+    expect((await git(dir, ['cherry-pick', '--quit'])).code).toBe(0);
+    expect(fs.existsSync(path.join(dir, '.git', 'CHERRY_PICK_HEAD'))).toBe(false);
+    expect(read(dir, 'f.txt')).toBe(markers);
+    expect(real(dir, 'rev-parse', 'HEAD')).toBe(head);
+    expect(real(dir, 'status', '--porcelain')).toBe(' M f.txt\nA  n.txt\n');
+    // The conflict stays until the file is staged, as real git keeps it unmerged.
+    expect((await git(dir, ['commit', '-m', 'x'])).out).toMatch(/unmerged files: f\.txt/);
+    expect((await git(dir, ['cherry-pick', '--continue'])).out).toMatch(/no cherry-pick in progress/);
+  });
+});
+
+withGit('empty folders', () => {
+  it('checkout and rebase --abort remove folders whose tracked files went', async () => {
+    const dir = tmp();
+    await git(dir, ['init']);
+    write(dir, 'a.txt', 'a\n');
+    await git(dir, ['add', '-A']);
+    await git(dir, ['commit', '-m', 'base']);
+    await git(dir, ['checkout', '-b', 'deep']);
+    write(dir, 'd/e/f.txt', 'f\n');
+    await git(dir, ['add', '-A']);
+    await git(dir, ['commit', '-m', 'deep']);
+    expect((await git(dir, ['checkout', 'main'])).code).toBe(0);
+    expect(fs.existsSync(path.join(dir, 'd'))).toBe(false);
+
+    // A rebase of deep that stops, then is aborted from main's files.
+    write(dir, 'a.txt', 'main\n');
+    await git(dir, ['commit', '-am', 'main']);
+    await git(dir, ['checkout', 'deep']);
+    write(dir, 'a.txt', 'deep\n');
+    await git(dir, ['commit', '-am', 'deep a']);
+    await git(dir, ['checkout', 'main']);
+    await git(dir, ['checkout', '-b', 'up']);
+    expect((await git(dir, ['rebase', 'deep'])).code).toBe(1);
+    expect(read(dir, 'd/e/f.txt')).toBe('f\n');
+    expect((await git(dir, ['rebase', '--abort'])).code).toBe(0);
+    expect(fs.existsSync(path.join(dir, 'd'))).toBe(false);
+    expect(real(dir, 'status', '--porcelain')).toBe('');
+  });
+});
+
+withGit('a tag and a branch with the same name', () => {
+  /** Branch dev at "three", tag dev at "one". */
+  async function tagged() {
+    const dir = tmp();
+    await git(dir, ['init']);
+    for (const n of ['one', 'two', 'three']) {
+      write(dir, 'a', `${n}\n`);
+      await git(dir, ['add', '-A']);
+      await git(dir, ['commit', '-m', n]);
+      if (n === 'one') await git(dir, ['tag', 'dev']);
+    }
+    await git(dir, ['branch', 'dev']);
+    await git(dir, ['checkout', '-b', 'x']);
+    write(dir, 'b', 'x\n');
+    await git(dir, ['add', '-A']);
+    await git(dir, ['commit', '-m', 'x']);
+    return dir;
+  }
+
+  it.each(['cli', 'gitpro'])('checkout goes to the branch, with its files and index (%s)', async (via) => {
+    const dir = await tagged();
+    const r = via === 'cli' ? await git(dir, ['checkout', 'dev']) : await git(dir, ['__tide', 'checkout', 'dev']);
+    expect(r.code).toBe(0);
+    expect(real(dir, 'symbolic-ref', 'HEAD')).toBe('refs/heads/dev\n');
+    expect(read(dir, 'a')).toBe('three\n');
+    expect(fs.existsSync(path.join(dir, 'b'))).toBe(false);
+    expect(real(dir, 'status', '--porcelain')).toBe('');
+    // The next commit builds on the branch, reverting nothing.
+    write(dir, 'c', 'c\n');
+    await git(dir, ['add', 'c']);
+    await git(dir, ['commit', '-m', 'c']);
+    expect(real(dir, 'show', 'HEAD:a')).toBe('three\n');
+    expect(real(dir, 'diff', '--name-only', 'HEAD~1', 'HEAD')).toBe('c\n');
+  });
+
+  it('Git Pro merge uses the branches, not tags of the same names', async () => {
+    const dir = await tagged();
+    await git(dir, ['checkout', 'dev']);
+    write(dir, 'd', 'd\n');
+    await git(dir, ['add', 'd']);
+    await git(dir, ['commit', '-m', 'd']);
+    await git(dir, ['tag', 'x', 'dev~2']);
+    const r = await git(dir, ['__tide', 'merge', 'x']);
+    expect(r.code).toBe(0);
+    expect(real(dir, 'show', 'HEAD:b')).toBe('x\n');
+    expect(real(dir, 'show', 'HEAD:d')).toBe('d\n');
+    expect(real(dir, 'show', 'HEAD:a')).toBe('three\n');
+    expect(real(dir, 'status', '--porcelain')).toBe('');
+  });
+});
+
+withGit('pull with a tag named like the branch, and both sides moving a submodule', () => {
+  let server: { url: string; close(): void };
+  let root: string;
+  beforeAll(async () => {
+    root = tmp();
+    server = await gitServer(root);
+  });
+  afterAll(() => server.close());
+
+  it('merges into the branch, not the tag', async () => {
+    const seed = tmp();
+    real(seed, 'init', '-q');
+    write(seed, 'f.txt', 'one\n');
+    real(seed, 'add', '-A');
+    real(seed, 'commit', '-qm', 'one');
+    real(root, 'clone', '-q', '--bare', seed, 'tagged.git');
+    const local = tmp();
+    real(local, 'clone', '-q', path.join(root, 'tagged.git'), '.');
+    real(local, 'remote', 'set-url', 'origin', `${server.url}/tagged.git`);
+    real(local, 'tag', 'main');
+    write(local, 'mine.txt', 'mine\n');
+    await git(local, ['add', 'mine.txt']);
+    await git(local, ['commit', '-m', 'mine']);
+    const mine = real(local, 'rev-parse', 'HEAD').trim();
+    write(seed, 'theirs.txt', 'theirs\n');
+    real(seed, 'add', '-A');
+    real(seed, 'commit', '-qm', 'theirs');
+    real(seed, 'push', '-q', path.join(root, 'tagged.git'), 'main');
+    const r = await git(local, ['pull']);
+    expect(r.code).toBe(0);
+    expect(real(local, 'symbolic-ref', 'HEAD')).toBe('refs/heads/main\n');
+    expect(real(local, 'log', '-1', '--format=%P').trim().split(' ')[0]).toBe(mine);
+    expect(read(local, 'mine.txt')).toBe('mine\n');
+    expect(read(local, 'theirs.txt')).toBe('theirs\n');
+    expect(real(local, 'status', '--porcelain')).toBe('');
+  });
+
+  it('a pull where both sides moved a submodule says so and changes nothing', async () => {
+    const shas: string[] = [];
+    const subrepo = tmp();
+    real(subrepo, 'init', '-q');
+    for (const n of ['A', 'B', 'C']) {
+      write(subrepo, 's', `${n}\n`);
+      real(subrepo, 'add', '-A');
+      real(subrepo, 'commit', '-qm', n);
+      shas.push(real(subrepo, 'rev-parse', 'HEAD').trim());
+    }
+    const seed = tmp();
+    real(seed, 'init', '-q');
+    write(seed, 'f.txt', 'one\n');
+    real(seed, 'add', '-A');
+    real(seed, 'update-index', '--add', '--cacheinfo', `160000,${shas[0]},lib`);
+    real(seed, 'commit', '-qm', 'one');
+    real(root, 'clone', '-q', '--bare', seed, 'subboth.git');
+    const local = tmp();
+    real(local, 'clone', '-q', path.join(root, 'subboth.git'), '.');
+    real(local, 'remote', 'set-url', 'origin', `${server.url}/subboth.git`);
+    real(local, 'update-index', '--cacheinfo', `160000,${shas[2]},lib`);
+    real(local, 'commit', '-qm', 'to C');
+    const head = real(local, 'rev-parse', 'HEAD');
+    real(seed, 'update-index', '--cacheinfo', `160000,${shas[1]},lib`);
+    real(seed, 'commit', '-qm', 'to B');
+    real(seed, 'push', '-q', path.join(root, 'subboth.git'), 'main');
+    const r = await git(local, ['pull']);
+    expect(r.code).toBe(128);
+    expect(r.out).toMatch(/nothing was changed\. Merge origin\/main from Git Pro/);
+    expect(r.out).not.toMatch(/not supported yet/);
+    expect(real(local, 'rev-parse', 'HEAD')).toBe(head);
+    expect(real(local, 'status', '--porcelain')).toBe('');
+  });
+});

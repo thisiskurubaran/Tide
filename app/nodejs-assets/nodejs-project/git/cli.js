@@ -35,7 +35,7 @@ const USAGE = `usage: git <command>
   push [remote] [branch|tag] [--tags]         pull [remote] [branch]
   stash [push [-u] [-m msg] | list | show | apply | pop | drop | clear] [n]
   tag [-l] | tag [-a] <name> [-m msg] [commit] | tag -d <name>
-  cherry-pick <commit> | --continue | --abort
+  cherry-pick <commit> | --continue | --abort | --quit
   rebase <upstream> | --continue | --skip | --abort
 
 Anything else needs Remote mode, which has the real git.`;
@@ -130,9 +130,30 @@ function takeValue(args, ...names) {
   return value;
 }
 
+/**
+ * `git status` rows: { path, code, row }. Submodules (gitlinks), which
+ * statusMatrix leaves out, are added with `gitlink: true`, as real git shows
+ * them: moved to other commits in their folder, staged, or with a conflict
+ * (UU) until staged.
+ */
 async function changes(dir, filepaths) {
-  const rows = await recheckRacy(dir, await git.statusMatrix({ fs, dir, filepaths }));
-  return rows.map((row) => ({ path: row[0], code: porcelainCode(row), row })).filter((c) => c.code !== null);
+  // Shared, so the submodule walk reuses the index and trees statusMatrix read.
+  const cache = {};
+  const rows = await recheckRacy(dir, await git.statusMatrix({ fs, dir, filepaths, cache }));
+  const out = rows.map((row) => ({ path: row[0], code: porcelainCode(row), row, gitlink: false })).filter((c) => c.code !== null);
+  const unmerged = new Set(unresolved(dir));
+  for (const { path: p, row } of await tree.gitlinkRows(dir, filepaths, cache)) {
+    const code = unmerged.has(p) ? 'UU' : porcelainCode(row);
+    if (code !== null) out.push({ path: p, code, row, gitlink: true });
+  }
+  return out.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+}
+
+/** Stages one status row, like `git add`: a submodule as the commit its folder has checked out. */
+async function stageRow(dir, c) {
+  if (c.gitlink) await tree.stageGitlink(dir, c.path);
+  else if (c.row[2] === 0) await git.remove({ fs, dir, filepath: c.path });
+  else await git.add({ fs, dir, filepath: c.path });
 }
 
 // lstat: a symlink's own mtime, not its target's (real git tracks the link text).
@@ -211,7 +232,12 @@ const commands = {
   async status(args) {
     const dir = await findRoot();
     const short = takeFlag(args, '-s', '--short', '--porcelain');
-    const list = await changes(dir);
+    // Conflicted paths are unmerged (UU) until staged, as in real git, even
+    // one kept as ours with nothing else to show (a link, a binary file).
+    const unmerged = unresolved(dir);
+    const list = (await changes(dir)).map((c) => (unmerged.includes(c.path) ? { ...c, code: 'UU' } : c));
+    for (const p of unmerged) if (!list.some((c) => c.path === p)) list.push({ path: p, code: 'UU', row: [p, 1, 1, 1], gitlink: false });
+    list.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     if (short) {
       for (const c of list) console.log(`${c.code} ${c.path}`);
       return 0;
@@ -219,10 +245,15 @@ const commands = {
     const branch = await git.currentBranch({ fs, dir });
     console.log(branch ? `On branch ${branch}` : 'HEAD detached');
     for (const line of await extra.progressLines(dir)) console.log(line);
-    const staged = list.filter((c) => c.code[0] !== ' ' && c.code !== '??');
-    const unstaged = list.filter((c) => c.code[1] !== ' ' && c.code !== '??');
+    const staged = list.filter((c) => c.code[0] !== ' ' && c.code !== '??' && c.code !== 'UU');
+    const unstaged = list.filter((c) => c.code[1] !== ' ' && c.code !== '??' && c.code !== 'UU');
     const untracked = list.filter((c) => c.code === '??');
     const word = (ch) => ({ M: 'modified', A: 'new file', D: 'deleted' })[ch] ?? 'changed';
+    const both = list.filter((c) => c.code === 'UU');
+    if (both.length) {
+      console.log('\nUnmerged paths:');
+      for (const c of both) console.log(`\t\x1b[31mboth modified:   ${c.path}\x1b[0m`);
+    }
     if (staged.length) {
       console.log('\nChanges to be committed:');
       for (const c of staged) console.log(`\t\x1b[32m${word(c.code[0])}:   ${c.path}\x1b[0m`);
@@ -245,15 +276,23 @@ const commands = {
     const paths = all ? ['.'] : args.filter((a) => !a.startsWith('-'));
     if (!paths.length) throw new GitError('nothing specified, nothing added');
     const filepaths = paths.map((p) => repoPath(dir, p));
-    const list = await changes(dir, filepaths.includes('.') ? undefined : filepaths);
-    for (const c of list) {
-      if (c.row[2] === 0) await git.remove({ fs, dir, filepath: c.path });
-      else await git.add({ fs, dir, filepath: c.path });
+    // A submodule, or a folder that is a repo of its own, goes in as one
+    // entry (the commit it has checked out), never its files, as in real git.
+    const subs = [];
+    for (const p of filepaths) if (p !== '.' && (await tree.isGitlinkPath(dir, p))) subs.push(p);
+    const list = (await changes(dir, filepaths.includes('.') ? undefined : filepaths)).filter((c) => !subs.some((s) => c.path.startsWith(`${s}/`)));
+    for (const c of list) await stageRow(dir, c);
+    for (const p of subs) {
+      if (list.some((c) => c.path === p)) continue;
+      await tree.stageGitlink(dir, p);
+      list.push({ path: p, code: 'A ', row: [p, 0, 2, 2], gitlink: true });
     }
     // Staging a file marks its merge conflict resolved (see ui.js).
     const conflicts = path.join(dir, '.git', 'TIDE_CONFLICTS');
     if (fs.existsSync(conflicts)) {
       const staged = new Set(list.map((c) => c.path));
+      // Also one kept as ours (a link, a binary file) that has nothing to stage: adding it is the resolution.
+      for (const p of unresolved(dir)) if (filepaths.some((f) => f === '.' || p === f || p.startsWith(`${f}/`))) staged.add(p);
       const left = JSON.parse(fs.readFileSync(conflicts, 'utf8')).filter((p) => !staged.has(p));
       if (left.length) fs.writeFileSync(conflicts, JSON.stringify(left));
       else fs.rmSync(conflicts);
@@ -368,11 +407,7 @@ const commands = {
     // A merge started from Git Pro makes this a merge commit, as in real git.
     const merging = readGitFile(dir, 'MERGE_HEAD');
     if (all) {
-      for (const c of await changes(dir)) {
-        if (c.code === '??') continue;
-        if (c.row[2] === 0) await git.remove({ fs, dir, filepath: c.path });
-        else await git.add({ fs, dir, filepath: c.path });
-      }
+      for (const c of await changes(dir)) if (c.code !== '??') await stageRow(dir, c);
     }
     const staged = (await changes(dir)).filter((c) => c.code[0] !== ' ' && c.code !== '??');
     // A merge whose result matches HEAD (conflicts resolved to ours) still
@@ -429,6 +464,13 @@ const commands = {
       /** @param {'head' | 'index' | 'work'} where */
       const read = async (where) => {
         try {
+          if (c.gitlink) {
+            // As real git shows a submodule: the commit it is at.
+            const head = await git.resolveRef({ fs, dir, ref: 'HEAD' }).catch(() => null);
+            const e = where === 'head' ? head && (await tree.entryAt(dir, head, c.path)) : await tree.entryAt(dir, null, c.path);
+            const oid = where === 'work' ? ((await tree.submoduleHead(dir, c.path)) ?? (e && e.oid)) : e && e.oid;
+            return oid && (where !== 'work' || fs.existsSync(path.join(dir, c.path))) ? `Subproject commit ${oid}\n` : '';
+          }
           if (where === 'work') return (readWork(dir, c.path) ?? Buffer.alloc(0)).toString('utf8');
           const { blob } =
             where === 'head'
@@ -599,7 +641,8 @@ const commands = {
           const merged = await git.merge({
             fs,
             dir,
-            ours: branch,
+            // The branch, even when a tag has the same name.
+            ours: `refs/heads/${branch}`,
             theirs,
             author: author(),
             message: `Merge branch '${remoteRef}' of ${url} into ${branch}`,
@@ -611,6 +654,10 @@ const commands = {
           if (err && err.code === 'MergeConflictError') {
             const files = (err.data && err.data.filepaths) || [];
             throw new GitError(`merging ${remote}/${remoteRef} conflicts in ${files.join(', ') || 'some files'}; nothing was changed. Merge ${remote}/${remoteRef} from Git Pro to resolve the conflicts.`);
+          }
+          // Both sides moved a submodule (or another change isomorphic-git can't merge).
+          if (err && err.code === 'MergeNotSupportedError') {
+            throw new GitError(`merging ${remote}/${remoteRef} conflicts in a way this git can't merge itself (both sides moved a submodule, say); nothing was changed. Merge ${remote}/${remoteRef} from Git Pro to resolve the conflicts.`);
           }
           throw e;
         }

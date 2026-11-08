@@ -80,7 +80,8 @@ function createSequencer({ git, author, changes, GitError, tree }) {
     const unresolved = conflicts(dir);
     if (unresolved.length) throw new GitError(`resolve and stage ${unresolved.join(', ')} first`);
     const list = await changes(dir);
-    if (list.some((c) => c.code !== '??' && c.code[1] !== ' ')) throw new GitError('stage or discard your other changes first');
+    // A submodule's folder with other commits checked out isn't a change to stage here, as in real git.
+    if (list.some((c) => c.code !== '??' && c.code[1] !== ' ' && !c.gitlink)) throw new GitError('stage or discard your other changes first');
     const staged = list.filter((c) => c.code !== '??' && c.code[0] !== ' ');
     const { commit } = await git.readCommit({ fs, dir, oid });
     const message = readGitFile(dir, 'MERGE_MSG') ? `${readGitFile(dir, 'MERGE_MSG')}\n` : commit.message;
@@ -128,6 +129,11 @@ function createSequencer({ git, author, changes, GitError, tree }) {
     removeGitFile(dir, 'CHERRY_PICK_HEAD');
   }
 
+  /** `git cherry-pick --quit`: forgets the cherry-pick; the working tree, index and conflicts stay as they are. */
+  function cherryPickQuit(dir) {
+    for (const name of ['CHERRY_PICK_HEAD', 'MERGE_MSG', PICK_FILES]) removeGitFile(dir, name);
+  }
+
   const todo = (dir) =>
     (readGitFile(dir, rebaseFile('git-rebase-todo')) ?? '')
       .split('\n')
@@ -165,7 +171,8 @@ function createSequencer({ git, author, changes, GitError, tree }) {
     assertIdle(dir);
     const branch = await git.currentBranch({ fs, dir });
     if (!branch) throw new GitError('check out a branch before rebasing');
-    if ((await changes(dir)).some((c) => c.code !== '??')) throw new GitError('commit or stash your changes before rebasing');
+    // As in real git, a submodule's folder with other commits checked out doesn't count.
+    if ((await changes(dir)).some((c) => c.code !== '??' && !(c.gitlink && c.code[0] === ' '))) throw new GitError('commit or stash your changes before rebasing');
     const ours = await head(dir);
     const onto = await tree.resolveCommit(dir, upstream);
     const [base] = await git.findMergeBase({ fs, dir, oids: [ours, onto] });
@@ -275,7 +282,7 @@ function createSequencer({ git, author, changes, GitError, tree }) {
     for (const name of ['CHERRY_PICK_HEAD', 'REBASE_HEAD', 'MERGE_MSG', PICK_FILES]) removeGitFile(dir, name);
   }
 
-  return { cherryPick, cherryPickContinue, cherryPickAbort, rebase, rebaseContinue, rebaseSkip, rebaseAbort, progress, rebasing, picking, committed };
+  return { cherryPick, cherryPickContinue, cherryPickAbort, cherryPickQuit, rebase, rebaseContinue, rebaseSkip, rebaseAbort, progress, rebasing, picking, committed };
 }
 
 module.exports = { createSequencer };

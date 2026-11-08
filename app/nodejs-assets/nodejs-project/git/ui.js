@@ -113,8 +113,11 @@ function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure,
   };
 
   // Stage or unstage the whole file, like `git add` / `git restore --staged`.
+  // A submodule is staged as the commit its folder has checked out, never
+  // its files, as in real git.
   async function stagePath(dir, filepath) {
-    if (lstatWork(dir, filepath)) await git.add({ fs, dir, filepath });
+    if (await tree.isGitlinkPath(dir, filepath)) await tree.stageGitlink(dir, filepath);
+    else if (lstatWork(dir, filepath)) await git.add({ fs, dir, filepath });
     else await git.remove({ fs, dir, filepath });
     setConflicts(dir, conflicts(dir).filter((p) => p !== filepath));
   }
@@ -188,11 +191,14 @@ function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure,
     async status(dir) {
       const list = await changes(dir);
       const unmerged = new Set(conflicts(dir));
+      // A conflict kept as ours (a link, a binary file) has no change to show, but is still unmerged.
+      const rows = list.map((c) => ({ path: c.path, code: unmerged.has(c.path) ? 'UU' : c.code }));
+      for (const p of unmerged) if (!rows.some((c) => c.path === p)) rows.push({ path: p, code: 'UU' });
       return {
         branch: await git.currentBranch({ fs, dir }),
         merging: readGitFile(dir, MERGE_HEAD) ? readGitFile(dir, MERGE_MSG) || 'a merge' : null,
         operation: await sequencer.progress(dir),
-        changes: list.map((c) => ({ path: c.path, code: unmerged.has(c.path) ? 'UU' : c.code })),
+        changes: rows.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
       };
     },
 
@@ -200,6 +206,13 @@ function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure,
     async show(dir, [filepath]) {
       const head = await headOid(dir);
       const entry = await indexEntry(dir, filepath);
+      const headEntry = head ? await tree.entryAt(dir, head, filepath) : null;
+      if ((entry && entry.mode === GITLINK) || (headEntry && headEntry.mode === GITLINK)) {
+        // A submodule, as real git diffs it: the commit it is at.
+        const line = (/** @type {string | null | undefined} */ oid) => (oid ? `Subproject commit ${oid}\n` : null);
+        const work = lstatWork(dir, filepath) ? ((await tree.submoduleHead(dir, filepath)) ?? entry?.oid ?? headEntry?.oid) : null;
+        return { binary: false, head: line(headEntry?.oid), index: line(entry?.oid), work: line(work) };
+      }
       const work = readWork(dir, filepath);
       const index = entry ? Buffer.from((await git.readBlob({ fs, dir, oid: entry.oid })).blob) : null;
       const r = texts([head ? await blobAt(dir, head, filepath) : null, index, work]);
@@ -221,7 +234,7 @@ function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure,
     },
 
     async unstage(dir, paths) {
-      for (const filepath of paths) await git.resetIndex({ fs, dir, filepath });
+      for (const filepath of paths) await tree.resetPath(dir, filepath);
       return null;
     },
 
@@ -282,7 +295,7 @@ function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure,
       if (!local.includes(ref) && ref.includes('/')) {
         const [remote, ...rest] = ref.split('/');
         const name = rest.join('/');
-        const to = await tree.resolveCommit(dir, local.includes(name) ? name : `refs/remotes/${remote}/${name}`);
+        const to = await tree.resolveCommit(dir, local.includes(name) ? `refs/heads/${name}` : `refs/remotes/${remote}/${name}`);
         // Checked before the branch is made, so a refused switch leaves nothing behind.
         await tree.assertCanSwitch(dir, await headOid(dir), to);
         if (!local.includes(name)) await git.branch({ fs, dir, ref: name, object: to });
@@ -306,8 +319,11 @@ function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure,
       const ours = await git.currentBranch({ fs, dir });
       if (!ours) throw new GitError('check out a branch before merging');
       if ((await changes(dir)).some((c) => c.code !== '??')) throw new GitError('commit or discard your changes before merging');
-      const theirsOid = await git.resolveRef({ fs, dir, ref: theirs });
-      const oursOid = await git.resolveRef({ fs, dir, ref: ours });
+      // Branches, even where a tag has the same name: Git Pro merges a branch.
+      const theirsRef = (await git.resolveRef({ fs, dir, ref: `refs/heads/${theirs}` }).catch(() => null)) ? `refs/heads/${theirs}` : theirs;
+      const oursRef = `refs/heads/${ours}`;
+      const theirsOid = await git.resolveRef({ fs, dir, ref: theirsRef });
+      const oursOid = await git.resolveRef({ fs, dir, ref: oursRef });
       // The forced checkout below would overwrite untracked files at paths the
       // merge brings in; refuse first, as real git does. Only paths their side
       // changed since the merge base count: the merge keeps ours everywhere else.
@@ -317,7 +333,7 @@ function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure,
       const message = `Merge branch '${theirs}' into ${ours}`;
       const capture = worktreeCapture(dir);
       try {
-        const result = await git.merge({ fs: capture.fs, dir, ours, theirs, author: author(), message, abortOnConflict: false, noUpdateBranch: true });
+        const result = await git.merge({ fs: capture.fs, dir, ours: oursRef, theirs: theirsRef, author: author(), message, abortOnConflict: false, noUpdateBranch: true });
         // The working tree follows the merge result, then the branch moves.
         if (!result.alreadyMerged) {
           await tree.moveTo(dir, oursOid, result.oid, { what: 'merge' });
@@ -334,6 +350,20 @@ function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure,
           setConflicts(dir, files);
           return { conflicts: files, fastForward: false, alreadyMerged: false };
         }
+        if (err && err.code === 'MergeNotSupportedError') {
+          // isomorphic-git can't merge this (both sides moved a submodule,
+          // say). The change from the merge base to their side goes onto ours
+          // as a cherry-pick does it: merged where it can be, and a conflict
+          // kept as ours (a submodule, a link, a binary file) until staged.
+          const r = await tree.applyChange(dir, { base: base ?? null, ours: oursOid, theirs: theirsCommit, labels: { ours: 'HEAD', theirs } });
+          if (!r.conflicts.length) {
+            const oid = await git.commit({ fs, dir, message: `${message}\n`, author: author(), parent: [oursOid, theirsOid] });
+            return { conflicts: [], fastForward: false, alreadyMerged: false, oid };
+          }
+          fs.writeFileSync(gitFile(dir, MERGE_HEAD), `${theirsOid}\n`);
+          fs.writeFileSync(gitFile(dir, MERGE_MSG), `${message}\n`);
+          return { conflicts: r.conflicts, fastForward: false, alreadyMerged: false };
+        }
         throw e;
       }
     },
@@ -347,7 +377,10 @@ function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure,
         const staged = [...new Set([...inHead.keys(), ...inIndex.keys()])].filter((p) => !sameEntry(inHead.get(p) ?? null, inIndex.get(p) ?? null));
         await tree.restore(dir, head, [...new Set([...staged, ...conflicts(dir)])]);
       }
-      await git.abortMerge({ fs, dir });
+      // Not isomorphic-git's abortMerge: it rewrites every tracked file with a
+      // plain write that follows symlinks (out of the repo, too) and stages
+      // each one as 100644, losing +x and links. restore() above has already
+      // put back every path the merge touched, safely and with its mode.
       clearMerge(dir);
       return null;
     },
@@ -395,6 +428,12 @@ function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure,
     async 'commit-file'(dir, [oid, filepath]) {
       const { commit } = await git.readCommit({ fs, dir, oid });
       const parent = commit.parent[0];
+      const [was, now] = [parent ? await tree.entryAt(dir, parent, filepath) : null, await tree.entryAt(dir, oid, filepath)];
+      if ((was && was.mode === GITLINK) || (now && now.mode === GITLINK)) {
+        const side = async (/** @type {{ oid: string, mode: number } | null} */ e) =>
+          !e ? null : e.mode === GITLINK ? `Subproject commit ${e.oid}\n` : (await tree.blob(dir, e.oid)).toString('utf8');
+        return { binary: false, before: await side(was), after: await side(now) };
+      }
       const r = texts([parent ? await blobAt(dir, parent, filepath) : null, await blobAt(dir, oid, filepath)]);
       return r.binary ? { binary: true } : { binary: false, before: r.sides[0], after: r.sides[1] };
     },

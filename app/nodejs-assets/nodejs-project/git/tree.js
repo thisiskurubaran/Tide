@@ -45,6 +45,33 @@ function readWork(/** @type {string} */ dir, /** @type {string} */ filepath) {
   return st.isSymbolicLink() ? Buffer.from(fs.readlinkSync(abs)) : fs.readFileSync(abs);
 }
 
+/**
+ * Whether the index has a submodule (gitlink) entry, read straight from
+ * .git/index (versions 2 and 3; true when unsure, so callers look properly).
+ */
+function indexHasGitlink(/** @type {string} */ dir) {
+  let buf;
+  try {
+    buf = fs.readFileSync(path.join(dir, '.git', 'index'));
+  } catch {
+    return false;
+  }
+  if (buf.length < 12 || buf.toString('latin1', 0, 4) !== 'DIRC') return true;
+  const version = buf.readUInt32BE(4);
+  if (version !== 2 && version !== 3) return true;
+  let off = 12;
+  for (let i = buf.readUInt32BE(8); i > 0; i--) {
+    if (off + 62 > buf.length) return true;
+    if (buf.readUInt32BE(off + 24) >>> 12 === GITLINK >>> 12) return true;
+    // The path starts after the flags (and v3's extended flags); entries are padded to 8 bytes.
+    const start = 62 + (version === 3 && buf.readUInt16BE(off + 60) & 0x4000 ? 2 : 0);
+    const end = buf.indexOf(0, off + start);
+    if (end === -1) return true;
+    off += Math.ceil((end - off + 1) / 8) * 8;
+  }
+  return false;
+}
+
 /** @param {{ git: any, changes(dir: string, paths?: string[]): Promise<any[]>, GitError: any }} deps */
 function createTree({ git, changes, GitError }) {
   async function blob(dir, oid) {
@@ -142,16 +169,25 @@ function createTree({ git, changes, GitError }) {
         return;
       }
     } else if (st) fs.rmSync(path.join(dir, filepath), { force: true });
-    let parent = path.dirname(filepath);
-    while (parent !== '.' && parent !== '') {
-      const abs = path.join(dir, parent);
+    pruneFolders(dir, path.posix.dirname(filepath));
+  }
+
+  /**
+   * Removes `folder` and the folders above it while they are empty, as real
+   * git does once the files in them are gone. Stops at a link (rmdir refuses
+   * one) and at a folder in `keep` (a submodule's, which stays even empty).
+   * @param {Set<string>} [keep]
+   */
+  function pruneFolders(dir, /** @type {string} */ folder, keep) {
+    for (let d = folder; d !== '.' && d !== '' && d !== '/'; d = path.posix.dirname(d)) {
+      if (keep && keep.has(d)) break;
+      const abs = path.join(dir, d);
       try {
         if (fs.readdirSync(abs).length) break;
         fs.rmdirSync(abs);
       } catch {
         break;
       }
-      parent = path.dirname(parent);
     }
   }
 
@@ -166,7 +202,10 @@ function createTree({ git, changes, GitError }) {
     if (link && lstatWork(dir, link)?.isSymbolicLink()) throw new GitError(`${filepath} is beyond the symbolic link ${link}; not writing through it`);
     const abs = path.join(dir, filepath);
     fs.mkdirSync(path.dirname(abs), { recursive: true });
-    fs.rmSync(abs, { force: true });
+    // An empty folder (one a file takes the place of) goes; one with files in
+    // it fails here rather than losing them (callers check before writing).
+    if (lstatWork(dir, filepath)?.isDirectory()) fs.rmdirSync(abs);
+    else fs.rmSync(abs, { force: true });
     if (mode === SYMLINK) {
       fs.symlinkSync(content.toString('utf8'), abs);
       return;
@@ -183,6 +222,138 @@ function createTree({ git, changes, GitError }) {
       if (!notAFolderAbove(dir, filepath)) fs.mkdirSync(path.join(dir, filepath), { recursive: true });
     }
     await git.updateIndex({ fs, dir, filepath, oid: entry.oid, mode: GITLINK, add: true, force: true });
+  }
+
+  /**
+   * The commit a submodule's folder has checked out, or null when the folder
+   * isn't a repo of its own (the submodule isn't set up there). Reads the
+   * folder's .git, or the git dir a .git file names, as real git does.
+   * @returns {Promise<string | null>}
+   */
+  async function submoduleHead(dir, /** @type {string} */ filepath) {
+    if (notAFolderAbove(dir, filepath)) return null;
+    if (!lstatWork(dir, filepath)?.isDirectory()) return null;
+    const abs = path.join(dir, filepath);
+    const dotgit = path.join(abs, '.git');
+    const st = lstatWork(abs, '.git');
+    if (!st) return null;
+    let gitdir = dotgit;
+    if (st.isFile()) {
+      const m = /^gitdir:\s*(.+)$/m.exec(fs.readFileSync(dotgit, 'utf8'));
+      if (!m) return null;
+      gitdir = path.resolve(abs, m[1].trim());
+    } else if (!st.isDirectory()) return null;
+    return git.resolveRef({ fs, gitdir, ref: 'HEAD' }).catch(() => null);
+  }
+
+  /** One file or submodule in a commit, or in the index when `commit` is null. @returns {Promise<Entry | null>} */
+  async function entryAt(dir, /** @type {string | null} */ commit, /** @type {string} */ filepath) {
+    /** @type {Entry | null} */
+    let found = null;
+    await git.walk({
+      fs,
+      dir,
+      trees: [commit ? git.TREE({ ref: commit }) : git.STAGE()],
+      map: async (/** @type {string} */ p, /** @type {any[]} */ [e]) => {
+        if (p === filepath && e) found = await fileEntry(e);
+        return p === '.' || filepath.startsWith(`${p}/`) ? true : null;
+      },
+    });
+    return found;
+  }
+
+  /**
+   * Status rows for submodules (gitlinks), which isomorphic-git's
+   * statusMatrix leaves out, numbered as it numbers its rows: [path, HEAD,
+   * WORKDIR, STAGE]. The working tree side is the commit the submodule's
+   * folder has checked out; as in real git, a folder that isn't set up as a
+   * repo counts as unchanged, and a missing one as deleted.
+   * @param {string[]} [filepaths] only these paths and what's below them
+   * @param {object} [cache] isomorphic-git's cache, shared with a statusMatrix just made
+   * @returns {Promise<{ path: string, row: [string, number, number, number], gitlink: true }[]>}
+   */
+  async function gitlinkRows(dir, filepaths, cache = {}) {
+    // Walking HEAD and the index again costs as much as statusMatrix's own
+    // walk; skipped when no submodule can be involved: none in the index, and
+    // no .gitmodules (which a submodule only staged for deletion still has).
+    if (!indexHasGitlink(dir) && !lstatWork(dir, '.gitmodules')) return [];
+    const head = await git.resolveRef({ fs, dir, ref: 'HEAD' }).catch(() => null);
+    const wanted = (/** @type {string} */ p) => !filepaths || filepaths.some((f) => f === '.' || p === f || p.startsWith(`${f}/`));
+    const above = (/** @type {string} */ p) => !filepaths || filepaths.some((f) => f.startsWith(`${p}/`));
+    /** @type {Map<string, [string | undefined, string | undefined]>} */
+    const found = new Map();
+    await git.walk({
+      fs,
+      dir,
+      cache,
+      trees: head ? [git.TREE({ ref: head }), git.STAGE()] : [git.STAGE()],
+      map: async (/** @type {string} */ filepath, /** @type {any[]} */ walked) => {
+        if (filepath === '.') return true;
+        const [h, s] = head ? walked : [null, ...walked];
+        const [ht, st] = await Promise.all([h ? h.type() : null, s ? s.type() : null]);
+        if (ht === 'commit' || st === 'commit') {
+          const oid = async (/** @type {any} */ e, /** @type {string | null} */ t) => (t === 'commit' || t === 'blob' ? /** @type {string} */ (await e.oid()) : undefined);
+          if (wanted(filepath)) found.set(filepath, [await oid(h, ht), await oid(s, st)]);
+          return null;
+        }
+        return (ht === 'tree' || st === 'tree') && (wanted(filepath) || above(filepath)) ? true : null;
+      },
+    });
+    const rows = [];
+    for (const [p, [headOid, stageOid]] of found) {
+      const st = lstatWork(dir, p);
+      let work;
+      if (!st) work = undefined;
+      else if (st.isDirectory()) work = (await submoduleHead(dir, p)) ?? stageOid ?? headOid;
+      else work = (await workEntry(dir, p))?.oid;
+      const ids = [undefined, headOid, work, stageOid];
+      const [, h, w, s] = ids.map((x) => ids.indexOf(x));
+      rows.push({ path: p, row: /** @type {[string, number, number, number]} */ ([p, h, w, s]), gitlink: /** @type {const} */ (true) });
+    }
+    return rows;
+  }
+
+  /**
+   * `git add` of a submodule: records the commit its folder has checked out,
+   * never the files in it. When the folder isn't a repo (the submodule isn't
+   * set up) the index keeps what it has (ours, after a conflict); when the
+   * folder is gone the submodule is staged as deleted.
+   */
+  async function stageGitlink(dir, /** @type {string} */ filepath) {
+    if (!lstatWork(dir, filepath)) {
+      await git.remove({ fs, dir, filepath });
+      return;
+    }
+    const head = await git.resolveRef({ fs, dir, ref: 'HEAD' }).catch(() => null);
+    const oid = (await submoduleHead(dir, filepath)) ?? (await entryAt(dir, null, filepath))?.oid ?? (head ? (await entryAt(dir, head, filepath))?.oid : null);
+    if (!oid) return;
+    // Any of its files that got into the index go: the submodule is one entry.
+    await git.remove({ fs, dir, filepath });
+    await git.updateIndex({ fs, dir, filepath, oid, mode: GITLINK, add: true, force: true });
+  }
+
+  /** Whether `git add <filepath>` means a submodule: one the index or HEAD has, or a folder that is a repo of its own. */
+  async function isGitlinkPath(dir, /** @type {string} */ filepath) {
+    const st = lstatWork(dir, filepath);
+    if (st && !st.isDirectory()) return false;
+    if (st && lstatWork(path.join(dir, filepath), '.git')) return true;
+    const head = await git.resolveRef({ fs, dir, ref: 'HEAD' }).catch(() => null);
+    const e = (await entryAt(dir, null, filepath)) ?? (head ? await entryAt(dir, head, filepath) : null);
+    return !!e && e.mode === GITLINK;
+  }
+
+  /**
+   * `git restore --staged`: the index entry back to HEAD's, with HEAD's mode.
+   * (isomorphic-git's resetIndex writes a submodule as a file, and gives a
+   * file it can't stat mode 100644, losing +x and links.)
+   */
+  async function resetPath(dir, /** @type {string} */ filepath) {
+    const head = await git.resolveRef({ fs, dir, ref: 'HEAD' }).catch(() => null);
+    const want = head ? await entryAt(dir, head, filepath) : null;
+    if (want && (want.mode === GITLINK || !sameEntry(await workEntry(dir, filepath), want))) {
+      await git.remove({ fs, dir, filepath });
+      await git.updateIndex({ fs, dir, filepath, oid: want.oid, mode: want.mode, add: true, force: true });
+    } else await git.resetIndex({ fs, dir, filepath });
   }
 
   /** Makes a file in the working tree and index match an entry, or removes it. */
@@ -236,30 +407,78 @@ function createTree({ git, changes, GitError }) {
 
     const paths = todo.map((e) => e.path);
     const wanted = new Set(paths);
-    const inTheWay = (await changes(dir, paths)).filter((c) => wanted.has(c.path)).map((c) => c.path);
+    // A submodule whose folder only has other commits checked out isn't in
+    // the way: its index entry is all that changes, as in real git.
+    const inTheWay = (await changes(dir, paths)).filter((c) => wanted.has(c.path) && !(c.gitlink && c.code[0] === ' ')).map((c) => c.path);
     if (inTheWay.length) {
       throw new GitError(`your local changes to ${inTheWay.join(', ')} would be overwritten; commit or stash them first`);
     }
 
+    // Removed cleanly: only their side changed it, by deleting it.
+    const removes = (/** @type {typeof todo[number]} */ e) => !e.t && sameEntry(e.o, e.b);
+    const gone = new Set(todo.filter(removes).map((e) => e.path));
+    // Checked before anything is written, so a change that can't go in
+    // leaves nothing half applied: a folder that has to become a file must
+    // hold only files the change removes (ignored ones go, as in real git),
+    // and a file or link where a folder has to be must be one it removes.
+    /** @type {string[]} */
+    const blocked = [];
+    /** @type {string[]} */
+    const clear = [];
+    for (const { path: filepath, o, b, t } of todo) {
+      if (!t || !(sameEntry(o, b) || !o)) continue;
+      if (t.mode !== GITLINK && lstatWork(dir, filepath)?.isDirectory()) {
+        for (const f of filesUnder(dir, filepath)) {
+          if (gone.has(f)) continue;
+          if (!f.split('/').includes('.git') && (await git.isIgnored({ fs, dir, filepath: f }).catch(() => false))) clear.push(f);
+          else blocked.push(f);
+        }
+      }
+      const parts = filepath.split('/');
+      for (let i = 1; i < parts.length; i++) {
+        const d = parts.slice(0, i).join('/');
+        const st = lstatWork(dir, d);
+        if (!st) break;
+        if (st.isDirectory()) continue;
+        if (!gone.has(d)) blocked.push(d);
+        break;
+      }
+    }
+    if (blocked.length) {
+      const tracked = await indexFiles(dir);
+      const list = (/** @type {string[]} */ ps) => [...new Set(ps)].sort().map((p) => `\t${p}`).join('\n');
+      const mine = blocked.filter((p) => tracked.has(p));
+      const untracked = blocked.filter((p) => !tracked.has(p));
+      if (untracked.length) {
+        throw new GitError(`The following untracked working tree files would be overwritten by merge:\n${list(untracked)}\nPlease move or remove them before you merge.`);
+      }
+      throw new GitError(`this change puts a file where a folder holds these tracked files (or a folder where one of them is), which it doesn't remove:\n${list(mine)}\nApply it in Remote mode, where real git can record that conflict.`);
+    }
+
     const conflicted = [];
     const changed = [];
-    for (const { path: filepath, b, o, t } of todo) {
+    for (const f of clear) removeFile(dir, f);
+    // Removals first, deepest first, so a file can take the place of a folder
+    // that goes and the other way round; then the rest, folders first.
+    const byPath = (/** @type {{ path: string }} */ x, /** @type {{ path: string }} */ y) => (x.path < y.path ? -1 : x.path > y.path ? 1 : 0);
+    const order = [...todo.filter(removes).sort(byPath).reverse(), ...todo.filter((e) => !removes(e)).sort(byPath)];
+    for (const { path: filepath, b, o, t } of order) {
       if (sameEntry(o, b)) {
         await setFile(dir, filepath, t);
         changed.push(filepath);
         continue;
       }
       // Both sides changed it.
-      if (o && t && (o.mode === GITLINK || t.mode === GITLINK)) {
-        // A submodule moved both ways: keep ours, the user picks.
-        changed.push(filepath);
-        conflicted.push(filepath);
-        continue;
-      }
       if (o && t) {
-        const [bb, ob, tb] = [b ? await blob(dir, b.oid) : Buffer.alloc(0), await blob(dir, o.oid), await blob(dir, t.oid)];
-        const mode = o.mode === (b ? b.mode : o.mode) ? t.mode : o.mode;
-        if (![bb, ob, tb].some(isBinary)) {
+        // Kept as ours, the user picks, where conflict markers can't go: a
+        // submodule moved both ways, a link (its target would be the marker
+        // text) or a binary file.
+        const special = [o, t].some((e) => e.mode === GITLINK || e.mode === SYMLINK);
+        const [bb, ob, tb] = special
+          ? [Buffer.alloc(0), Buffer.alloc(0), Buffer.alloc(0)]
+          : [b && b.mode !== GITLINK ? await blob(dir, b.oid) : Buffer.alloc(0), await blob(dir, o.oid), await blob(dir, t.oid)];
+        if (!special && ![bb, ob, tb].some(isBinary)) {
+          const mode = o.mode === (b ? b.mode : o.mode) ? t.mode : o.mode;
           const merged = merge3(bb.toString('utf8'), ob.toString('utf8'), tb.toString('utf8'), labels);
           // HEAD already has this change.
           if (!merged.conflicts && merged.text === ob.toString('utf8') && mode === o.mode) continue;
@@ -269,7 +488,6 @@ function createTree({ git, changes, GitError }) {
           else await git.add({ fs, dir, filepath });
           continue;
         }
-        // Binary on both sides: keep ours, the user picks.
         changed.push(filepath);
         conflicted.push(filepath);
         continue;
@@ -396,13 +614,17 @@ function createTree({ git, changes, GitError }) {
     /** @type {Map<string, Entry> | null} */
     let index = null;
     for (const c of await changes(dir)) {
+      // A submodule whose folder has other commits checked out: the switch
+      // changes only its index entry, as in real git.
+      if (c.gitlink && c.code[0] === ' ') continue;
       if (c.code === '??') {
         if (after.has(c.path) || folders.has(c.path) || fileAbove(after, c.path)) untracked.push(c.path);
       } else if (changing.has(c.path)) {
         // Already what the switch would make it (e.g. `git rm x` when `to` deletes x too).
         index = index ?? (await indexFiles(dir));
         const want = target.get(c.path) ?? null;
-        if (sameEntry(index.get(c.path) ?? null, want) && sameEntry(await workEntry(dir, c.path), want)) continue;
+        const work = c.gitlink ? (index.get(c.path) ?? null) : await workEntry(dir, c.path);
+        if (sameEntry(index.get(c.path) ?? null, want) && sameEntry(work, want)) continue;
         local.push(c.path);
       } else if (!before.has(c.path) && (folders.has(c.path) || fileAbove(after, c.path))) {
         // Staged but not committed, where `to` needs a folder or has a file.
@@ -532,6 +754,9 @@ function createTree({ git, changes, GitError }) {
     for (const p of special.filter((x) => !after.has(x)).sort().reverse()) await setFile(dir, p, null);
     // force: what would be lost was checked above and by assertCanSwitch.
     if (plain.length) await git.checkout({ fs, dir, ref: to, filepaths: plain, force: true, noUpdateHead: true });
+    // isomorphic-git leaves the folders of the files it deleted; real git removes them once empty.
+    const keep = new Set([...after].filter(([, e]) => e.mode === GITLINK).map(([p]) => p));
+    for (const p of plain) if (!after.has(p)) pruneFolders(dir, path.posix.dirname(p), keep);
     for (const p of special.filter((x) => after.has(x)).sort()) await setFile(dir, p, /** @type {Entry} */ (after.get(p)));
   }
 
@@ -585,6 +810,11 @@ function createTree({ git, changes, GitError }) {
    */
   async function checkoutSafely(dir, { ref, to, what = 'checkout', move }) {
     const from = await git.resolveRef({ fs, dir, ref: 'HEAD' }).catch(() => null);
+    const head = move ? null : await headFor(dir, ref, to);
+    // As in real git's checkout, a local branch wins over a tag (or anything
+    // else) of the same name: its commit is what the files, the index and
+    // HEAD all get.
+    if (head && 'branch' in head && !head.track) to = await git.resolveRef({ fs, dir, ref: head.branch });
     const { differ, before, after } = await assertCanSwitch(dir, from, to, what);
     if (!from) {
       // Into an unborn branch real git refuses even ignored files in the way.
@@ -599,7 +829,6 @@ function createTree({ git, changes, GitError }) {
         );
       }
     }
-    const head = move ? null : await headFor(dir, ref, to);
     await switchFiles(dir, before, after, differ, { to, what });
     if (move) {
       await git.writeRef({ fs, dir, ref: move, value: to, force: true });
@@ -654,6 +883,12 @@ function createTree({ git, changes, GitError }) {
     blob,
     files,
     indexFiles,
+    entryAt,
+    gitlinkRows,
+    submoduleHead,
+    stageGitlink,
+    isGitlinkPath,
+    resetPath,
     writeTree,
     writeFile,
     removeFile,
