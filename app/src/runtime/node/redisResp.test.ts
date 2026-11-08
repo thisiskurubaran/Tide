@@ -80,6 +80,62 @@ describe('the connection', () => {
     }
   });
 
+  const push = (...items: (string | number | null)[]) =>
+    `>${items.length}\r\n` +
+    items.map((i) => (i === null ? '_\r\n' : typeof i === 'number' ? `:${i}\r\n` : `$${Buffer.byteLength(i)}\r\n${i}\r\n`)).join('');
+
+  it('answers RESP3 SUBSCRIBE and UNSUBSCRIBE with their confirmation pushes, and passes messages on', async () => {
+    const server = await fakeServer([
+      // SUBSCRIBE a b: a message for a arrives between the two confirmations.
+      push('subscribe', 'a', 1) + push('message', 'a', 'early') + push('subscribe', 'b', 2),
+      push('message', 'b', 'hi') + '+PONG\r\n',
+      push('unsubscribe', 'a', 1),
+      // UNSUBSCRIBE with no channels: one per channel left (b), then a GET's reply.
+      push('unsubscribe', 'b', 0) + '$1\r\nv\r\n',
+      push('unsubscribe', null, 0),
+    ]);
+    const redis = await connect({ host: '127.0.0.1', port: server.port });
+    const pushes: unknown[] = [];
+    redis.onPush((v: unknown) => pushes.push(v));
+    try {
+      expect(await redis.call([['SUBSCRIBE', 'a', 'b']])).toEqual([
+        [
+          ['subscribe', 'a', 1],
+          ['subscribe', 'b', 2],
+        ],
+      ]);
+      expect(await redis.call([['PING']])).toEqual([{ status: 'PONG' }]);
+      expect(await redis.call([['UNSUBSCRIBE', 'a']])).toEqual([['unsubscribe', 'a', 1]]);
+      expect(await redis.call([['UNSUBSCRIBE'], ['GET', 'k']])).toEqual([['unsubscribe', 'b', 0], 'v']);
+      // Not subscribed to anything: a single confirmation with no channel.
+      expect(await redis.call([['UNSUBSCRIBE']])).toEqual([['unsubscribe', null, 0]]);
+      expect(pushes).toEqual([
+        ['message', 'a', 'early'],
+        ['message', 'b', 'hi'],
+      ]);
+    } finally {
+      redis.close();
+      server.close();
+    }
+  });
+
+  it('keeps RESP2 subscribe confirmations and messages apart from replies', async () => {
+    const arr = (...items: (string | number)[]) =>
+      `*${items.length}\r\n` + items.map((i) => (typeof i === 'number' ? `:${i}\r\n` : `$${i.length}\r\n${i}\r\n`)).join('');
+    const server = await fakeServer([arr('psubscribe', 'n*', 1) + arr('pmessage', 'n*', 'news', 'x'), arr('pong', '')]);
+    const redis = await connect({ host: '127.0.0.1', port: server.port });
+    const pushes: unknown[] = [];
+    redis.onPush((v: unknown) => pushes.push(v));
+    try {
+      expect(await redis.call([['PSUBSCRIBE', 'n*']])).toEqual([['psubscribe', 'n*', 1]]);
+      expect(await redis.call([['PING']])).toEqual([['pong', '']]);
+      expect(pushes).toEqual([['pmessage', 'n*', 'news', 'x']]);
+    } finally {
+      redis.close();
+      server.close();
+    }
+  });
+
   it('fails the pending command, without throwing, on a reply that is not RESP', async () => {
     const server = await fakeServer(['@what\r\n']);
     const redis = await connect({ host: '127.0.0.1', port: server.port });

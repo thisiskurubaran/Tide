@@ -122,9 +122,29 @@ class Parser {
   }
 }
 
+// Pub/sub confirmations. SUBSCRIBE a b gets one confirmation per channel
+// ([kind, channel, count]); after HELLO 3 they come as pushes, which would
+// otherwise answer no command, so they are matched to the pending (UN)SUBSCRIBE.
+// Its call() reply is the confirmation, or the list of them when there are
+// several. Other pushes (messages, invalidations) go to onPush() listeners.
+const SUB_KINDS = new Set(['subscribe', 'psubscribe', 'ssubscribe', 'unsubscribe', 'punsubscribe', 'sunsubscribe']);
+// Messages that arrive while subscribed (RESP2 sends them as plain arrays).
+const MESSAGE_KINDS = new Set(['message', 'pmessage', 'smessage']);
+
+/** @param {any} v */
+const kindOf = (v) => {
+  if (!Array.isArray(v) || !v.length) return null;
+  const k = typeof v[0] === 'string' ? v[0] : v[0] && typeof v[0].status === 'string' ? v[0].status : null;
+  return k && k.toLowerCase();
+};
+
+/**
+ * @typedef {{ resolve: (v: any) => void, sub: string | null, expected: number, got: any[] }} Pending
+ */
+
 /**
  * @param {{ host: string, port: number, ssl?: 'off' | 'require' | 'verify', timeoutMs?: number }} opts
- * @returns {Promise<{ call(args: string[][]): Promise<any[]>, close(): void, onClose(fn: (e: Error) => void): void }>}
+ * @returns {Promise<{ call(args: string[][]): Promise<any[]>, close(): void, onClose(fn: (e: Error) => void): void, onPush(fn: (v: any[]) => void): void }>}
  */
 function connect(opts) {
   return new Promise((resolve, reject) => {
@@ -133,12 +153,56 @@ function connect(opts) {
       ? tls.connect({ host: opts.host, port: opts.port, servername: net.isIP(opts.host) ? undefined : opts.host, rejectUnauthorized: opts.ssl === 'verify' })
       : net.connect({ host: opts.host, port: opts.port });
     const parser = new Parser();
-    /** @type {((v: any) => void)[]} */
+    /** @type {Pending[]} */
     const waiting = [];
     /** @type {((e: Error) => void)[]} */
     const closers = [];
+    /** @type {((v: any[]) => void)[]} */
+    const pushers = [];
+    // Channels (and patterns, shard channels) this connection is subscribed to,
+    // by kind, so UNSUBSCRIBE with no channels knows how many confirmations come.
+    /** @type {Record<string, Set<string>>} */
+    const subscribed = { subscribe: new Set(), psubscribe: new Set(), ssubscribe: new Set() };
+    // Confirmations came as plain arrays (RESP2), so messages will too. After
+    // HELLO 3 they are pushes, and an array reply is only ever a reply.
+    let resp2Pubsub = false;
     let open = false;
     let gone = /** @type {Error | null} */ (null);
+
+    /** @param {any[]} v */
+    const toPushers = (v) => {
+      for (const fn of pushers) fn(v);
+    };
+    /** The set an (un)subscribe kind is about: punsubscribe -> psubscribe. @param {string} kind */
+    const setOf = (kind) => subscribed[kind.replace('unsubscribe', 'subscribe')];
+    /** @param {{ value: any, push?: boolean }} r */
+    const dispatch = (r) => {
+      const kind = kindOf(r.value);
+      const head = waiting[0];
+      if (kind && SUB_KINDS.has(kind) && head && head.sub === kind) {
+        const set = setOf(kind);
+        const channel = r.value[1];
+        if (channel !== null && channel !== undefined) {
+          if (kind.includes('unsubscribe')) set.delete(String(channel));
+          else set.add(String(channel));
+        }
+        head.got.push(r.value);
+        if (!r.push) resp2Pubsub = true;
+        // UNSUBSCRIBE with no channels: one confirmation per channel it had
+        // (or one with channel null when there were none), so it's done once
+        // none are left.
+        const done = head.expected < 0 ? set.size === 0 : head.got.length >= head.expected;
+        if (done) {
+          waiting.shift();
+          head.resolve(head.got.length === 1 ? head.got[0] : head.got);
+        }
+        return;
+      }
+      if (r.push) return toPushers(r.value);
+      // RESP2 while subscribed: messages are plain arrays, not replies.
+      if (resp2Pubsub && kind && MESSAGE_KINDS.has(kind) && Object.values(subscribed).some((s) => s.size > 0)) return toPushers(r.value);
+      waiting.shift()?.resolve(r.value);
+    };
 
     socket.setTimeout(opts.timeoutMs ?? 20000, () => socket.destroy(new Error('timeout')));
     socket.once(secure ? 'secureConnect' : 'connect', () => {
@@ -149,17 +213,29 @@ function connect(opts) {
         call(cmds) {
           if (gone) return Promise.reject(gone);
           socket.write(cmds.map(encode).join(''));
-          return Promise.all(cmds.map(() => new Promise((res) => waiting.push(res))));
+          return Promise.all(
+            cmds.map(
+              (cmd) =>
+                new Promise((res) => {
+                  const name = String(cmd[0] || '').toLowerCase();
+                  const sub = SUB_KINDS.has(name) ? name : null;
+                  // -1: UNSUBSCRIBE with no channels, done once none are left.
+                  const expected = sub ? (cmd.length > 1 ? cmd.length - 1 : -1) : 1;
+                  waiting.push({ resolve: res, sub, expected, got: [] });
+                }),
+            ),
+          );
         },
         close: () => socket.end(),
         onClose: (fn) => closers.push(fn),
+        onPush: (fn) => pushers.push(fn),
       });
     });
     socket.on('data', (chunk) => {
       parser.push(chunk);
       try {
         let r;
-        while ((r = parser.next())) if (!r.push) waiting.shift()?.(r.value);
+        while ((r = parser.next())) dispatch(r);
       } catch (e) {
         // Out of step with the server: every pending command fails with the
         // reason, and the connection closes, instead of throwing in here.
@@ -173,7 +249,7 @@ function connect(opts) {
     });
     socket.on('close', () => {
       gone = gone || new Error('The connection closed.');
-      for (const w of waiting.splice(0)) w({ error: gone.message });
+      for (const w of waiting.splice(0)) w.resolve({ error: gone.message });
       for (const fn of closers) fn(gone);
     });
   });

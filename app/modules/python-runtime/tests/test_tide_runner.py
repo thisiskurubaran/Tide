@@ -474,5 +474,327 @@ class RunnerTest(unittest.TestCase):
         self.assertEqual(self.h.text("c"), "n 1 ['cls.py', 'n.txt'] ['./cls.py', './n.txt'] sub\n['a', 'bb', 'ccc']\n")
         self.assert_idle()
 
+    # ---- shared helpers for runs that join a waiting one ----
+
+    def with_waiting_run(self, project, body, env=None):
+        """Starts projects/<project>/wait.py (which prints its cwd and a few
+        things once fed a line), runs body(), then lets it finish."""
+        self.h.file(
+            f"projects/{project}/wait.py",
+            "import os, sys\nprint('up', flush=True)\ninput()\n"
+            "print('after', os.path.basename(os.getcwd()), os.environ.get('TIDE_J'), 'HOST_VAR' in os.environ, sys.argv[1:])\n",
+        )
+        thread, result = self.h.start("w", f"projects/{project}/wait.py", ["w-arg"], cwd=f"projects/{project}", env=env)
+        self.h.wait_for("w", "up")
+        try:
+            body()
+        finally:
+            tide_runner.feed("w", "\n")
+            thread.join(10)
+        self.assertEqual(result["value"], (0, False), self.h.text("w", "stderr"))
+        return self.h.text("w")
+
+    def joined(self, run_id, project, code, rel="j.py", **kw):
+        self.h.file(f"projects/{project}/{rel}", code)
+        cwd = f"projects/{project}/{os.path.dirname(rel)}".rstrip("/")
+        value = self.h.run(run_id, f"projects/{project}/{rel}", cwd=cwd, **kw)
+        self.assertEqual(value, (0, False), self.h.text(run_id, "stderr"))
+        return self.h.text(run_id)
+
+    # 1, 13: os.environ in a joined run
+
+    def test_environ_clear_and_friends_in_a_joined_run_only_change_its_view(self):
+        os.environ["HOST_VAR"] = "keep"
+        os.environ.pop("TIDE_J", None)
+        real_clear = os._Environ.__dict__.get("clear")
+
+        def clear_315(self):  # what 3.15's os._Environ.clear does where _clearenv exists
+            for key in list(self._data):
+                os.unsetenv(key)
+            self._data.clear()
+
+        os._Environ.clear = clear_315
+        code = (
+            "import os\n"
+            "c = os.environ.copy(); print(type(c).__name__, 'HOST_VAR' in c)\n"
+            "print(os.environ.setdefault('TIDE_J', 'sd'), os.environ.pop('TIDE_J'), os.environ.pop('nope', 'd'))\n"
+            "os.environ |= {'TIDE_J': 'ior'}; print((os.environ | {'x': '1'})['TIDE_J'], ({'y': '2'} | os.environ)['y'])\n"
+            "k, v = os.environ.popitem(); print(k not in os.environ)\n"
+            "os.environ.clear(); print(len(os.environ), dict(os.environ), os.getenv('HOST_VAR'))\n"
+            "for bad in ({'a=b': '1'}, {'': '1'}, {'a\\0': '1'}, {'a': 'b\\0'}):\n"
+            "    try:\n        os.environ.update(bad)\n    except ValueError as e:\n        print('ValueError', e)\n"
+            "for bad in ((1, 'v'), ('k', 2)):\n"
+            "    try:\n        os.environ[bad[0]] = bad[1]\n    except TypeError:\n        print('TypeError')\n"
+            "os.environb[b'TIDE_J'] = b'bytes'; print(os.environ['TIDE_J'], os.getenvb(b'TIDE_J'))\n"
+        )
+        try:
+            out = self.with_waiting_run("envj", lambda: self.assertEqual(
+                self.joined("j", "envj", code),
+                "dict True\nsd sd d\nior 2\nTrue\n0 {} None\n"
+                "ValueError illegal environment variable name\nValueError illegal environment variable name\n"
+                "ValueError embedded null byte\nValueError embedded null byte\nTypeError\nTypeError\nbytes b'bytes'\n",
+            ))
+        finally:
+            if real_clear is None:
+                del os._Environ.clear
+            else:
+                os._Environ.clear = real_clear
+        self.assertEqual(out, "up\nafter envj None True ['w-arg']\n")
+        self.assertEqual(os.environ.get("HOST_VAR"), "keep")
+        self.assertIn("PATH", os.environ)
+        self.assertNotIn("TIDE_J", os.environ)
+        self.assert_idle()
+
+    # 2: sys.stdout assignment is per run
+
+    def test_redirect_stdout_in_one_run_does_not_capture_another_runs_output(self):
+        host_stdout = sys.stdout
+        self.h.file("projects/b/loop.py", "import time\nprint('up', flush=True)\nfor i in range(30):\n    print('tick', i)\n    time.sleep(0.01)\n")
+        self.h.file(
+            "projects/b/cap.py",
+            "import io, contextlib, sys, time, threading\nbuf = io.StringIO()\n"
+            "with contextlib.redirect_stdout(buf):\n    print('mine')\n"
+            "    t = threading.Thread(target=lambda: print('my thread')); t.start(); t.join()\n    time.sleep(0.2)\n"
+            "print('captured', buf.getvalue().count('tick'), repr(buf.getvalue()))\n"
+            # Left assigned: it only lasts until this run ends.
+            "f = io.StringIO()\nsys.stdout = f\nprint('to f')\nsys.stderr.write(f.getvalue())\n",
+        )
+        thread, _ = self.h.start("l", "projects/b/loop.py", cwd="projects/b")
+        self.h.wait_for("l", "up")
+        self.assertEqual(self.h.run("cap", "projects/b/cap.py", cwd="projects/b"), (0, False), self.h.text("cap", "stderr"))
+        thread.join(5)
+        self.assertEqual(self.h.text("cap"), "captured 0 'mine\\nmy thread\\n'\n")
+        self.assertEqual(self.h.text("cap", "stderr"), "to f\n")
+        self.assertEqual(self.h.text("l").count("tick"), 30)
+        self.assertIs(sys.stdout, host_stdout)
+        self.assert_idle()
+
+    # 3: chdir(fd) / fchdir in a joined run
+
+    def test_chdir_to_a_descriptor_in_a_joined_run_moves_only_its_folder(self):
+        cwd_before = os.getcwd()
+        self.h.file("projects/fd/sub/x.txt", "x")
+        code = (
+            "import os\nfd = os.open('sub', os.O_RDONLY)\nos.chdir(fd)\nprint(os.path.basename(os.getcwd()), os.listdir())\n"
+            "os.chdir('..')\nos.fchdir(fd)\nprint(os.path.basename(os.getcwd()))\nos.close(fd)\n"
+            "f = os.open('x.txt', os.O_RDONLY)\ntry:\n    os.fchdir(f)\nexcept NotADirectoryError:\n    print('not a dir')\n"
+        )
+        out = self.with_waiting_run("fd", lambda: self.assertEqual(self.joined("j", "fd", code), "sub ['x.txt']\nsub\nnot a dir\n"))
+        self.assertEqual(out, "up\nafter fd None False ['w-arg']\n")
+        self.assertEqual(os.getcwd(), cwd_before)
+
+    def test_chdir_to_a_descriptor_whose_path_is_unknown_is_refused(self):
+        cwd_before = os.getcwd()
+        real = tide_runner._fd_path
+        tide_runner._fd_path = lambda fd: None
+        try:
+            code = "import os\nfd = os.open('.', os.O_RDONLY)\ntry:\n    os.fchdir(fd)\nexcept OSError as e:\n    print(type(e).__name__, os.path.basename(os.getcwd()))\n"
+            out = self.with_waiting_run("fd2", lambda: self.assertEqual(self.joined("j", "fd2", code, rel="sub/j.py"), "OSError sub\n"))
+        finally:
+            tide_runner._fd_path = real
+        self.assertEqual(out, "up\nafter fd2 None False ['w-arg']\n")
+        self.assertEqual(os.getcwd(), cwd_before)
+
+    # 4: the whole environment comes back
+
+    def test_a_lone_runs_environment_changes_are_all_undone(self):
+        os.environ["TIDE_DEL"] = "was"
+        os.environ["TIDE_UNSET"] = "was"
+        os.environ.pop("TIDE_NEW", None)
+        before = tide_runner._c_environ()
+        self.h.file(
+            "envall.py",
+            "import os\nos.environ['TIDE_NEW'] = '1'\ndel os.environ['TIDE_DEL']\n"
+            "os.putenv('TIDE_PUT', 'p')\nos.unsetenv('TIDE_UNSET')\nos.environ['PATH'] = '/nowhere'\n",
+        )
+        self.assertEqual(self.h.run("e", "envall.py"), (0, False), self.h.text("e", "stderr"))
+        self.assertEqual(tide_runner._c_environ(), before)
+        self.assertEqual(os.environ["TIDE_DEL"], "was")
+        self.assertNotIn("TIDE_NEW", os.environ)
+        self.assertEqual(dict(os.environ._data), before)
+        self.assert_idle()
+
+    # 5: replacements pass for the builtins they replace
+
+    def test_replaced_functions_behave_like_the_builtins(self):
+        import copy
+        import inspect
+        import pickle
+        import pydoc
+        import typing
+        from unittest import mock
+
+        for fn in (open, os.stat, os.listdir, os.getcwd, os.scandir, os.chdir):
+            self.assertTrue(inspect.isroutine(fn), fn)
+            self.assertIs(copy.copy(fn), fn)
+            self.assertIs(copy.deepcopy([fn])[0], fn)
+            self.assertIs(pickle.loads(pickle.dumps(fn)), fn)
+            self.assertEqual(typing.get_type_hints(fn), {})
+        self.assertEqual(str(inspect.signature(os.stat)), "(path, *, dir_fd=None, follow_symlinks=True)")
+        self.assertTrue(str(inspect.signature(open)).startswith("(file, mode='r'"))
+        self.assertIn("open(", pydoc.render_doc(open, renderer=pydoc.plaintext))
+        self.assertEqual((open.__name__, os.stat.__name__, repr(os.stat)), ("open", "stat", "<built-in function stat>"))
+        with mock.patch("os.listdir", autospec=True) as listdir:
+            listdir.return_value = ["x"]
+            self.assertEqual(os.listdir("."), ["x"])
+            with self.assertRaises(TypeError):
+                os.listdir(".", 1, 2, 3)
+            listdir.assert_called_with(".")
+        spec = mock.create_autospec(open)
+        spec("f")
+        with self.assertRaises(TypeError):
+            spec("f", nope=1)
+
+        class C:
+            opener = open
+            stat = os.stat
+
+        self.assertIs(C.opener, open)
+        self.assertEqual(C().stat(".").st_mode, os.stat(".").st_mode)
+
+    # 6: os.DirEntry
+
+    def test_scandir_entries_in_a_joined_run_are_direntries(self):
+        self.h.file("projects/de/sub/t/f.txt", "f")
+        code = (
+            "import os, shutil\nos.mkfifo('t/pipe')\n"
+            "print(sorted((e.name, isinstance(e, os.DirEntry)) for e in os.scandir('t')))\n"
+            "for e in os.scandir('t'):\n    if e.name == 'pipe':\n"
+            "        try:\n            shutil.copyfile(e, 'out')\n        except shutil.SpecialFileError as err:\n            print(err)\n"
+        )
+        if not hasattr(os, "mkfifo"):
+            self.skipTest("no mkfifo")
+        self.with_waiting_run("de", lambda: self.assertEqual(
+            self.joined("j", "de", code, rel="sub/j.py"), "[('f.txt', True), ('pipe', True)]\n`t/pipe` is a named pipe\n"
+        ))
+
+    # 7: statx
+
+    def test_statx_is_wrapped_where_it_exists(self):
+        self.assertIn("statx", tide_runner._PATH_FUNCTIONS)
+        if not hasattr(os, "statx"):
+            return  # 3.15 on Linux/Android only
+        self.assertIsInstance(os.statx, tide_runner._Replacement)
+        self.h.file("projects/sx/sub/f.txt", "abc")
+        code = "import os\nprint(os.statx('f.txt', os.STATX_SIZE).stx_size)\n"
+        self.with_waiting_run("sx", lambda: self.assertEqual(self.joined("j", "sx", code, rel="sub/j.py"), "3\n"))
+
+    # 8: __main__ per run
+
+    def test_overlapping_runs_each_have_their_own_main_module(self):
+        host_main = sys.modules["__main__"]
+        host_type = type(host_main)
+        script = (
+            "import pickle, sys, unittest, __main__\n"
+            "class P:\n    tag = '{tag}'\n"
+            "class T(unittest.TestCase):\n    def test_{tag}(self):\n        pass\n"
+            "print('up', flush=True)\ninput()\n"
+            "print(pickle.loads(pickle.dumps(P())).tag, __main__.P is P, sys.modules['__main__'].__file__.endswith('{tag}.py'))\n"
+            "r = unittest.main(exit=False, argv=['x'], verbosity=0).result\n"
+            "print('tests', r.testsRun, [t for t in vars(__main__) if t.startswith('T')])\n"
+        )
+        self.h.file("projects/mm/a.py", script.format(tag="a"))
+        self.h.file("projects/mm/b.py", script.format(tag="b"))
+        ta, ra = self.h.start("a", "projects/mm/a.py", cwd="projects/mm")
+        self.h.wait_for("a", "up")
+        tb, rb = self.h.start("b", "projects/mm/b.py", cwd="projects/mm")
+        self.h.wait_for("b", "up")
+        tide_runner.feed("a", "\n")
+        ta.join(10)
+        tide_runner.feed("b", "\n")
+        tb.join(10)
+        self.assertEqual(ra["value"], (0, False), self.h.text("a", "stderr"))
+        self.assertEqual(rb["value"], (0, False), self.h.text("b", "stderr"))
+        self.assertEqual(self.h.text("a"), "up\na True True\ntests 1 ['T']\n")
+        self.assertEqual(self.h.text("b"), "up\nb True True\ntests 1 ['T']\n")
+        self.assertIs(sys.modules["__main__"], host_main)
+        self.assertIs(type(host_main), host_type)
+        self.assert_idle()
+
+    # 9: a joiner in the same folder, with no env, is still isolated
+
+    def test_a_joiner_in_the_same_folder_with_no_env_is_isolated(self):
+        cwd_before = os.getcwd()
+        os.environ.pop("TIDE_J", None)
+        self.h.file("projects/same/sub/x", "")
+        code = "import os\nos.chdir('sub')\nos.environ['TIDE_J'] = 'joiner'\nprint(os.path.basename(os.getcwd()), os.environ['TIDE_J'])\n"
+        out = self.with_waiting_run("same", lambda: self.assertEqual(self.joined("j", "same", code), "sub joiner\n"))
+        self.assertEqual(out, "up\nafter same None False ['w-arg']\n")
+        self.assertEqual(os.getcwd(), cwd_before)
+        self.assertNotIn("TIDE_J", os.environ)
+
+    # 10: pooled threads belong to the run that submitted the task
+
+    def test_pool_tasks_belong_to_the_submitting_run_and_threads_are_released(self):
+        self.h.file("projects/pool/pools.py", "from concurrent.futures import ThreadPoolExecutor\npool = ThreadPoolExecutor(1)\n")
+        code = (
+            "import pools, threading\nimport time\n"
+            "pools.pool.submit(print, 'task from {tag}').result()\n"
+            "t = threading.Timer(0.01, print, ['timer {tag}']); t.start(); t.join()\n"
+        )
+
+        def body():
+            self.assertEqual(self.joined("a", "pool", code.format(tag="a"), rel="a.py"), "task from a\ntimer a\n")
+            workers = [t for t in threading.enumerate() if t.name.startswith("ThreadPoolExecutor")]
+            self.assertTrue(workers)
+            self.assertTrue(all(getattr(t, "_tide_run", None) is None for t in workers))
+            self.assertEqual(self.joined("b", "pool", code.format(tag="b"), rel="b.py"), "task from b\ntimer b\n")
+
+        self.with_waiting_run("pool", body)
+        self.assertNotIn("task from b", self.h.text("a"))
+        self.assert_idle()
+
+    # 11: child processes of a joined run
+
+    def test_a_joined_runs_child_processes_get_its_folder_and_environment(self):
+        os.environ.pop("TIDE_SUB", None)
+        code = (
+            "import os, subprocess, sys\n"
+            "r = subprocess.run([sys.executable, '-c', 'import os; print(os.path.basename(os.getcwd()), os.environ.get(\"TIDE_SUB\"))'], capture_output=True, text=True)\n"
+            "print(r.stdout.strip())\n"
+            "r = subprocess.run('pwd', shell=True, cwd='..', capture_output=True, text=True)\nprint(os.path.basename(r.stdout.strip()))\n"
+            "print(os.system('echo \"$TIDE_SUB\" > out.txt'), open('out.txt').read().strip(), os.system('exit 3'))\n"
+        )
+        self.with_waiting_run("cp", lambda: self.assertEqual(
+            self.joined("j", "cp", code, rel="sub/j.py", env={"TIDE_SUB": "x"}), "sub x\ncp\n0 x 768\n"
+        ))
+        self.assertTrue(os.path.exists(os.path.join(self.h.root, "projects/cp/sub/out.txt")))
+
+    # 12: argv list operations in a joined run
+
+    def test_list_operations_on_a_joined_runs_argv(self):
+        code = (
+            "import sys\na = sys.argv\n"
+            "print(([0] + a)[1:], (a + a)[2:], a == a, a == list(a), a != a, a < a + ['z'], [*a][1:], (2 * a)[2:], a[1] == 'j1', len(a))\n"
+            "print(['x'] + ['y'] == ['x', 'y'], tuple(a)[1:], 'j1' in a, list(reversed(a))[0])\n"
+        )
+        self.h.file("projects/argv/j.py", code)
+
+        def body():
+            self.assertEqual(self.h.run("j", "projects/argv/j.py", ["j1"], cwd="projects/argv"), (0, False), self.h.text("j", "stderr"))
+
+        self.with_waiting_run("argv", body)
+        self.assertEqual(
+            self.h.text("j"),
+            "['%s', 'j1'] ['%s', 'j1'] True True False True ['j1'] ['%s', 'j1'] True 2\nTrue ('j1',) True j1\n"
+            % ((os.path.join(self.h.root, "projects/argv/j.py"),) * 3),
+        )
+
+    # 14: malformed arguments
+
+    def test_malformed_tide_arguments_are_reported_and_leave_nothing_set(self):
+        self.h.file("main.py", "print('ran')\n")
+        entry = os.path.join(self.h.root, "main.py")
+        for args in (["--tide-env", "{nope"], ["--tide-env"], ["--tide-env", "[1]"], ["--tide-debug", "nope"], ["--tide-debug", "[]"]):
+            self.h.output.clear()
+            self.assertEqual(tide_runner.run(self.h.emit, "bad", entry, self.h.root, list(args)), (1, False), args)
+            self.assertIsNone(getattr(tide_runner._current, "run", None))
+            self.assertEqual(self.h.text("bad"), "")
+            self.assertIn("Error", self.h.text("bad", "stderr"))
+            self.assert_idle()
+        self.assertEqual(self.h.run("ok", "main.py"), (0, False))
+        self.assertEqual(self.h.text("ok"), "ran\n")
+
+
 if __name__ == "__main__":
     unittest.main()

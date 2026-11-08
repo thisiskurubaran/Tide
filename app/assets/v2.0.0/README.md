@@ -23,10 +23,12 @@ All files are RGB PNGs with no alpha channel.
 
 ## Regenerating
 
-The images are rendered from the HTML/CSS templates in `app/scripts/store-assets/` with Playwright's Chromium:
+The images are rendered from the HTML/CSS templates in `app/scripts/store-assets/` with Playwright's Chromium. `playwright` and `pngjs` are devDependencies of the app. Install with `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` so the app's `npm install` doesn't download browsers, and fetch Chromium once on the machine that renders the images:
 
 ```bash
 cd app
+PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install
+npx playwright install chromium               # once, only where images are rendered
 node scripts/store-assets/build.js            # all images
 node scripts/store-assets/build.js iphone/03  # only templates whose path contains this
 ```

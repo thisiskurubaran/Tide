@@ -5,6 +5,7 @@ import builtins
 import ctypes
 import errno
 import functools
+import inspect
 import io
 import json
 import os
@@ -15,6 +16,8 @@ import stat as _stat
 import sys
 import threading
 import traceback
+import types
+from collections.abc import Mapping
 
 _KILL = object()
 _runs = {}
@@ -43,11 +46,18 @@ class _Run:
         self.finishing = False
         # sys.argv for this run's threads; None means the proxy's own list (the first run's).
         self.argv = None
-        # Working folder for a run that joined in a folder other than the process's
-        # real cwd; None means the real one. See _vcwd().
+        # Working folder of a run that joined another; None for the first run,
+        # which uses the process's real cwd. See _vcwd().
         self.cwd = None
         # os.environ values this run sees instead of the shared ones (None = unset).
         self.env = None
+        # sys.stdout/stderr/stdin as this run assigned them (contextlib.redirect_stdout,
+        # `sys.stdout = f`); missing means the run's own stream. See _Sys.
+        self.streams = {}
+        # This run's __main__ module(s) while its script runs (see _MainModule).
+        self.main_stack = []
+        # Set once the run has ended: threads it started no longer belong to it.
+        self.ended = False
 
 
 # Which run the current thread belongs to: for output, input and listening ports.
@@ -56,10 +66,13 @@ _socket_listen = socket.socket.listen
 _thread_start = threading.Thread.start
 
 
+_NO_TASK = object()
+
+
 def _start_thread(self, *args, **kwargs):
-    # Threads a script starts (servers, executors) belong to its run, so their
-    # print() goes to the right terminal. A thread started from such a thread
-    # (a request thread from serve_forever() on a background thread) is too.
+    # Threads a script starts (servers, executors, threading.Timer) belong to its
+    # run, so their print() goes to the right terminal. A thread started from such
+    # a thread (a request thread from serve_forever() on a background thread) is too.
     self._tide_run = _run_of_thread()
     return _thread_start(self, *args, **kwargs)
 
@@ -69,9 +82,58 @@ threading.Thread.start = _start_thread
 
 def _run_of_thread():
     run = getattr(_current, "run", None)
-    if run is None:
+    if run is not None:
+        return run
+    # A task handed to a pooled thread belongs to the run that submitted it.
+    run = getattr(_current, "task", _NO_TASK)
+    if run is _NO_TASK:
         run = getattr(threading.current_thread(), "_tide_run", None)
-    return run
+    # A thread (a pool worker, a daemon) outliving its run falls back to the host.
+    return None if run is None or run.ended else run
+
+
+def _in_run(fn, run):
+    """`fn` wrapped to run as part of `run` on whichever thread calls it."""
+
+    @functools.wraps(fn)
+    def task(*args, **kwargs):
+        previous = getattr(_current, "task", _NO_TASK)
+        _current.task = run
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            if previous is _NO_TASK:
+                del _current.task
+            else:
+                _current.task = previous
+
+    return task
+
+
+def _patch_executor():
+    """ThreadPoolExecutor keeps its worker threads across runs (asyncio's
+    default executor, a module-level pool): each task belongs to the run that
+    submitted it, not to the run that happened to start the thread."""
+    try:
+        from concurrent.futures import thread as futures_thread
+    except ImportError:
+        return
+    submit = futures_thread.ThreadPoolExecutor.submit
+    if getattr(submit, "_tide", False):
+        return
+
+    @functools.wraps(submit)
+    def wrapper(self, fn, /, *args, **kwargs):
+        # InterpreterPoolExecutor (3.14+) sends fn to another interpreter; leave it be.
+        if _runs and callable(fn) and not any(c.__name__ == "InterpreterPoolExecutor" for c in type(self).__mro__):
+            fn = _in_run(fn, _run_of_thread())
+        return submit(self, fn, *args, **kwargs)
+
+    wrapper._tide = True
+    futures_thread.ThreadPoolExecutor.submit = wrapper
+
+
+_patch_executor()
 
 
 def _listen(self, *args):
@@ -172,6 +234,32 @@ class _Input(io.TextIOBase):
         return line
 
 
+class _Discard(io.TextIOBase):
+    """What a run that set sys.stdout = None writes to (print() is then a no-op)."""
+
+    def writable(self):
+        return True
+
+    def readable(self):
+        return True
+
+    def write(self, text):
+        return len(text)
+
+    def read(self, size=-1):
+        return ""
+
+    def readline(self, size=-1):
+        return ""
+
+
+_UNSET = object()
+# sys.stdout and friends as threads outside any run (the host) assigned them
+# while the proxies were installed.
+_host_streams = {}
+_sysdict = sys.__dict__
+
+
 class _ThreadStream:
     """Installed once as sys.stdout/stderr/stdin. Runs share one interpreter on
     different threads, so each call goes to the stream of the run the calling
@@ -179,15 +267,28 @@ class _ThreadStream:
 
     def __init__(self, name):
         self._name = name
-        self.original = getattr(sys, name)
+        self.original = _sysdict.get(name)
 
     def target(self):
         override = getattr(_current, "streams", None)  # snippet() capturing output
         if override is not None:
             return override
         run = _run_of_thread()
-        stream = getattr(run, self._name, None) if run is not None else None
-        return stream if stream is not None else self.original
+        if run is not None:
+            # What the run assigned (redirect_stdout), else its own stream.
+            stream = run.streams.get(self._name, _UNSET)
+            if stream is _UNSET:
+                stream = getattr(run, self._name, None)
+                if stream is not None:
+                    return stream
+            elif stream is not None:
+                return stream
+            else:
+                return _Discard()
+        stream = _host_streams.get(self._name, _UNSET)
+        if stream is not _UNSET:
+            return stream if stream is not None else _Discard()
+        return self.original
 
     def __getattr__(self, attr):
         return getattr(self.target(), attr)
@@ -205,28 +306,80 @@ _streams = {name: _ThreadStream(name) for name in ("stdout", "stderr", "stdin")}
 def _install_streams():
     """Puts the proxies in place. Called with _lock held."""
     for name, proxy in _streams.items():
-        current = getattr(sys, name)
+        current = _sysdict.get(name)
         if current is not proxy:
             if not _runs:
                 # Nothing is running, so whatever is there is the host's own stream.
                 proxy.original = current
-            setattr(sys, name, proxy)
+                _host_streams.pop(name, None)
+            # Straight into the module's dict: print() and input() read it there.
+            _sysdict[name] = proxy
+
+
+def _stream_property(name):
+    # Assigning sys.stdout (`sys.stdout = f`, contextlib.redirect_stdout) is
+    # per run: print() and input() read sys's dict, which keeps the proxy, and
+    # the proxy sends the assigning run's output to what it assigned. Other
+    # runs, and the host, keep theirs. Reading sys.stdout gives back what the
+    # run assigned, so redirect_stdout can restore it.
+    def get(self):
+        run = _run_of_thread()
+        slot = run.streams if run is not None else _host_streams
+        value = slot.get(name, _UNSET)
+        return _sysdict.get(name) if value is _UNSET else value
+
+    def set(self, value):
+        proxy = _streams[name]
+        run = _run_of_thread()
+        if run is None and _sysdict.get(name) is not proxy:
+            _sysdict[name] = value  # proxies not installed: as usual
+            return
+        slot = run.streams if run is not None else _host_streams
+        if value is proxy:
+            slot.pop(name, None)
+        else:
+            slot[name] = value
+
+    def delete(self):
+        raise AttributeError(name)
+
+    return property(get, set, delete)
+
+
+class _Sys(types.ModuleType):
+    """sys's class while tide_runner is loaded (see _stream_property)."""
+
+
+for _name in ("stdout", "stderr", "stdin"):
+    setattr(_Sys, _name, _stream_property(_name))
+del _name
+
+try:
+    sys.__class__ = _Sys
+except TypeError:  # pragma: no cover - an interpreter that refuses: assignments stay global
+    pass
 
 
 # ---- per-run views of process-wide state ----
 #
 # cwd, os.environ and sys.argv belong to the whole process, but runs overlap
 # (a server plus a client script, a notebook, `PORT=9000 python x.py`). The
-# first run really sets them; a run that joins it gets its own view through
-# these proxies, keyed by the run the calling thread belongs to:
+# first run really sets them; every run that joins it (even in the same folder
+# with no variables of its own) gets its own view through these proxies, keyed
+# by the run the calling thread belongs to:
 #  - sys.argv is a list whose operations go to the calling run's list.
-#  - os.environ looks up the run's overlay first (its variables, and the
-#    pre-run value of any variable only the first run set).
-#  - A joiner in another folder gets a virtual cwd: os.getcwd(), os.chdir(),
-#    open(), the os.* path functions (and so os.path, pathlib, glob, shutil)
-#    and sqlite3.connect() resolve relative paths against it, like
-#    runcwd.js does for Node workers. C code that opens relative paths itself
-#    and subprocess still see the real cwd.
+#  - os.environ (and os.environb) look up the run's overlay first (its
+#    variables, and the pre-run value of any variable only the first run set).
+#  - A joiner gets a virtual cwd: os.getcwd(), os.chdir(), os.fchdir(), open(),
+#    the os.* path functions (and so os.path, pathlib, glob, shutil) and
+#    sqlite3.connect() resolve relative paths against it, like runcwd.js does
+#    for Node workers.
+#  - subprocess (and os.system) start a joiner's children in its folder with
+#    its environment, unless the call gives cwd= or env=.
+# What can't be redirected: C code that opens relative paths itself or calls
+# getenv() sees the real cwd and the process environment (the first run's),
+# os.posix_spawn() children start in the real cwd, and os.putenv() changes
+# the process environment (it is put back when the last run ends).
 # Threads outside any run (the host, snippet()) see the real state.
 
 
@@ -252,21 +405,49 @@ _real = {"getcwd": os.getcwd, "getcwdb": os.getcwdb, "chdir": os.chdir, "stat": 
 _DIR_FDS = ("dir_fd", "src_dir_fd", "dst_dir_fd")
 
 
-class _Replacement:
-    """Wraps a replacement for a builtin (open, os.stat, ...). A plain Python
-    function stored as a class attribute (`opener = open`) would turn into a
-    bound method and get the instance as its first argument; builtins don't,
-    and neither does this, as it is not a descriptor."""
+def _lookup(module, name):
+    """Unpickles a replacement as whatever the module holds now."""
+    return getattr(sys.modules.get(module) or __import__(module), name)
 
-    def __init__(self, fn, original):
-        functools.update_wrapper(self, original)
-        self._fn = fn
 
-    def __call__(self, *args, **kwargs):
-        return self._fn(*args, **kwargs)
+class _Replacement(staticmethod):
+    """A replacement for a builtin (open, os.stat, ...). A plain Python function
+    stored as a class attribute (`opener = open`) would turn into a bound
+    method and get the instance as its first argument; builtins don't, and
+    neither does this: its __get__ gives itself back.
+
+    It otherwise passes for the original: name, doc and signature (through
+    __wrapped__, so inspect.signature, help() and mock's autospec check calls
+    against it), inspect.isroutine(), typing.get_type_hints() ({} like a
+    builtin), copy/deepcopy (itself, like a builtin) and pickle (by name, back
+    to this replacement). inspect.isbuiltin() is False."""
+
+    def __init__(self, fn, original, where=None):
+        # A copy, so the module's own function keeps its name.
+        fn = types.FunctionType(fn.__code__, fn.__globals__, fn.__name__, fn.__defaults__, fn.__closure__)
+        functools.update_wrapper(fn, original)
+        super().__init__(fn)  # copies __name__, __doc__... and sets __wrapped__ = fn
+        self._original = original
+        self._where = where or (getattr(original, "__module__", None), original.__name__)
+        self.__annotations__ = {}
+        for attr in ("__text_signature__", "__self__"):
+            if hasattr(original, attr):
+                setattr(self, attr, getattr(original, attr))
+
+    def __get__(self, obj, cls=None):
+        return self
 
     def __repr__(self):
-        return repr(self.__wrapped__)
+        return repr(self._original)
+
+    def __copy__(self):
+        return self
+
+    def __deepcopy__(self, memo):
+        return self
+
+    def __reduce__(self):
+        return _lookup, self._where
 
 
 def _path_function(fn, names, default_cwd):
@@ -293,16 +474,23 @@ def _path_function(fn, names, default_cwd):
 
         return fn(*args, **kwargs)
 
-    return _Replacement(wrapper, fn)
+    return _Replacement(wrapper, fn, ("os", fn.__name__))
 
 
 class _DirEntry:
     """A DirEntry from scanning a run's virtual cwd: everything comes from the
     real entry (scanned through the absolute path) except `path`, which is
     built from the path the caller passed, as os.scandir() itself does.
-    pathlib and glob rely on that: they cut the given path's length off it."""
+    pathlib and glob rely on that: they cut the given path's length off it.
+
+    os.DirEntry can't be subclassed or made, so this reports it as __class__:
+    isinstance(entry, os.DirEntry) holds, as shutil (copyfile's named-pipe
+    check, copytree) and others expect. type(entry) is still this class. It is
+    only used for relative paths scanned in a joined run's virtual cwd."""
 
     __slots__ = ("_entry", "path")
+
+    __class__ = property(lambda self: os.DirEntry)
 
     def __init__(self, entry, path):
         self._entry = entry
@@ -391,16 +579,79 @@ def _getcwdb():
     return _real["getcwdb"]() if cwd is None else os.fsencode(cwd)
 
 
+def _fd_path(fd):
+    """The absolute path of an open directory, or None if it can't be told."""
+    candidates = []
+    try:
+        candidates.append(os.readlink(f"/proc/self/fd/{fd}"))  # Linux, Android
+    except OSError:
+        pass
+    try:
+        import fcntl
+
+        if hasattr(fcntl, "F_GETPATH"):  # macOS, iOS
+            buf = fcntl.fcntl(fd, fcntl.F_GETPATH, bytes(1025))
+            candidates.append(os.fsdecode(buf.split(b"\0", 1)[0]))
+    except (ImportError, OSError):
+        pass
+    st = os.fstat(fd)
+    for path in candidates:
+        if not path.startswith("/"):
+            continue
+        try:
+            real = _real["stat"](path)
+        except OSError:
+            continue
+        # Same directory, not one renamed or replaced since it was opened.
+        if (real.st_dev, real.st_ino) == (st.st_dev, st.st_ino):
+            return path
+    return None
+
+
+def _chdir_fd(run, fd):
+    st = os.fstat(fd)  # OSError (EBADF) like fchdir
+    if not _stat.S_ISDIR(st.st_mode):
+        raise NotADirectoryError(errno.ENOTDIR, os.strerror(errno.ENOTDIR))
+    path = _fd_path(fd)
+    if path is None:
+        # Never move the real cwd: it belongs to the run that started first.
+        raise OSError(errno.ENOTSUP, "can't change this run's folder to a file descriptor whose path is unknown")
+    run.cwd = os.path.normpath(path)
+
+
 def _chdir(path):
     run = _run_of_thread()
-    if run is None or run.cwd is None or isinstance(path, int):
+    if run is None or run.cwd is None:
         return _real["chdir"](path)
+    if isinstance(path, int):
+        return _chdir_fd(run, path)
     target = os.path.normpath(_abs(path, run.cwd))
     if isinstance(target, bytes):
         target = os.fsdecode(target)
     if not _stat.S_ISDIR(_real["stat"](target).st_mode):  # FileNotFoundError like chdir
         raise NotADirectoryError(errno.ENOTDIR, os.strerror(errno.ENOTDIR), path)
     run.cwd = target
+
+
+def _fchdir(fd):
+    run = _run_of_thread()
+    if run is None or run.cwd is None:
+        return _real["fchdir"](fd)
+    if not isinstance(fd, int):
+        fd = fd.fileno()  # anything with fileno(), like the real one
+    return _chdir_fd(run, fd)
+
+
+def _system(command):
+    """os.system() for a joined run: the shell starts in its folder with its environment."""
+    run = _run_of_thread()
+    if run is None or (run.cwd is None and run.env is None):
+        return _real["system"](command)
+    import subprocess
+
+    code = subprocess.call(command, shell=True)
+    # A wait status, like os.system: exit code << 8, or the signal number.
+    return -code if code < 0 else code << 8
 
 
 def _open(file, *args, **kwargs):
@@ -410,13 +661,21 @@ def _open(file, *args, **kwargs):
     return _real["open"](file, *args, **kwargs)
 
 
+# os functions whose first argument is a path (those missing here are skipped).
+_PATH_FUNCTIONS = (
+    "access", "chmod", "chown", "lchown", "lchmod", "chflags", "lchflags", "lstat", "stat",
+    "mkdir", "mkfifo", "mknod", "open", "pathconf", "readlink", "remove", "unlink", "rmdir",
+    "statvfs", "truncate", "utime", "getxattr", "setxattr", "removexattr",
+    # 3.15 on Linux/Android (also in supports_dir_fd/fd/follow_symlinks).
+    "statx",
+    # Only the program's path: posix_spawn can't start the child in another folder.
+    "posix_spawn",
+)
+
+
 def _install_cwd_functions():
     one, two = ("path",), ("src", "dst")
-    specs = {name: one for name in (
-        "access", "chmod", "chown", "lchown", "lchmod", "chflags", "lchflags", "lstat", "stat",
-        "mkdir", "mkfifo", "mknod", "open", "pathconf", "readlink", "remove", "unlink", "rmdir",
-        "statvfs", "truncate", "utime", "getxattr", "setxattr", "removexattr",
-    )}
+    specs = {name: one for name in _PATH_FUNCTIONS}
     specs.update({"rename": two, "replace": two, "link": two, "symlink": (None, "dst")})
     # A symlink's target is stored verbatim: relative to the link, not the cwd.
     defaults = {"listdir": one, "listxattr": one}
@@ -426,8 +685,13 @@ def _install_cwd_functions():
         if fn is not None:
             replaced[fn] = _path_function(fn, names, name in defaults)
             setattr(os, name, replaced[fn])
-    for name, fn in (("getcwd", _getcwd), ("getcwdb", _getcwdb), ("chdir", _chdir), ("scandir", _scandir)):
-        replaced[_real[name]] = _Replacement(fn, _real[name])
+    own = [("getcwd", _getcwd), ("getcwdb", _getcwdb), ("chdir", _chdir), ("scandir", _scandir)]
+    for name, fn in (("fchdir", _fchdir), ("system", _system)):
+        if hasattr(os, name):
+            _real[name] = getattr(os, name)
+            own.append((name, fn))
+    for name, fn in own:
+        replaced[_real[name]] = _Replacement(fn, _real[name], ("os", name))
         setattr(os, name, replaced[_real[name]])
     # `os.stat in os.supports_dir_fd` and friends keep answering for the wrappers.
     for group in ("supports_dir_fd", "supports_fd", "supports_follow_symlinks", "supports_effective_ids"):
@@ -442,7 +706,7 @@ def _install_cwd_functions():
             for attr, value in list(vars(cls).items()):
                 if isinstance(value, staticmethod) and value.__func__ in replaced:
                     setattr(cls, attr, staticmethod(replaced[value.__func__]))
-    builtins.open = io.open = _Replacement(_open, _real["open"])
+    builtins.open = io.open = _Replacement(_open, _real["open"], ("builtins", "open"))
 
 
 _install_cwd_functions()
@@ -471,9 +735,29 @@ def _patch_sqlite():
     sqlite3.connect = sqlite3.dbapi2.connect = wrapper
 
 
+def _env_key(environ, key):
+    """The encoded key, with putenv()'s errors for one the real environ rejects."""
+    k = environ.encodekey(key)  # TypeError for a non-str key
+    if isinstance(k, bytes):
+        if b"\0" in k:
+            raise ValueError("embedded null byte")
+        if not k or b"=" in k:
+            raise ValueError("illegal environment variable name")
+    return k
+
+
+def _env_value(environ, value):
+    v = environ.encodevalue(value)  # TypeError for a non-str value
+    if isinstance(v, bytes) and b"\0" in v:
+        raise ValueError("embedded null byte")
+    return v
+
+
 class _ThreadEnviron(os._Environ):
     """os.environ's class while tide_runner is loaded: a joined run's overlay
-    wins over the process environment for that run's threads."""
+    wins over the process environment for that run's threads. Every method
+    that reads or changes the mapping goes through the overlay (os._Environ's
+    own clear() calls _clearenv() on 3.15, which would empty the process's)."""
 
     def __getitem__(self, key):
         overlay = _env_overlay()
@@ -488,13 +772,14 @@ class _ThreadEnviron(os._Environ):
         overlay = _env_overlay()
         if overlay is None:
             return super().__setitem__(key, value)
-        self.encodekey(key), self.encodevalue(value)  # same errors as the real one
+        _env_key(self, key), _env_value(self, value)  # same errors as the real one
         overlay[key] = value
 
     def __delitem__(self, key):
         overlay = _env_overlay()
         if overlay is None:
             return super().__delitem__(key)
+        _env_key(self, key)
         if key not in self:
             raise KeyError(key)
         overlay[key] = None
@@ -516,10 +801,137 @@ class _ThreadEnviron(os._Environ):
             return super().__len__()
         return sum(1 for _ in self)
 
+    def __contains__(self, key):
+        try:
+            self[key]
+        except KeyError:
+            return False
+        return True
+
+    def get(self, key, default=None):
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
     def __repr__(self):
         if _env_overlay() is None:
             return super().__repr__()
         return f"environ({dict(self)!r})"
+
+    def copy(self):
+        return dict(self)
+
+    def setdefault(self, key, value):
+        if key not in self:
+            self[key] = value
+        return self[key]
+
+    def pop(self, key, *default):
+        if len(default) > 1:
+            raise TypeError(f"pop expected at most 2 arguments, got {1 + len(default)}")
+        try:
+            value = self[key]
+        except KeyError:
+            if default:
+                return default[0]
+            raise
+        del self[key]
+        return value
+
+    def popitem(self):
+        for key in self:
+            value = self[key]
+            del self[key]
+            return key, value
+        raise KeyError("popitem(): environment is empty")
+
+    def clear(self):
+        overlay = _env_overlay()
+        if overlay is None:
+            return super().clear()
+        for key in list(self):
+            overlay[key] = None
+
+    def update(self, other=(), /, **kwds):
+        if isinstance(other, Mapping):
+            for key in other:
+                self[key] = other[key]
+        elif hasattr(other, "keys"):
+            for key in other.keys():
+                self[key] = other[key]
+        else:
+            for key, value in other:
+                self[key] = value
+        for key, value in kwds.items():
+            self[key] = value
+
+    def __ior__(self, other):
+        self.update(other)
+        return self
+
+    def __or__(self, other):
+        if not isinstance(other, Mapping):
+            return NotImplemented
+        new = dict(self)
+        new.update(other)
+        return new
+
+    def __ror__(self, other):
+        if not isinstance(other, Mapping):
+            return NotImplemented
+        new = dict(other)
+        new.update(self)
+        return new
+
+
+class _ThreadEnvironB(_ThreadEnviron):
+    """os.environb's class: the same per-run view, with bytes keys and values."""
+
+    def __getitem__(self, key):
+        if _env_overlay() is None:
+            return os._Environ.__getitem__(self, key)
+        try:
+            return os.fsencode(os.environ[os.fsdecode(self.encodekey(key))])
+        except KeyError:
+            raise KeyError(key) from None
+
+    def __setitem__(self, key, value):
+        if _env_overlay() is None:
+            return os._Environ.__setitem__(self, key, value)
+        _env_key(self, key), _env_value(self, value)
+        os.environ[os.fsdecode(key)] = os.fsdecode(value)
+
+    def __delitem__(self, key):
+        if _env_overlay() is None:
+            return os._Environ.__delitem__(self, key)
+        _env_key(self, key)
+        try:
+            del os.environ[os.fsdecode(key)]
+        except KeyError:
+            raise KeyError(key) from None
+
+    def __iter__(self):
+        if _env_overlay() is None:
+            yield from os._Environ.__iter__(self)
+            return
+        for key in os.environ:
+            yield os.fsencode(key)
+
+    def __len__(self):
+        if _env_overlay() is None:
+            return os._Environ.__len__(self)
+        return len(os.environ)
+
+    def __repr__(self):
+        if _env_overlay() is None:
+            return os._Environ.__repr__(self)
+        return f"environ({dict(self)!r})"
+
+    def clear(self):
+        if _env_overlay() is None:
+            return os._Environ.clear(self)
+        os.environ.clear()
 
 
 def _env_overlay():
@@ -540,6 +952,58 @@ def _env_set(key, value):
 
 
 os.environ.__class__ = _ThreadEnviron
+if isinstance(getattr(os, "environb", None), os._Environ):
+    os.environb.__class__ = _ThreadEnvironB
+
+
+def _c_environ():
+    """The process environment as C code sees it ({bytes: bytes}), which
+    os.putenv()/unsetenv() change without os.environ knowing."""
+    create = getattr(os, "_create_environ", None)  # 3.14+
+    if create is not None:
+        try:
+            return dict(create())
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        libc = ctypes.CDLL(None)
+        if sys.platform in ("darwin", "ios"):
+            get = ctypes.CFUNCTYPE(ctypes.POINTER(ctypes.POINTER(ctypes.c_char_p)))(("_NSGetEnviron", libc))
+            entries = get()[0]
+        else:
+            entries = ctypes.POINTER(ctypes.c_char_p).in_dll(libc, "environ")
+        result = {}
+        i = 0
+        while entries[i] is not None:
+            key, sep, value = entries[i].partition(b"=")
+            if sep:
+                result.setdefault(key, value)
+            i += 1
+        return result
+    except (OSError, AttributeError, ValueError):
+        return dict(os.environ._data) if os.name == "posix" else None
+
+
+def _restore_environ(saved):
+    """Puts the whole process environment back as `saved` (from _c_environ())."""
+    if saved is None:
+        return
+    current = _c_environ() or {}
+    for key in current:
+        if key not in saved:
+            try:
+                os.unsetenv(key)
+            except (OSError, ValueError):
+                pass
+    for key, value in saved.items():
+        if current.get(key) != value:
+            try:
+                os.putenv(key, value)
+            except (OSError, ValueError):
+                pass
+    data = os.environ._data
+    data.clear()
+    data.update(saved)
 
 
 class _ThreadArgv(list):
@@ -547,12 +1011,25 @@ class _ThreadArgv(list):
     argv (so C code reading the list directly sees a lone run's argv exactly);
     a joined run's threads read and change their own list instead. A script
     that assigns sys.argv itself replaces it for every run until the next run
-    starts or the last one ends."""
+    starts or the last one ends.
+
+    Every list operation is defined here, so it goes to the calling run's
+    list, including the reflected ones ([x] + sys.argv calls __radd__, as
+    Python tries a subclass's number slots before list concatenation) and
+    comparisons with another proxy. What can't be redirected is C code that
+    reads a list's storage directly instead of calling its methods, such as
+    list.__getitem__(sys.argv, 0) or os.execv(path, sys.argv): it sees the
+    first run's argv."""
 
     __hash__ = None
 
     def __reduce_ex__(self, protocol):
         return list, (list(self),)
+
+    def __radd__(self, other):
+        if not isinstance(other, list):
+            return NotImplemented
+        return list.__add__(_argv_unwrap(other), _argv_target(self))
 
 
 def _argv_target(proxy):
@@ -561,15 +1038,21 @@ def _argv_target(proxy):
     return proxy if own is None else own
 
 
+def _argv_unwrap(value):
+    # A proxy on the other side of + or == means the calling run's list too.
+    return list(_argv_target(value)) if isinstance(value, _ThreadArgv) else value
+
+
 def _argv_method(name):
     base = getattr(list, name)
     returns_self = name in ("__iadd__", "__imul__")
 
     def method(self, *args, **kwargs):
-        result = base(_argv_target(self), *args, **kwargs)
+        target = _argv_target(self)
+        result = base(target, *map(_argv_unwrap, args), **kwargs)
         return self if returns_self else result
 
-    method.__name__ = name
+    method.__name__ = method.__qualname__ = name
     return method
 
 
@@ -583,6 +1066,157 @@ for _name in (
 del _name
 
 _argv = _ThreadArgv()
+
+
+# ---- __main__ per run ----
+#
+# Each run's script is a __main__ module of its own, but sys.modules is one
+# dict that the interpreter itself holds (it can't be replaced by a proxy), and
+# runpy would put each run's module into sys.modules['__main__'] in turn,
+# leaving the wrong one there for overlapping runs (pickle, unittest.main(),
+# dataclasses and typing look classes up through it) and none at the end.
+# Instead, while runs are active, sys.modules['__main__'] stays the host's
+# module with its class set to _MainModule: attribute access from a run's
+# threads goes to that run's module, everything else to the host's own.
+# runpy's _TempModule is patched so a run's '__main__' never replaces it.
+
+
+def _main_of_thread():
+    run = _run_of_thread()
+    return run.main_stack[-1] if run is not None and run.main_stack else None
+
+
+class _MainModule(types.ModuleType):
+    def __getattribute__(self, name):
+        target = _main_of_thread()
+        if target is None:
+            return types.ModuleType.__getattribute__(self, name)
+        return getattr(target, name)
+
+    def __setattr__(self, name, value):
+        target = _main_of_thread()
+        if target is None:
+            return types.ModuleType.__setattr__(self, name, value)
+        return setattr(target, name, value)
+
+    def __delattr__(self, name):
+        target = _main_of_thread()
+        if target is None:
+            return types.ModuleType.__delattr__(self, name)
+        return delattr(target, name)
+
+    def __dir__(self):
+        target = _main_of_thread()
+        return dir(target) if target is not None else types.ModuleType.__dir__(self)
+
+
+def _install_main():
+    """Called with _lock held as the first run starts; returns what to restore."""
+    host = sys.modules.get("__main__")
+    if host is None:
+        # Nothing to restore but its absence; runs still get a per-run __main__.
+        placeholder = _MainModule("__main__")
+        sys.modules["__main__"] = placeholder
+        return {"module": None, "installed": placeholder, "class": None}
+    if type(host) is types.ModuleType:
+        object.__setattr__(host, "__class__", _MainModule)
+        return {"module": host, "installed": host, "class": types.ModuleType}
+    # Some other kind of module object: leave it alone, and stand a proxy in for
+    # it that forwards the host's own attribute access to it.
+    proxy = _MainProxy("__main__")
+    types.ModuleType.__setattr__(proxy, "_tide_host", host)
+    sys.modules["__main__"] = proxy
+    return {"module": host, "installed": proxy, "class": None}
+
+
+class _MainProxy(_MainModule):
+    def __getattribute__(self, name):
+        target = _main_of_thread() or types.ModuleType.__getattribute__(self, "_tide_host")
+        return getattr(target, name)
+
+    def __setattr__(self, name, value):
+        setattr(_main_of_thread() or types.ModuleType.__getattribute__(self, "_tide_host"), name, value)
+
+    def __delattr__(self, name):
+        delattr(_main_of_thread() or types.ModuleType.__getattribute__(self, "_tide_host"), name)
+
+    def __dir__(self):
+        return dir(_main_of_thread() or types.ModuleType.__getattribute__(self, "_tide_host"))
+
+
+def _restore_main(saved):
+    """Called with _lock held as the last run ends: the host's __main__ exactly as it was."""
+    if saved["class"] is not None:
+        object.__setattr__(saved["module"], "__class__", saved["class"])
+    if saved["module"] is None:
+        sys.modules.pop("__main__", None)
+    else:
+        sys.modules["__main__"] = saved["module"]
+
+
+class _RunTempModule(runpy._TempModule):
+    """runpy's temporary module, kept out of sys.modules for a run's '__main__'."""
+
+    def __enter__(self):
+        run = _run_of_thread()
+        if run is None or self.mod_name != "__main__" or _shared is None:
+            self._tide_run = None
+            return super().__enter__()
+        self._tide_run = run
+        run.main_stack.append(self.module)
+        return self
+
+    def __exit__(self, *args):
+        run = self._tide_run
+        if run is None:
+            return super().__exit__(*args)
+        for i in range(len(run.main_stack) - 1, -1, -1):
+            if run.main_stack[i] is self.module:
+                del run.main_stack[i]
+                break
+        return None
+
+
+if hasattr(runpy, "_TempModule"):
+    runpy._TempModule = _RunTempModule
+
+
+# ---- child processes ----
+
+
+def _patch_subprocess():
+    """A joined run's child processes start in its folder with its environment
+    (when the call gives no cwd= or env=), as a separate process would. C code
+    calling getenv() still sees the process environment (the first run's)."""
+    import subprocess
+
+    init = subprocess.Popen.__init__
+    if getattr(init, "_tide", False):
+        return
+    signature = inspect.signature(init)
+
+    @functools.wraps(init)
+    def wrapper(self, *args, **kwargs):
+        run = _run_of_thread()
+        if run is None or (run.cwd is None and run.env is None):
+            return init(self, *args, **kwargs)
+        try:
+            bound = signature.bind(self, *args, **kwargs)
+        except TypeError:
+            return init(self, *args, **kwargs)  # let Popen report it
+        arguments = bound.arguments
+        if run.cwd is not None:
+            cwd = arguments.get("cwd")
+            arguments["cwd"] = run.cwd if cwd is None else _abs(cwd, run.cwd)
+        if run.env is not None and arguments.get("env") is None:
+            arguments["env"] = dict(os.environ)  # this run's view
+        return init(*bound.args, **bound.kwargs)
+
+    wrapper._tide = True
+    subprocess.Popen.__init__ = wrapper
+
+
+_patch_subprocess()
 
 
 # Overlapping runs in one project share the interpreter: the first sets the
@@ -613,6 +1247,8 @@ def _refusal(scope):
 
 
 def _check_env(env):
+    if not isinstance(env, dict):
+        raise ValueError("the environment must be a JSON object")
     for key, value in env.items():
         if not isinstance(key, str) or not isinstance(value, str) or not key or "=" in key or "\0" in key + value:
             raise ValueError(f"invalid environment variable {key!r}")
@@ -633,12 +1269,13 @@ def _enter_shared(state, cwd, env, argv, purge_root):
             return _refusal(_shared["scope"])
         if not os.path.isdir(cwd):
             return f"FileNotFoundError: [Errno 2] No such file or directory: {cwd!r}\n"
-        if cwd != _real["getcwd"]():
-            state.cwd = cwd
+        # Always its own folder and environment view, even when they match the
+        # real ones: its chdir() and os.environ writes must not reach the others.
+        state.cwd = cwd
         # The first run's variables this run doesn't set read as they were before it.
         overlay = {k: v for k, v in _shared["env"].items() if k not in env}
         overlay.update(env)
-        state.env = overlay or None
+        state.env = overlay
         state.argv = list(argv)
         if sys.argv is not _argv:
             sys.argv = _argv
@@ -647,18 +1284,21 @@ def _enter_shared(state, cwd, env, argv, purge_root):
             _shared["purge"].add(os.path.abspath(purge_root))
         return None
     saved_env = {k: os.environ.get(k) for k in env}
+    # The whole environment (with what os.putenv() set behind os.environ's
+    # back), put back exactly when the last run ends.
+    saved_environ = _c_environ()
     saved_cwd = _real["getcwd"]()
     try:
         for k, v in env.items():
             _env_set(k, v)
         _real["chdir"](cwd)
     except (OSError, ValueError) as e:
-        for k, v in saved_env.items():
-            _env_set(k, v)
+        _restore_environ(saved_environ)
         return f"{type(e).__name__}: {e}\n"
     _shared = {
         "scope": scope, "count": 1, "cwd": saved_cwd, "argv": sys.argv, "path": list(sys.path),
-        "env": saved_env, "purge": {os.path.abspath(purge_root)} if purge_root else set(),
+        "env": saved_env, "environ": saved_environ, "main": _install_main(),
+        "purge": {os.path.abspath(purge_root)} if purge_root else set(),
     }
     list.__init__(_argv, argv)
     sys.argv = _argv
@@ -682,18 +1322,15 @@ def _leave_shared(own_paths):
     sys.argv = saved["argv"]
     list.clear(_argv)
     sys.path[:] = saved["path"]
-    for k, v in saved["env"].items():
-        try:
-            _env_set(k, v)
-        except (OSError, ValueError):
-            pass
+    _restore_environ(saved["environ"])
     try:
         _real["chdir"](saved["cwd"])
     except OSError:
         pass
-    # A script that replaced sys.stdout and friends doesn't break the next run.
+    _restore_main(saved["main"])
+    # A script that replaced sys.stdout and friends in sys's dict doesn't break the next run.
     for name, proxy in _streams.items():
-        setattr(sys, name, proxy)
+        _sysdict[name] = proxy
     # Modules loaded from the workspace are dropped so the next run sees edits.
     for root in saved["purge"]:
         root += os.sep
@@ -701,6 +1338,14 @@ def _leave_shared(own_paths):
             path = getattr(module, "__file__", None) or ""
             if path.startswith(root):
                 del sys.modules[name]
+
+
+def _release_threads(state):
+    """Threads the run started (pool workers, daemons) stop belonging to it."""
+    state.ended = True
+    for thread in threading.enumerate():
+        if getattr(thread, "_tide_run", None) is state:
+            thread._tide_run = None
 
 
 def _drop_interrupt(state):
@@ -773,27 +1418,39 @@ def run(emit, run_id, entry, cwd, args, extra_paths=(), purge_root=None):
     state = _Run()
     state.emit = emit
     state.run_id = run_id
-    _current.run = state
-    env = {}
-    if args and args[0] == _ENV_ARG:
-        env = json.loads(args[1])
-        args = list(args[2:])
-    if args and args[0] == _DEBUG_ARG:
-        from tide_debugger import Debugger
-
-        config = json.loads(args[1])
-        args = list(args[2:])
-        state.debugger = Debugger(emit, run_id, purge_root or os.path.dirname(entry), config.get("breakpoints"))
     out = _Output(emit, run_id, "stdout")
     err = _Output(emit, run_id, "stderr")
     state.stdout, state.stderr, state.stdin = out, err, _Input(state)
-    with _lock:
-        refused = _enter_shared(state, cwd, env, [entry, *args], purge_root)
-        if refused is None:
-            _install_streams()
-            _runs[run_id] = state
+    _current.run = state
+    try:
+        env, args = {}, list(args)
+        if args and args[0] == _ENV_ARG:
+            try:
+                env = json.loads(args[1])
+            except (IndexError, ValueError) as e:
+                raise ValueError(f"bad {_ENV_ARG} argument: {e}") from None
+            args = args[2:]
+        if args and args[0] == _DEBUG_ARG:
+            try:
+                config = json.loads(args[1])
+                if not isinstance(config, dict):
+                    raise ValueError("expected a JSON object")
+            except (IndexError, ValueError) as e:
+                raise ValueError(f"bad {_DEBUG_ARG} argument: {e}") from None
+            args = args[2:]
+            from tide_debugger import Debugger
+
+            state.debugger = Debugger(emit, run_id, purge_root or os.path.dirname(entry), config.get("breakpoints"))
+        with _lock:
+            refused = _enter_shared(state, cwd, env, [entry, *args], purge_root)
+            if refused is None:
+                _install_streams()
+                _runs[run_id] = state
+    except BaseException as e:  # noqa: BLE001 - reported; nothing is left set
+        refused = f"{type(e).__name__}: {e}\n"
     if refused is not None:
         _current.run = None
+        state.ended = True
         err.write(refused)
         return 1, False
 
@@ -819,6 +1476,7 @@ def run(emit, run_id, entry, cwd, args, extra_paths=(), purge_root=None):
         with _lock:
             _runs.pop(run_id, None)
             _leave_shared(own_paths)
+            _release_threads(state)
         _current.run = None
     return code, state.killed
 

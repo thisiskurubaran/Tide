@@ -139,6 +139,89 @@ describe('supervisor', () => {
     expect(t.output('r1')).toBe('sub,sub,sub,proj,m,sub,sub,sub,sub,sub\n');
   });
 
+  it('gives workers the script starts the run folder, and keeps their workerData', async () => {
+    const t = setup();
+    t.file('proj/sub/marker.txt', 'm');
+    t.file(
+      'proj/sub/w.js',
+      [
+        'const { workerData, Worker } = require("worker_threads");',
+        'const fs = require("fs"), path = require("path");',
+        'console.log(path.basename(process.cwd()), JSON.stringify(workerData), fs.readFileSync("marker.txt", "utf8"));',
+        'if (workerData.nest) new Worker("./w.js", { workerData: { nest: false } });',
+      ].join('\n'),
+    );
+    t.file('proj/sub/w.mjs', 'import { workerData } from "worker_threads";\nimport fs from "fs";\nconsole.log("mjs", workerData, fs.existsSync("marker.txt"));');
+    t.file(
+      'proj/main.js',
+      [
+        'const { Worker } = require("worker_threads");',
+        'process.chdir("sub");',
+        'const w = new Worker("./w.js", { workerData: { nest: true } });',
+        'w.on("exit", () => {',
+        '  const m = new Worker("./w.mjs", { workerData: 7 });',
+        '  m.on("exit", () => new Worker("console.log(\'eval\', require(\'path\').basename(process.cwd()))", { eval: true }));',
+        '});',
+      ].join('\n'),
+    );
+    t.run('r1', 'main.js');
+    expect((await t.exited('r1', 10000)).code).toBe(0);
+    expect(t.output('r1', 'stderr')).toBe('');
+    expect(t.output('r1')).toBe('sub {"nest":true} m\nsub {"nest":false} m\nmjs 7 true\neval sub\n');
+  });
+
+  it('shows paths in results and errors as the script gave them, not resolved against its folder', async () => {
+    const t = setup();
+    t.file(
+      'proj/paths.js',
+      [
+        'const fs = require("fs");',
+        '(async () => {',
+        '  const out = [];',
+        '  out.push(fs.mkdirSync("a/b/c", { recursive: true }));',
+        '  out.push(fs.mkdtempSync("a/t-").replace(/t-.*/, "t-"));',
+        '  out.push((await fs.promises.mkdtemp("a/p-")).replace(/p-.*/, "p-"));',
+        '  out.push(fs.readdirSync("a/b", { withFileTypes: true, recursive: true }).map((d) => d.parentPath).join("+"));',
+        '  const dir = fs.opendirSync("a/b");',
+        '  out.push(dir.path, dir.readSync().parentPath);',
+        '  dir.closeSync();',
+        '  for await (const e of await fs.promises.opendir("a/b")) out.push(e.parentPath);',
+        '  try { fs.readFileSync("nope/x") } catch (e) { out.push(e.path, e.message, e.stack.split("\\n")[0]) }',
+        '  try { fs.renameSync("nope", "zz") } catch (e) { out.push(e.message, e.dest) }',
+        '  await fs.promises.stat("gone").catch((e) => out.push(e.path));',
+        '  fs.readFile("cb", (e) => {',
+        '    out.push(e.path);',
+        '    const s = fs.createReadStream("st");',
+        '    s.on("error", (e2) => { out.push(e2.path, s.path); console.log(out.join("\\n")); });',
+        '  });',
+        '})();',
+      ].join('\n'),
+    );
+    t.run('r1', 'paths.js');
+    expect((await t.exited('r1')).code).toBe(0);
+    expect(t.output('r1', 'stderr')).toBe('');
+    const out = t.output('r1');
+    expect(out).not.toContain(t.root);
+    expect(out.trim().split('\n')).toEqual([
+      'a',
+      'a/t-',
+      'a/p-',
+      'a/b',
+      'a/b',
+      'a/b',
+      'a/b',
+      'nope/x',
+      "ENOENT: no such file or directory, open 'nope/x'",
+      "Error: ENOENT: no such file or directory, open 'nope/x'",
+      "ENOENT: no such file or directory, rename 'nope' -> 'zz'",
+      'zz',
+      'gone',
+      'cb',
+      'st',
+      'st',
+    ]);
+  });
+
   it('fails a run whose cwd is missing', async () => {
     const t = setup();
     t.file('proj/index.js', '');
