@@ -26,6 +26,7 @@ import {
   searchPip,
 } from './packages';
 import { runTool, tidyOutput } from './run';
+import { installActivity } from '../widgets/liveActivities';
 import { useModalAnimation } from '../../components/a11y';
 import { announce } from '../../components/a11y';
 
@@ -117,7 +118,9 @@ export function PackagesSheet({ project, visible, onClose, onTerminal }: Package
     setOutput('');
     setFailed(false);
     let text = '';
-    let code: number;
+    let code = 1;
+    // Shown on the Lock Screen while it runs (a no-op without Live Activities).
+    const live = installActivity.begin(project, eco, action.kind === 'all' ? 'All dependencies' : `${action.kind === 'remove' ? 'Removing' : action.kind === 'update' ? 'Updating' : 'Installing'} ${action.name}`);
     try {
       // The installer reads package.json / requirements.txt from disk: unsaved
       // edits go there first. If that fails, the installer doesn't run.
@@ -125,6 +128,7 @@ export function PackagesSheet({ project, visible, onClose, onTerminal }: Package
       code = await runTool(localRunner, project, eco, args, (chunk) => {
         text += chunk;
         setOutput(tidyOutput(text));
+        live.output(chunk);
       });
     } catch (e) {
       code = 1;
@@ -133,6 +137,7 @@ export function PackagesSheet({ project, visible, onClose, onTerminal }: Package
     } finally {
       // Never leave the sheet stuck busy.
       setBusy(null);
+      live.end(code);
     }
     setFailed(code !== 0);
     haptic(code === 0 ? 'success' : 'error');

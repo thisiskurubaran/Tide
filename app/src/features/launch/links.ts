@@ -9,6 +9,8 @@
 //   tide://project/<name>?file=api.http&send=1  ...and send a .http file's first
 //                                               request (or send=<name> for one by name)
 //   tide://?new=1                               start a new project
+//   tide://?search=1                            search projects and files (the Quick actions widget)
+//   tide://agent?project=<name>                 the AI agent (its Live Activity's approval link)
 export const SCHEME = 'tide';
 
 export interface ProjectLinkOptions {

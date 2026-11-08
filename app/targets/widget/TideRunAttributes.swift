@@ -1,7 +1,6 @@
 // The run Live Activity's data: a dev server, a test run or a task.
-// The app has an identical copy
-// (modules/tide-widgets/ios/TideRunAttributes.swift): ActivityKit matches them
-// by name and shape, so the two must change together.
+// Identical copies live in modules/tide-widgets/ios and targets/widget:
+// ActivityKit matches them by name and shape, so the two must change together.
 import ActivityKit
 import Foundation
 

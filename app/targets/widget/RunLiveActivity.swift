@@ -3,25 +3,6 @@ import ActivityKit
 import SwiftUI
 import WidgetKit
 
-private let teal = Color(red: 45 / 255, green: 212 / 255, blue: 191 / 255) // #2dd4bf
-private let sky = Color(red: 14 / 255, green: 165 / 255, blue: 233 / 255) // #0ea5e9
-
-// The Tide mark, as on the Recent Projects widget.
-private struct TideLogo: View {
-  var body: some View {
-    Image(systemName: "chevron.left.forwardslash.chevron.right").foregroundStyle(Color.accentColor)
-  }
-}
-
-private func statusColor(_ status: String) -> Color {
-  switch status {
-  case "passed": return .green
-  case "failed": return .red
-  case "stopped": return .secondary
-  default: return teal
-  }
-}
-
 private func kindLabel(_ kind: String) -> String {
   switch kind {
   case "server": return "Dev server"
@@ -30,78 +11,52 @@ private func kindLabel(_ kind: String) -> String {
   }
 }
 
-private func runTitle(_ context: ActivityViewContext<TideRunAttributes>) -> String {
-  "\(kindLabel(context.attributes.kind)) · \(context.attributes.project)"
-}
-
-private func stopURL(_ project: String) -> URL {
-  URL(string: projectURL(project).absoluteString + "?stop=1")!
-}
-
-// Counts up while the run is going, and stops where it ended.
-private struct RunTimer: View {
-  let state: TideRunAttributes.ContentState
-
-  var body: some View {
-    if let end = state.endedAt {
-      Text(timerInterval: state.startedAt...max(end, state.startedAt), pauseTime: end, countsDown: false)
-    } else {
-      Text(timerInterval: state.startedAt...Date.distantFuture, countsDown: false)
-    }
+private func kindSymbol(_ kind: String) -> String {
+  switch kind {
+  case "server": return "server.rack"
+  case "tests": return "checklist"
+  default: return "terminal.fill"
   }
 }
 
-private struct StatusDot: View {
-  let status: String
-
-  var body: some View {
-    Circle().fill(statusColor(status)).frame(width: 8, height: 8)
+// The headline: what's happening, or how it ended.
+private func headline(_ attributes: TideRunAttributes, _ state: TideRunAttributes.ContentState) -> String {
+  switch (attributes.kind, state.status) {
+  case ("server", "running"): return "Running"
+  case ("tests", "running"): return "Running tests"
+  case (_, "running"): return attributes.command
+  case ("tests", "passed"): return "Tests passed"
+  case ("tests", "failed"): return "Tests failed"
+  case ("server", "failed"): return "Server crashed"
+  case (_, "passed"): return "Finished"
+  case (_, "failed"): return "Failed"
+  default: return "Stopped"
   }
 }
 
-private struct RunProgressBar: View {
-  let progress: Double
-
-  var body: some View {
-    GeometryReader { geo in
-      ZStack(alignment: .leading) {
-        Capsule().fill(Color.secondary.opacity(0.25))
-        Capsule()
-          .fill(LinearGradient(colors: [sky, teal], startPoint: .leading, endPoint: .trailing))
-          .frame(width: geo.size.width * min(max(progress, 0), 1))
-      }
-    }
-    .frame(height: 4)
-  }
+private func runSymbol(_ attributes: TideRunAttributes, _ state: TideRunAttributes.ContentState) -> String {
+  let tone = TideTone(status: state.status)
+  return tone == .running ? kindSymbol(attributes.kind) : tone.symbol
 }
 
-private struct RunButton: View {
-  let title: String
-  let symbol: String
-  let url: URL
-
-  var body: some View {
-    Link(destination: url) {
-      Label(title, systemImage: symbol)
-        .font(.caption.weight(.semibold))
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(Capsule().fill(Color.secondary.opacity(0.2)))
-    }
-  }
-}
-
-private struct RunButtons: View {
+private struct RunActions: View {
   let context: ActivityViewContext<TideRunAttributes>
+  var island = false
 
   var body: some View {
+    let tint = island ? TidePalette.Island.brand : TidePalette.brand
     HStack(spacing: 8) {
-      RunButton(title: "Open", symbol: "arrow.up.forward.app", url: projectURL(context.attributes.project))
-      // A link rather than a Live Activity intent: stopping needs the app's
-      // process, which the link opens.
       if context.state.status == "running" {
-        RunButton(title: "Stop", symbol: "stop.fill", url: stopURL(context.attributes.project))
+        // A link rather than a Live Activity intent: stopping needs the app's
+        // process, which the link opens.
+        ActivityButton(title: "Stop", symbol: "stop.fill", url: TideLinks.stop(context.attributes.project), tint: island ? TidePalette.Island.danger : TidePalette.danger)
+        ActivityButton(title: "Open", symbol: "arrow.up.forward.app", url: projectURL(context.attributes.project), tint: tint)
+      } else {
+        let again = context.attributes.kind == "tests" ? TideLinks.tests(context.attributes.project) : TideLinks.run(context.attributes.project)
+        ActivityButton(title: "Run again", symbol: "arrow.clockwise", url: again, tint: tint, prominent: true)
+        ActivityButton(title: "Open", symbol: "arrow.up.forward.app", url: projectURL(context.attributes.project), tint: tint)
       }
+      Spacer(minLength: 0)
     }
   }
 }
@@ -109,64 +64,78 @@ private struct RunButtons: View {
 struct RunLiveActivity: Widget {
   var body: some WidgetConfiguration {
     ActivityConfiguration(for: TideRunAttributes.self) { context in
-      VStack(alignment: .leading, spacing: 8) {
-        HStack(spacing: 12) {
-          TideLogo().font(.title2)
-          VStack(alignment: .leading, spacing: 2) {
-            Text(runTitle(context)).font(.headline).lineLimit(1)
-            Text(context.state.detail).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-          }
-          Spacer(minLength: 0)
-          RunTimer(state: context.state)
-            .font(.subheadline.monospacedDigit())
-            .foregroundStyle(teal)
-            .multilineTextAlignment(.trailing)
-            .frame(maxWidth: 72, alignment: .trailing)
-        }
-        if let progress = context.state.progress {
-          RunProgressBar(progress: progress)
-        }
-        RunButtons(context: context)
+      let tone = TideTone(status: context.state.status)
+      ActivityCard(
+        symbol: runSymbol(context.attributes, context.state),
+        tone: tone,
+        eyebrow: "\(kindLabel(context.attributes.kind)) · \(context.attributes.project)",
+        title: headline(context.attributes, context.state),
+        detail: context.state.detail,
+        progress: context.state.progress,
+        start: context.state.startedAt,
+        end: context.state.endedAt,
+        isStale: context.isStale
+      ) {
+        RunActions(context: context)
       }
-      .padding()
       .widgetURL(projectURL(context.attributes.project))
+      .tideActivityChrome()
     } dynamicIsland: { context in
-      DynamicIsland {
+      let tone = TideTone(status: context.state.status)
+      let color = tone.islandColor
+      return DynamicIsland {
         DynamicIslandExpandedRegion(.leading) {
-          TideLogo()
+          ActivityIcon(symbol: runSymbol(context.attributes, context.state), tint: color, size: 40)
+            .padding(.leading, 4)
         }
         DynamicIslandExpandedRegion(.trailing) {
-          HStack(spacing: 6) {
-            StatusDot(status: context.state.status)
-            RunTimer(state: context.state)
-              .font(.caption.monospacedDigit())
-              .foregroundStyle(teal)
-              .frame(maxWidth: 56, alignment: .trailing)
-          }
+          ActivityElapsedLabel(start: context.state.startedAt, end: context.state.endedAt, tint: color, font: .system(size: 15, weight: .semibold).monospacedDigit(), width: 64)
+            .padding(.trailing, 4)
         }
         DynamicIslandExpandedRegion(.center) {
-          Text(runTitle(context)).font(.subheadline).lineLimit(1)
-        }
-        DynamicIslandExpandedRegion(.bottom) {
-          VStack(alignment: .leading, spacing: 6) {
-            Text(context.state.detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            if let progress = context.state.progress {
-              RunProgressBar(progress: progress)
-            }
-            RunButtons(context: context)
+          VStack(spacing: 1) {
+            Text(headline(context.attributes, context.state))
+              .font(.system(size: 15, weight: .semibold))
+              .foregroundStyle(tone.isFinished ? color : TidePalette.Island.foreground)
+              .lineLimit(1)
+            Text("\(kindLabel(context.attributes.kind)) · \(context.attributes.project)")
+              .font(.system(size: 11, weight: .medium))
+              .foregroundStyle(TidePalette.Island.muted)
+              .lineLimit(1)
           }
         }
+        DynamicIslandExpandedRegion(.bottom) {
+          VStack(alignment: .leading, spacing: 8) {
+            Text(context.state.detail)
+              .font(.system(size: 12))
+              .foregroundStyle(TidePalette.Island.muted)
+              .lineLimit(1)
+            if let progress = context.state.progress {
+              ActivityProgressBar(progress: progress, tint: color, track: TidePalette.Island.track)
+            }
+            RunActions(context: context, island: true)
+          }
+          .padding(.horizontal, 4)
+        }
       } compactLeading: {
-        TideLogo()
+        Image(systemName: runSymbol(context.attributes, context.state))
+          .font(.system(size: 13, weight: .semibold))
+          .foregroundStyle(color)
       } compactTrailing: {
-        RunTimer(state: context.state)
-          .font(.caption2.monospacedDigit())
-          .foregroundStyle(teal)
-          .frame(maxWidth: 44)
+        if let progress = context.state.progress, !tone.isFinished {
+          Text(verbatim: "\(Int(progress * 100))%")
+            .font(.system(size: 13, weight: .semibold).monospacedDigit())
+            .foregroundStyle(color)
+        } else if tone.isFinished {
+          Image(systemName: tone.symbol).foregroundStyle(color)
+        } else {
+          ActivityElapsedLabel(start: context.state.startedAt, end: context.state.endedAt, tint: color, width: 44)
+        }
       } minimal: {
-        TideLogo()
+        ActivityRing(progress: tone.isFinished ? 1 : context.state.progress, symbol: tone.isFinished ? tone.symbol : kindSymbol(context.attributes.kind), tint: color)
       }
       .widgetURL(projectURL(context.attributes.project))
+      .keylineTint(color)
     }
   }
 }

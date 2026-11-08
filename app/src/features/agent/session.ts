@@ -19,6 +19,7 @@ import { commandApprovals } from './approvalsStore';
 import { changesStore, readCurrent } from './changesStore';
 import { createShellCommandRunner } from './shellRunner';
 import { AGENT_TOOLS, AgentFiles, CommandRunner, StepView, TestRun } from './tools';
+import { watchAgentSessions } from '../widgets/liveActivities';
 
 // ---------------------------------------------------------------------------
 // Files: pending changes and what the user has live in changesStore.ts, so the
@@ -118,6 +119,8 @@ interface SessionsState {
 }
 
 export const sessionsStore = createStore<SessionsState>()(() => ({ sessions: {} }));
+// The agent's Live Activity follows each session: steps, approvals, the result.
+watchAgentSessions(sessionsStore);
 const EMPTY = emptySession();
 export const useAgentSession = (project: string) => useStore(sessionsStore, (s) => s.sessions[project] ?? EMPTY);
 

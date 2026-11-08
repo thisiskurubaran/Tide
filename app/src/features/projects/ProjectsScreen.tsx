@@ -2,7 +2,7 @@ import Feather from '@expo/vector-icons/Feather';
 import * as Clipboard from 'expo-clipboard';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Image, Pressable, ScrollView, TextInput, View } from 'react-native';
+import { Alert, Image, Pressable, ScrollView, TextInput, TextInputInstance, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ActionSheet } from '../../components/ActionSheet';
@@ -78,16 +78,24 @@ export function ProjectsScreen() {
   const summarizing = useRef(new Set<string>());
 
   // tide://?new=1 and the "New project" quick action.
-  const { new: startNew } = useLocalSearchParams<{ new?: string }>();
+  const { new: startNew, search: startSearch } = useLocalSearchParams<{ new?: string; search?: string }>();
   useEffect(() => {
     if (startNew) setCreating('template');
   }, [startNew]);
+
+  // tide://?search=1, from the Quick actions widget: focus the search field.
+  const searchInput = useRef<TextInputInstance>(null);
+  useEffect(() => {
+    if (!startSearch) return;
+    const t = setTimeout(() => searchInput.current?.focus(), 350);
+    return () => clearTimeout(t);
+  }, [startSearch]);
 
   useEffect(() => {
     if (restoredLastProject) return;
     restoredLastProject = true;
     // A quick action picked from the home screen goes where it says instead.
-    if (launchedFromQuickAction() || startNew) return;
+    if (launchedFromQuickAction() || startNew || startSearch) return;
     const last = tabsStore.getState().lastProject;
     if (last && projectsStore.getState().projects.includes(last)) router.push(projectHref(last));
   }, []);
@@ -262,6 +270,7 @@ export function ProjectsScreen() {
         <View style={styles.search}>
           <Feather name="search" size={15} color={colors.mutedForeground} />
           <TextInput
+            ref={searchInput}
             testID="projects-search"
             value={query}
             onChangeText={setQuery}

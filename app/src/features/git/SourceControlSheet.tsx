@@ -10,6 +10,8 @@ import { autoDeployer } from '../deploy';
 import { makeStyles, useColors } from '../../theme/theme';
 import { borderWidth, fonts, fontSizes, radius, spacing } from '../../theme/tokens';
 import { lastLines, runGit } from './runGit';
+import { gitEnv } from './settings';
+import { trackGit } from '../widgets/liveActivities';
 import { createGitPro } from '../../extensions/gitPro/api';
 import type { ChangedFile } from '../ai/commitMessage';
 import { SuggestMessageButton } from '../ai/SuggestMessageButton';
@@ -83,7 +85,9 @@ export function SourceControlSheet({ visible, project, onClose }: { visible: boo
       // fails, git doesn't run (it would commit or overwrite stale files).
       await buffersStore.getState().flushProject(project);
       for (const args of steps) {
-        const r = await runGit(localRunner, project, args);
+        // Pull and push show their progress as a Live Activity.
+        const op = args[0] === 'pull' || args[0] === 'push' ? args[0] : null;
+        const r = op ? await trackGit(project, op, (onOutput) => runGit(localRunner, project, args, gitEnv(), onOutput)) : await runGit(localRunner, project, args);
         text += lastLines(r.stdout + r.stderr) + '\n';
         if (r.code !== 0) {
           failed = true;

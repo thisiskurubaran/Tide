@@ -1,6 +1,6 @@
-// The deploy Live Activity's data. The app has an identical copy
-// (modules/tide-widgets/ios/TideDeployAttributes.swift): ActivityKit matches
-// them by name and shape, so the two must change together.
+// The deploy Live Activity's data.
+// Identical copies live in modules/tide-widgets/ios and targets/widget:
+// ActivityKit matches them by name and shape, so the two must change together.
 import ActivityKit
 import Foundation
 

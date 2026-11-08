@@ -187,8 +187,33 @@ export interface RunActivityController {
 
 export const UPDATE_INTERVAL_MS = 2000;
 
-export function createRunActivity(native: RunActivityNative, { enabled = () => true, interval = UPDATE_INTERVAL_MS }: { enabled?: () => boolean; interval?: number } = {}): RunActivityController {
-  let run: { id: Promise<string | null>; state: RunState; partial: string; sent: RunView; sentAt: number; timer?: ReturnType<typeof setTimeout> } | null = null;
+// How a run ended, for the Last run widget: told for every run, whether or
+// not Live Activities are on.
+export interface RunResult {
+  project: string;
+  command: string;
+  kind: RunKind;
+  status: Exclude<RunStatus, 'running'>;
+  detail: string;
+  exitCode: number | null;
+  startedAt: number;
+  endedAt: number;
+}
+
+export function createRunActivity(
+  native: RunActivityNative,
+  { enabled = () => true, interval = UPDATE_INTERVAL_MS, onResult }: { enabled?: () => boolean; interval?: number; onResult?: (result: RunResult) => void } = {},
+): RunActivityController {
+  let run: {
+    id: Promise<string | null>;
+    project: string;
+    startedAt: number;
+    state: RunState;
+    partial: string;
+    sent: RunView;
+    sentAt: number;
+    timer?: ReturnType<typeof setTimeout>;
+  } | null = null;
 
   const send = (r: NonNullable<typeof run>) => {
     r.timer = undefined;
@@ -215,15 +240,22 @@ export function createRunActivity(native: RunActivityNative, { enabled = () => t
     if (r.partial) r.state = readLine(r.state, r.partial);
     const end = result(r.state, code);
     r.id.then((id) => (id ? native.end(id, end) : undefined)).catch(() => undefined);
+    try {
+      onResult?.({ project: r.project, command: r.state.command, kind: r.state.kind, ...end, exitCode: code, startedAt: r.startedAt, endedAt: Date.now() });
+    } catch {
+      // The widget's data is best effort.
+    }
   };
 
   return {
     onRunStart(project, command, kind, detail) {
       finish(null);
-      if (!enabled()) return;
+      // Without Live Activities the run is still followed, for its result.
+      if (!enabled() && !onResult) return;
       const state = initialState(kind, command, detail);
       const sent = view(state);
-      run = { id: native.start({ project, command, kind, detail: sent.detail }).catch(() => null), state, partial: '', sent, sentAt: Date.now() };
+      const id = enabled() ? native.start({ project, command, kind, detail: sent.detail }).catch(() => null) : Promise.resolve(null);
+      run = { id, project, startedAt: Date.now(), state, partial: '', sent, sentAt: Date.now() };
     },
     onOutput(text) {
       const r = run;

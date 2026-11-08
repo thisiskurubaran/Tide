@@ -141,6 +141,25 @@ describe('run Live Activity controller', () => {
     expect(calls[2]).toEqual(['end', 'act1', { status: 'stopped', detail: 'Stopped' }]);
   });
 
+  it('reports every result for the Last run widget, with Live Activities on or off', async () => {
+    for (const enabled of [true, false]) {
+      const results: unknown[] = [];
+      const native: RunActivityNative = { start: jest.fn(async () => 'act1'), update: jest.fn(async () => undefined), end: jest.fn(async () => undefined) };
+      const run = createRunActivity(native, { enabled: () => enabled, onResult: (r) => results.push(r) });
+      jest.setSystemTime(10_000);
+      run.onRunStart('site', 'npm test', 'tests');
+      run.onOutput('Tests:       2 failed, 3 passed, 5 total');
+      jest.setSystemTime(12_500);
+      run.onExit(1);
+      await flush();
+      expect(results).toEqual([
+        { project: 'site', command: 'npm test', kind: 'tests', status: 'failed', detail: '2 of 5 failed', exitCode: 1, startedAt: 10_000, endedAt: 12_500 },
+      ]);
+      expect(native.start).toHaveBeenCalledTimes(enabled ? 1 : 0);
+      expect(native.end).toHaveBeenCalledTimes(enabled ? 1 : 0);
+    }
+  });
+
   it('does nothing when Live Activities are off or unavailable', async () => {
     const { calls, run } = setup(false);
     run.onRunStart('a', 'npm test', 'tests');

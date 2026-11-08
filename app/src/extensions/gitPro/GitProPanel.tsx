@@ -21,6 +21,7 @@ import { applyHunk, diffText, Hunk, revertHunk } from './diff';
 import { DiffView } from './DiffView';
 import { changedFiles } from '../../features/git/SourceControlSheet';
 import { SuggestMessageButton } from '../../features/ai/SuggestMessageButton';
+import { trackGit } from '../../features/widgets/liveActivities';
 
 type Tab = 'changes' | 'branches' | 'history';
 type Detail =
@@ -282,8 +283,8 @@ function Changes({ git, act, busy, setDetail, ctx, status }: Shared & { status: 
         testID="gp-suggest"
       />
       <View style={styles.actions}>
-        <Button title="Pull" variant="outline" icon="download" onPress={() => act(() => git.pull(), true)} disabled={busy} testID="gp-pull" />
-        <Button title="Push" variant="outline" icon="upload" onPress={() => act(() => git.push())} disabled={busy} testID="gp-push" />
+        <Button title="Pull" variant="outline" icon="download" onPress={() => act(() => trackGit(ctx.project, 'pull', () => git.pull()), true)} disabled={busy} testID="gp-pull" />
+        <Button title="Push" variant="outline" icon="upload" onPress={() => act(() => trackGit(ctx.project, 'push', () => git.push()))} disabled={busy} testID="gp-push" />
         <Button
           title={`Commit${staged.length ? ` ${staged.length}` : ''}`}
           icon="check"

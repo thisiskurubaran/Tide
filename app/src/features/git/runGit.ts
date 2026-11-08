@@ -12,7 +12,8 @@ export interface GitResult {
 let next = 0;
 
 // Runs the built-in git for the Source Control sheet and cloning, outside the terminal.
-export function runGit(runner: Runner, project: string, args: string[], env: Record<string, string> = gitEnv()): Promise<GitResult> {
+// `onOutput` hears output as it comes, e.g. for progress on the Lock Screen.
+export function runGit(runner: Runner, project: string, args: string[], env: Record<string, string> = gitEnv(), onOutput?: (text: string) => void): Promise<GitResult> {
   const id = `git-ui-${++next}`;
   return new Promise((resolve) => {
     let stdout = '';
@@ -20,8 +21,13 @@ export function runGit(runner: Runner, project: string, args: string[], env: Rec
     runner.run(
       { type: 'run', id, runtime: 'node', entry: 'tide:git', cwd: joinPath(PROJECTS_DIR, project), args, env },
       (msg) => {
-        if (msg.type === 'stdout') stdout += msg.data;
-        else if (msg.type === 'stderr') stderr += msg.data;
+        if (msg.type === 'stdout') {
+          stdout += msg.data;
+          onOutput?.(msg.data);
+        } else if (msg.type === 'stderr') {
+          stderr += msg.data;
+          onOutput?.(msg.data);
+        }
         else if (msg.type === 'exit') resolve({ code: msg.code ?? 1, stdout, stderr });
       },
     );
