@@ -12,6 +12,7 @@ export type Shortcut =
   | 'save'
   | 'format'
   | 'close-tab'
+  | 'reopen-tab'
   | 'next-tab'
   | 'prev-tab'
   | `tab-${TabNumber}`
@@ -39,7 +40,7 @@ export function shortcutFor(e: KeyEvent): Shortcut | null {
     if (e.code === 'BracketLeft') return 'prev-tab';
     if (e.code === 'BracketRight') return 'next-tab';
     if (e.code === 'Slash' || key === '?') return 'keyboard-shortcuts';
-    return key === 'p' ? 'palette' : key === 'f' ? 'search' : key === 'v' ? 'preview' : key === 'o' ? 'symbols' : key === 'd' ? 'docs' : null;
+    return key === 'p' ? 'palette' : key === 'f' ? 'search' : key === 'v' ? 'preview' : key === 'o' ? 'symbols' : key === 'd' ? 'docs' : key === 't' ? 'reopen-tab' : null;
   }
   if (/^[1-9]$/.test(key)) return `tab-${Number(key) as TabNumber}`;
   switch (key) {
@@ -81,6 +82,7 @@ export const SHORTCUT_HELP: { group: string; items: [keys: string, title: string
       ['⇧⌘D', 'Look up the word at the cursor in offline docs'],
       ['⌘S', 'Save'],
       ['⌘W', 'Close file'],
+      ['⇧⌘T', 'Reopen closed file'],
       ['⇧⌘[  ⇧⌘]', 'Previous / next file'],
       ['⌘1 … ⌘9', 'Go to file 1–9'],
       ['⌘B', 'Show or hide files'],
@@ -107,6 +109,7 @@ export const SHORTCUT_HELP: { group: string; items: [keys: string, title: string
       ['⌥↑  ⌥↓', 'Move line up / down'],
       ['⇧⌥↑  ⇧⌥↓', 'Copy line up / down'],
       ['⇧⌘K', 'Delete line'],
+      ['⌃J', 'Join lines'],
       ['⌘]  ⌘[', 'Indent / outdent'],
       ['⌥⌘[  ⌥⌘]', 'Fold / unfold'],
       ['⌘Z  ⇧⌘Z', 'Undo / redo'],

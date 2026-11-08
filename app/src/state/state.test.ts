@@ -5,7 +5,7 @@ import { createProjectsStore } from './projects';
 import { createRunnerStore } from './runner';
 import { hydrated } from './hydrated';
 import { createFsStorage } from './storage';
-import { createTabsStore, projectTabs } from './tabs';
+import { createTabsStore, othersToClose, projectTabs } from './tabs';
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -65,6 +65,74 @@ describe('tabs store', () => {
     expect(restarted.getState().lastProject).toBe('p');
     expect(restarted.getState().recent).toEqual(['p']);
     expect(projectTabs(restarted.getState(), 'p')).toEqual({ open: ['index.js'], active: 'index.js' });
+  });
+
+  it('reopens closed tabs where they were, skipping files that are gone', async () => {
+    const { tabs } = setup();
+    const t = tabs.getState();
+    ['a', 'b', 'c', 'd'].forEach((p) => t.openTab('p', p));
+    t.closeTab('p', 'b');
+    t.closeTab('p', 'd');
+    t.closeTab('p', 'c');
+    expect(tabs.getState().closed.p.map((c) => c.path)).toEqual(['c', 'd', 'b']);
+    // c was deleted meanwhile: it's skipped and forgotten, d comes back.
+    const exists = async (path: string) => path !== 'c';
+    expect(await t.reopenClosedTab('p', exists)).toBe('d');
+    expect(projectTabs(tabs.getState(), 'p')).toEqual({ open: ['a', 'd'], active: 'd' });
+    expect(await t.reopenClosedTab('p', exists)).toBe('b');
+    expect(projectTabs(tabs.getState(), 'p')).toEqual({ open: ['a', 'b', 'd'], active: 'b' });
+    expect(await t.reopenClosedTab('p', exists)).toBeNull();
+    expect(tabs.getState().closed.p).toEqual([]);
+  });
+
+  it('keeps about 20 closed tabs and follows renames and deletes', () => {
+    const { tabs } = setup();
+    const t = tabs.getState();
+    for (let i = 0; i < 25; i++) {
+      t.openTab('p', `src/f${i}`);
+      t.closeTab('p', `src/f${i}`);
+    }
+    expect(tabs.getState().closed.p).toHaveLength(20);
+    expect(tabs.getState().closed.p[0].path).toBe('src/f24');
+    t.renamePath('p', 'src', 'lib');
+    expect(tabs.getState().closed.p[0].path).toBe('lib/f24');
+    t.removePath('p', 'lib');
+    expect(tabs.getState().closed.p).toEqual([]);
+  });
+
+  it('pins tabs first, through renames, closing and reopening, and remembers them', async () => {
+    const { tabs, storage } = setup();
+    await hydrated(tabs);
+    const t = tabs.getState();
+    ['a', 'b', 'src/c'].forEach((p) => t.openTab('p', p));
+    t.pinTab('p', 'src/c');
+    t.pinTab('p', 'b');
+    expect(projectTabs(tabs.getState(), 'p')).toEqual({ open: ['src/c', 'b', 'a'], active: 'src/c', pinned: ['src/c', 'b'] });
+    // New tabs go after the pinned ones.
+    t.openTab('p', 'd');
+    expect(projectTabs(tabs.getState(), 'p').open).toEqual(['src/c', 'b', 'a', 'd']);
+    t.renamePath('p', 'src', 'lib');
+    expect(projectTabs(tabs.getState(), 'p').pinned).toEqual(['lib/c', 'b']);
+    t.unpinTab('p', 'lib/c');
+    expect(projectTabs(tabs.getState(), 'p')).toEqual({ open: ['b', 'lib/c', 'a', 'd'], active: 'd', pinned: ['b'] });
+    // A pinned tab that's closed comes back pinned.
+    t.closeTab('p', 'b');
+    expect(projectTabs(tabs.getState(), 'p').pinned).toBeUndefined();
+    await t.reopenClosedTab('p', async () => true);
+    expect(projectTabs(tabs.getState(), 'p')).toEqual({ open: ['b', 'lib/c', 'a', 'd'], active: 'b', pinned: ['b'] });
+    // An unpinned tab doesn't come back in among the pinned ones.
+    t.pinTab('p', 'lib/c');
+    t.closeTab('p', 'a');
+    t.unpinTab('p', 'lib/c');
+    t.pinTab('p', 'd');
+    await t.reopenClosedTab('p', async () => true);
+    expect(projectTabs(tabs.getState(), 'p').open).toEqual(['b', 'd', 'a', 'lib/c']);
+    expect(othersToClose(projectTabs(tabs.getState(), 'p'), 'a')).toEqual(['lib/c']);
+    await flush();
+
+    const restarted = createTabsStore(storage);
+    await restarted.persist.rehydrate();
+    expect(projectTabs(restarted.getState(), 'p').pinned).toEqual(['b', 'd']);
   });
 });
 

@@ -1,6 +1,6 @@
 import Feather from '@expo/vector-icons/Feather';
 import * as Clipboard from 'expo-clipboard';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, FlatList, Pressable, TextInput, View } from 'react-native';
 
 import { Action, ActionSheet } from '../../components/ActionSheet';
@@ -9,7 +9,7 @@ import { FileBadge } from '../../components/FileBadge';
 import { PromptSheet } from '../../components/PromptSheet';
 import { Text } from '../../components/Text';
 import { FileIcon } from '../../extensions/themes';
-import { projectsStore } from '../../state';
+import { projectsStore, workspace } from '../../state';
 import { shareFile } from '../external/share';
 import { changeLetter, gitStatusStore, useGitStatus } from '../git/status';
 import { borderWidth, fonts, radius, spacing } from '../../theme/tokens';
@@ -29,6 +29,8 @@ interface FileTreeProps {
   nodes: TreeNode[];
   activePath: string | null;
   onOpenFile(path: string): void;
+  // Set (with a new nonce each time) to open a file's folders, scroll to it and highlight it.
+  reveal?: { path: string; nonce: number } | null;
 }
 
 // Desktop-explorer density: short rows, 16pt per level. Rows sit flush so the
@@ -38,8 +40,13 @@ const INDENT = 16;
 const PAD = spacing.sm;
 const CHEVRON = 14;
 const ROW_SLOP = { top: 4, bottom: 4, left: 0, right: 0 };
+// How long a revealed file stays highlighted.
+const REVEAL_MS = 1500;
 
-export function FileTree({ project, nodes, activePath, onOpenFile }: FileTreeProps) {
+// "src/lib/a.ts" -> ["src", "src/lib"]
+const ancestors = (path: string) => path.split('/').slice(0, -1).map((_, i, parts) => parts.slice(0, i + 1).join('/'));
+
+export function FileTree({ project, nodes, activePath, onOpenFile, reveal }: FileTreeProps) {
   const styles = useStyles();
   const colors = useColors();
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
@@ -65,6 +72,30 @@ export function FileTree({ project, nodes, activePath, onOpenFile }: FileTreePro
   );
   const rows = useMemo(() => visibleRows(filtered.nodes, open), [filtered, open]);
   const git = useMemo(() => gitDecorations(changes, changeLetter), [changes]);
+
+  // Reveal: clear the filter, open the folders above the file, then scroll to
+  // it once its row is in the list, and highlight it for a moment.
+  const list = useRef<FlatList<TreeRow>>(null);
+  const scrollTo = useRef<string | null>(null);
+  const [flash, setFlash] = useState<string | null>(null);
+  useEffect(() => {
+    if (!reveal) return;
+    setQuery('');
+    setFilterClosed(new Set());
+    setExpanded((prev) => new Set([...prev, ...ancestors(reveal.path)]));
+    scrollTo.current = reveal.path;
+    setFlash(reveal.path);
+    const t = setTimeout(() => setFlash(null), REVEAL_MS);
+    return () => clearTimeout(t);
+  }, [reveal?.path, reveal?.nonce]);
+  useEffect(() => {
+    const target = scrollTo.current;
+    if (!target) return;
+    const index = rows.findIndex((r) => r.kind === 'node' && r.node.path === target);
+    if (index === -1) return;
+    scrollTo.current = null;
+    list.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true });
+  }, [rows]);
 
   const flip = (set: Set<string>, path: string) => {
     const next = new Set(set);
@@ -103,10 +134,23 @@ export function FileTree({ project, nodes, activePath, onOpenFile }: FileTreePro
     ]);
   }
 
+  // "name copy.ext" beside the file (or "name copy 2.ext"...), opened right away.
+  async function duplicate(node: TreeNode) {
+    try {
+      const target = await workspace.duplicatePath(project, node.path);
+      await store.copyEntry(project, node.path, target);
+      onOpenFile(target);
+      void gitStatusStore.getState().refresh(project);
+    } catch (e) {
+      Alert.alert(`Couldn't duplicate ${node.name}`, e instanceof Error ? e.message : String(e));
+    }
+  }
+
   function actionsFor(node: TreeNode): Action[] {
     const common: Action[] = [
       { label: 'Rename', icon: 'edit-2', onPress: () => setPrompt({ kind: 'rename', path: node.path }) },
       { label: 'Move to…', icon: 'corner-down-right', onPress: () => setPrompt({ kind: 'move', path: node.path }) },
+      ...(node.kind === 'file' ? [{ label: 'Duplicate', icon: 'copy' as const, onPress: () => void duplicate(node) }] : []),
       {
         label: 'Copy path',
         icon: 'clipboard',
@@ -172,6 +216,7 @@ export function FileTree({ project, nodes, activePath, onOpenFile }: FileTreePro
           styles.row,
           { paddingLeft: PAD + depth * INDENT },
           (active || pressed) && { backgroundColor: active ? colors.brandSoft : colors.secondary },
+          node.path === flash && [styles.revealed, { borderColor: colors.brand }],
         ]}
       >
         {guides(depth)}
@@ -241,10 +286,16 @@ export function FileTree({ project, nodes, activePath, onOpenFile }: FileTreePro
 
       {/* Virtualized: a big project can have thousands of rows open. */}
       <FlatList
+        ref={list}
         data={rows}
         keyExtractor={(row) => (row.kind === 'node' ? row.node.path : `${row.path}\u0000unlisted`)}
         renderItem={renderRow}
-        extraData={[activePath, git]}
+        extraData={[activePath, git, flash]}
+        // Rows that aren't laid out yet: jump near by row height, then try again.
+        onScrollToIndexFailed={({ index }) => {
+          list.current?.scrollToOffset({ offset: index * ROW_HEIGHT, animated: false });
+          setTimeout(() => list.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true }), 50);
+        }}
         contentContainerStyle={styles.list}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
@@ -329,6 +380,7 @@ const useStyles = makeStyles((colors) => ({
   guide: { position: 'absolute', top: 0, bottom: 0, width: 1, backgroundColor: colors.border },
   name: { flex: 1, color: colors.foreground, fontFamily: fonts.sans.regular, fontSize: 13.5 },
   activeName: { fontFamily: fonts.sans.medium },
+  revealed: { borderWidth },
   deleted: { textDecorationLine: 'line-through' },
   dot: { width: 6, height: 6, borderRadius: 3 },
   letter: { fontFamily: fonts.mono.semibold, fontSize: 12, minWidth: 10, textAlign: 'right' },

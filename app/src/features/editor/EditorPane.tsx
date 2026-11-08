@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
-import { AppState, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { Alert, AppState, StyleSheet, useWindowDimensions, View } from 'react-native';
 import WebView, { WebViewMessageEvent } from 'react-native-webview';
 import * as Clipboard from 'expo-clipboard';
 
@@ -21,6 +21,8 @@ import type { PeekTarget } from './bridge';
 import { classify, formatBytes, TOO_LARGE_BYTES } from './largeFiles';
 import { useInlineCompletions } from './useInlineCompletions';
 import { useAiFix } from './useAiFix';
+import { createSaveFormatter, fileFormatting, ReadFile } from './saveFormatting';
+import { selectionStore } from './selection';
 import type { Shortcut } from '../project/shortcuts';
 import editorHtml from './editorHtml.generated';
 import { makeStyles, useColorScheme } from '../../theme/theme';
@@ -36,6 +38,21 @@ export const MINIMAP_MIN_WIDTH = 600;
 // flush() doesn't wait longer than this for an editor that doesn't answer
 // (still loading, or its web content crashed).
 export const FLUSH_TIMEOUT_MS = 500;
+
+const readProjectFile: ReadFile = (project, path) =>
+  Promise.resolve()
+    .then(() => workspace.readFile(project, path))
+    .catch(() => null);
+
+// Trim trailing whitespace and insert final newline on save (see
+// saveFormatting.ts), from Settings and each file's .editorconfig. Set once,
+// by the first editor; it applies to every save from then on.
+let saveFormatterSet = false;
+function setSaveFormatter() {
+  if (saveFormatterSet) return;
+  saveFormatterSet = true;
+  buffersStore.getState().setSaveFormatter?.(createSaveFormatter(readProjectFile, () => settingsStore.getState()));
+}
 
 export interface EditorHandle {
   send(msg: ToEditor): void;
@@ -166,6 +183,7 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
 
   // The state flushes every editor before treating a file as deleted.
   useEffect(() => registerEditorFlush(flush), [flush]);
+  useEffect(setSaveFormatter, []);
 
   const retire = (prev: string | null) => {
     if (prev === null) return;
@@ -271,6 +289,9 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
       setRefused({ path: target, message });
       closeDocument();
     };
+    // The file's .editorconfig, read while the file loads; fresh on every
+    // open, so an edited .editorconfig applies when a file opens again.
+    const formatting = fileFormatting(readProjectFile, project, target, true);
     let buffer;
     try {
       if (!buffersStore.getState().buffers[bufferKey(project, target)]) {
@@ -295,7 +316,9 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
     }
     editorContent.current = buffer.content;
     const prev = opened.current;
-    send({ type: 'open', path: target, content: buffer.content, language: kind === 'large' ? 'plain' : languageFor(target) });
+    const { indent } = await formatting;
+    if (pathRef.current !== target) return;
+    send({ type: 'open', path: target, content: buffer.content, language: kind === 'large' ? 'plain' : languageFor(target), ...(indent ? { indent } : {}) });
     opened.current = target;
     if (prev !== target) retire(prev);
     const reveal = pendingReveal.current;
@@ -388,7 +411,17 @@ export const EditorPane = forwardRef<EditorHandle, EditorPaneProps>(function Edi
         announce(msg.text);
         return;
       case 'cursor':
+        selectionStore.setState({ project, path: msg.path, head: msg.offset, anchor: msg.anchor ?? msg.offset });
         hostRef.current.cursor(msg.path, msg.offset);
+        return;
+      case 'image': {
+        // Loaded here, so the file system and sharing modules load only when used.
+        const { shareCodeImage } = require('./shareImage') as typeof import('./shareImage');
+        shareCodeImage(msg.name, msg.base64).catch((e: Error) => Alert.alert("Couldn't share", e.message));
+        return;
+      }
+      case 'notice':
+        Alert.alert(msg.title, msg.message);
         return;
       case 'clipboard':
         Clipboard.setStringAsync(msg.text).catch(() => undefined);

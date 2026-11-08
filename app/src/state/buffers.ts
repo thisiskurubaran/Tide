@@ -24,6 +24,13 @@ export interface Buffer {
   recoveredTo?: string;
 }
 
+// Rewrites text on its way to disk: trim trailing whitespace and insert a
+// final newline (features/editor/saveFormatting.ts). `reason` is 'explicit'
+// for save(), 'auto' for the autosave after typing pauses and 'flush' for
+// flushAll / flushProject (Run, closing a tab, the app going to the background).
+export type SaveReason = 'explicit' | 'auto' | 'flush';
+export type SaveFormatter = (project: string, path: string, content: string, reason: SaveReason) => Promise<string> | string;
+
 export interface BuffersHooks {
   // A buffer with no unsaved edits went away because its file was deleted on
   // disk; its tab should close the way it does for a delete in the file tree.
@@ -63,6 +70,8 @@ export interface BuffersState {
   // `path` isn't treated as deleted. Returns the release.
   hold(project: string, path: string): () => void;
   clearRecovered(project: string, path: string): void;
+  // How text is formatted on save; null for as typed.
+  setSaveFormatter(formatter: SaveFormatter | null): void;
   // Saves everything pending, e.g. before the app goes to the background.
   flushAll(): Promise<void>;
   flushProject(project: string): Promise<void>;
@@ -140,15 +149,40 @@ export function createBuffersStore(workspace: Workspace, autosaveMs = AUTOSAVE_M
     throw new Error(`No free name to recover ${path} to`);
   };
 
+  let formatter: SaveFormatter | null = null;
+
   return createStore<BuffersState>()((set, get) => {
-    const write = async (key: string, recreate = false) => {
+    const write = async (key: string, recreate = false, reason: SaveReason = 'flush') => {
       cancel(key);
-      const buffer = get().buffers[key];
-      if (!buffer || (!isDirty(buffer) && !(recreate && buffer.deleted))) return;
+      let buffer = get().buffers[key];
+      if (!buffer) return;
       // Autosave and flushes never bring back a file deleted on disk.
       if (buffer.deleted && !recreate) return;
       const [project, path] = splitKey(key);
-      const content = buffer.content;
+      // An explicit save of an unchanged file still formats it (e.g. trims it).
+      if (!isDirty(buffer) && !(recreate && buffer.deleted) && !(formatter && reason === 'explicit')) return;
+      // The text being saved, before formatting.
+      const typed = buffer.content;
+      let content = typed;
+      if (formatter) {
+        try {
+          content = await formatter(project, path, typed, reason);
+        } catch (e) {
+          console.warn('Format on save failed', e);
+          content = typed;
+        }
+        const current = get().buffers[key];
+        // Gone, or deleted on disk meanwhile.
+        if (!current || (current.deleted && !recreate)) return;
+        if (content === current.saved && !(recreate && current.deleted)) {
+          // Nothing to write after all; the formatted text is what's on disk.
+          if (current.content === typed && typed !== content) set((s) => (s.buffers[key] === current ? { buffers: { ...s.buffers, [key]: { ...current, content } } } : s));
+          return;
+        }
+        // Typed into while formatting: what was formatted is written, and the
+        // newer text stays in the buffer for the next save.
+        buffer = current;
+      }
       bump(key);
       stamps.delete(key);
       try {
@@ -170,8 +204,10 @@ export function createBuffersStore(workspace: Workspace, autosaveMs = AUTOSAVE_M
       bump(key);
       set((s) => {
         const current = s.buffers[key];
-        // The user may have kept typing while the write was in flight.
-        return current ? { buffers: { ...s.buffers, [key]: { content: current.content, saved: content, ...(current.recoveredTo ? { recoveredTo: current.recoveredTo } : {}) } } } : s;
+        // The user may have kept typing while the write was in flight. If not,
+        // the buffer takes the formatted text that was written.
+        const text = current && current.content === typed ? content : current?.content;
+        return current ? { buffers: { ...s.buffers, [key]: { content: text!, saved: content, ...(current.recoveredTo ? { recoveredTo: current.recoveredTo } : {}) } } } : s;
       });
     };
 
@@ -278,12 +314,12 @@ export function createBuffersStore(workspace: Workspace, autosaveMs = AUTOSAVE_M
           timers.set(
             key,
             setTimeout(() => {
-              write(key).catch(() => undefined);
+              write(key, false, 'auto').catch(() => undefined);
             }, autosaveMs),
           );
         }
       },
-      save: (project, path, options) => write(bufferKey(project, path), options?.recreate === true),
+      save: (project, path, options) => write(bufferKey(project, path), options?.recreate === true, 'explicit'),
       async replace(project, path, content) {
         const key = bufferKey(project, path);
         cancel(key);
@@ -390,6 +426,9 @@ export function createBuffersStore(workspace: Workspace, autosaveMs = AUTOSAVE_M
           if (n > 0) held.set(key, n);
           else held.delete(key);
         };
+      },
+      setSaveFormatter(next) {
+        formatter = next;
       },
       clearRecovered(project, path) {
         const key = bufferKey(project, path);

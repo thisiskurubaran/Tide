@@ -140,12 +140,35 @@ export type CompletionResult = { from: number; items: CompletionItem[] };
 export type PeekTarget = { path: string; line: number; text: string; startLine: number };
 export type HoverResult = { text: string; from: number; to: number };
 
+// Indentation for one file, from its .editorconfig. Without it the editor
+// indents with two spaces.
+export interface IndentConfig {
+  unit: 'tab' | 'space';
+  // Columns per indent level.
+  size: number;
+  // Columns a tab character takes.
+  tabWidth: number;
+}
+
+// Line commands (palette and keymap): sort, reverse, join, duplicate, delete
+// and case changes. They act on the selection, or on the whole document,
+// the current line or the word at the cursor when nothing is selected.
+export const LINE_COMMANDS = ['sortAsc', 'sortDesc', 'reverse', 'join', 'duplicate', 'deleteLine', 'upper', 'lower', 'title'] as const;
+export type LineCommand = (typeof LINE_COMMANDS)[number];
+
 export type EditorRequest =
   | { id: number; method: 'completion'; path: string; offset: number; explicit: boolean }
   | { id: number; method: 'hover'; path: string; offset: number };
 
 export type ToEditor =
-  | { type: 'open'; path: string; content: string; language: Language }
+  | { type: 'open'; path: string; content: string; language: Language; indent?: IndentConfig }
+  | { type: 'lines'; command: LineCommand }
+  // The selection (or the whole file) as a fenced Markdown block on the
+  // clipboard, under a header with the file path and lines.
+  | { type: 'copyMarkdown' }
+  // The selection (or a short file) drawn on a themed card: answered with
+  // an 'image' message, or a 'notice' when it's too long.
+  | { type: 'shareImage'; lineNumbers: boolean }
   | { type: 'setTheme'; theme: EditorTheme; dark: boolean; fontSize: number }
   // Code font and programming ligatures (=> != >=) for the editor text.
   | { type: 'setFont'; font: CodeFont; ligatures: boolean }
@@ -224,7 +247,12 @@ export type FromEditor =
   // F12, or Cmd/Ctrl-click on a symbol.
   | { type: 'definition'; path: string; offset: number }
   // The cursor moved; commands like rename act on it.
-  | { type: 'cursor'; path: string; offset: number }
+  // `anchor` is the other end of the selection (missing in older bundles).
+  | { type: 'cursor'; path: string; offset: number; anchor?: number }
+  // A PNG of code to share, after 'shareImage'. `name` is the file name.
+  | { type: 'image'; path: string; name: string; base64: string }
+  // Something to tell the user in an alert, e.g. why an image wasn't made.
+  | { type: 'notice'; title: string; message: string }
   // Breakpoints in a file after a gutter tap, or after edits moved them. 1-based.
   | { type: 'breakpointsChanged'; path: string; lines: number[] }
   // What the built-in CSS/HTML/JSON services found in a file, for the Problems panel.
@@ -386,6 +414,10 @@ const TO_EDITOR = new Set<ToEditor['type']>([
   'dismissCompletion',
   'nextCompletion',
   'flush',
+  'close',
+  'lines',
+  'copyMarkdown',
+  'shareImage',
 ]);
 const FROM_EDITOR = new Set<FromEditor['type']>([
   'ready',
@@ -409,6 +441,8 @@ const FROM_EDITOR = new Set<FromEditor['type']>([
   'requestCompletion',
   'completionState',
   'flushed',
+  'image',
+  'notice',
 ]);
 
 // Extra checks for messages whose fields pick a code path in the WebView; an
@@ -424,6 +458,10 @@ const VALID: Partial<Record<string, (msg: Record<string, unknown>) => boolean>> 
     Number.isInteger(msg.requestId) && typeof msg.path === 'string' && typeof msg.prefix === 'string' && typeof msg.suffix === 'string',
   completionState: (msg) => typeof msg.visible === 'boolean',
   flush: (msg) => Number.isInteger(msg.id),
+  lines: (msg) => (LINE_COMMANDS as readonly unknown[]).includes(msg.command),
+  shareImage: (msg) => typeof msg.lineNumbers === 'boolean',
+  image: (msg) => typeof msg.path === 'string' && typeof msg.name === 'string' && typeof msg.base64 === 'string',
+  notice: (msg) => typeof msg.title === 'string' && typeof msg.message === 'string',
   flushed: (msg) => Number.isInteger(msg.id),
   setGestures: (msg) =>
     typeof msg.gestures === 'object' && msg.gestures !== null && GESTURE_KEYS.every((k) => typeof (msg.gestures as Record<string, unknown>)[k] === 'boolean'),

@@ -476,3 +476,55 @@ describe('a slow reload overtaken by a write (L4)', () => {
     expect(buf(buffers, 'index.js')).toEqual({ content: 'pulled', saved: 'pulled' });
   });
 });
+
+describe('format on save', () => {
+  const trim = (_p: string, _path: string, content: string, reason: string) =>
+    Promise.resolve(reason === 'auto' ? content.replace(/ +$/gm, '') + '|auto' : content.replace(/ +$/gm, ''));
+
+  it('writes the formatted text, and the buffer takes it when nothing was typed meanwhile', async () => {
+    const { buffers, workspace } = await setup();
+    await buffers.getState().load('p', 'index.js');
+    buffers.getState().setSaveFormatter(trim);
+    buffers.getState().edit('p', 'index.js', 'a  \nb');
+    await buffers.getState().save('p', 'index.js');
+    expect(await workspace.readFile('p', 'index.js')).toBe('a\nb');
+    expect(buf(buffers, 'index.js')).toEqual({ content: 'a\nb', saved: 'a\nb' });
+  });
+
+  it("tells autosave apart from explicit saves, and keeps what's typed during the write", async () => {
+    const { buffers, workspace } = await setup();
+    await buffers.getState().load('p', 'index.js');
+    buffers.getState().setSaveFormatter(trim);
+    buffers.getState().edit('p', 'index.js', 'x ');
+    jest.advanceTimersByTime(AUTOSAVE_MS);
+    // Typed while the formatter runs.
+    buffers.getState().edit('p', 'index.js', 'x y');
+    await settle();
+    await settle();
+    expect(await workspace.readFile('p', 'index.js')).toBe('x|auto');
+    expect(buf(buffers, 'index.js')).toEqual({ content: 'x y', saved: 'x|auto' });
+  });
+
+  it('formats an explicit save of an unchanged file, but not a flush', async () => {
+    const { buffers, workspace } = await setup();
+    await workspace.writeFile('p', 'index.js', 'z  ');
+    await buffers.getState().load('p', 'index.js');
+    buffers.getState().setSaveFormatter(trim);
+    await buffers.getState().flushProject('p');
+    expect(await workspace.readFile('p', 'index.js')).toBe('z  ');
+    await buffers.getState().save('p', 'index.js');
+    expect(await workspace.readFile('p', 'index.js')).toBe('z');
+    expect(isDirty(buf(buffers, 'index.js'))).toBe(false);
+  });
+
+  it('saves as typed when the formatter fails', async () => {
+    const { buffers, workspace } = await setup();
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await buffers.getState().load('p', 'index.js');
+    buffers.getState().setSaveFormatter(() => Promise.reject(new Error('nope')));
+    buffers.getState().edit('p', 'index.js', 'q  ');
+    await buffers.getState().save('p', 'index.js');
+    expect(await workspace.readFile('p', 'index.js')).toBe('q  ');
+    warn.mockRestore();
+  });
+});

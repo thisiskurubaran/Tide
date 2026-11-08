@@ -52,6 +52,14 @@ export function normalizePath(path: string): string {
   return parts.join('/');
 }
 
+// "name copy.ext", then "name copy 2.ext" and so on, like Finder. Dotfiles
+// (".env") have no extension to keep apart.
+export function copyName(name: string, n = 1): string {
+  const dot = name.lastIndexOf('.');
+  const [stem, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ''];
+  return validateName(`${stem} copy${n > 1 ? ` ${n}` : ''}${ext}`, 'File name');
+}
+
 function sortEntries<T extends { name: string; kind: EntryKind }>(entries: T[]): T[] {
   return entries.sort((a, b) =>
     a.kind === b.kind ? a.name.localeCompare(b.name, undefined, { numeric: true }) : a.kind === 'dir' ? -1 : 1,
@@ -137,6 +145,16 @@ export function createWorkspace(fs: FsAdapter) {
       await checkRelocation(project, from, target);
       await copyTree(abs(project, from), abs(project, target));
       return target;
+    },
+
+    // The first free "name copy.ext" path beside a file, for Duplicate.
+    async duplicatePath(project: string, path: string): Promise<string> {
+      const from = normalizePath(path);
+      await requireKind(abs(project, from), 'file');
+      for (let n = 1; ; n++) {
+        const to = joinPath(dirname(from), copyName(basename(from), n));
+        if (!(await fs.stat(abs(project, to)))) return to;
+      }
     },
 
     async listProjects(): Promise<string[]> {

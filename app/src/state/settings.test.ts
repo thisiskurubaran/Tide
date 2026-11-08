@@ -105,4 +105,33 @@ describe('settings store', () => {
     await flush();
     expect(restarted.getState().gestures).toEqual({ ...ALL_GESTURES, undo: false });
   });
+
+  it('keeps trim trailing whitespace and insert final newline off until turned on, and saves them', async () => {
+    const storage = createFsStorage(createMemoryFs());
+    await storage.setItem('settings', JSON.stringify({ state: { theme: 'dark', editorFontSize: 14, terminalFontSize: 13 }, version: 1 }));
+    const settings = createSettingsStore(storage);
+    await flush();
+    expect(settings.getState().trimTrailingWhitespace).toBe(false);
+    expect(settings.getState().insertFinalNewline).toBe(false);
+    settings.getState().setEditorOption('trimTrailingWhitespace', true);
+    settings.getState().setEditorOption('insertFinalNewline', true);
+    await flush();
+    const restarted = createSettingsStore(storage);
+    await flush();
+    expect(restarted.getState().trimTrailingWhitespace).toBe(true);
+    expect(restarted.getState().insertFinalNewline).toBe(true);
+  });
+
+  it('keeps the screen awake while running by default, including for settings saved before the option, and remembers it off', async () => {
+    const storage = createFsStorage(createMemoryFs());
+    await storage.setItem('settings', JSON.stringify({ state: { theme: 'light' }, version: 1 }));
+    const settings = createSettingsStore(storage);
+    await flush();
+    expect(settings.getState().keepAwake).toBe(true);
+    settings.getState().setKeepAwake(false);
+    await flush();
+    const restarted = createSettingsStore(storage);
+    await flush();
+    expect(restarted.getState().keepAwake).toBe(false);
+  });
 });

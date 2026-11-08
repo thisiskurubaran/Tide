@@ -19,8 +19,17 @@ jest.mock('../../state', () => {
     deleteEntry: jest.fn(),
     createFile: jest.fn(),
     createFolder: jest.fn(),
+    copyEntry: jest.fn(async (_p: string, _from: string, to: string) => to),
   }));
-  return { projectsStore, settingsStore: settings, useSettings: (sel: (s: unknown) => unknown) => useStore(settings, sel) };
+  // Only what Duplicate asks of the workspace: "a copy.ts" is taken.
+  const workspace = {
+    duplicatePath: jest.fn(async (_p: string, path: string) => {
+      const { copyName } = jest.requireActual('./workspace');
+      const dot = path.lastIndexOf('/');
+      return `${dot === -1 ? '' : path.slice(0, dot + 1)}${copyName(path.slice(dot + 1), path.endsWith('a.ts') ? 2 : 1)}`;
+    }),
+  };
+  return { projectsStore, workspace, settingsStore: settings, useSettings: (sel: (s: unknown) => unknown) => useStore(settings, sel) };
 });
 jest.mock('../git/status', () => {
   const actual = jest.requireActual('../git/status');
@@ -32,7 +41,8 @@ jest.mock('../git/status', () => {
 });
 
 import * as Clipboard from 'expo-clipboard';
-import { projectsStore } from '../../state';
+import { FlatList } from 'react-native';
+import { projectsStore, workspace } from '../../state';
 import { FileTree } from './FileTree';
 
 const tree: TreeNode[] = [
@@ -121,5 +131,67 @@ describe('FileTree', () => {
     expect(projectsStore.getState().deleteEntry).toHaveBeenCalledWith('p', 'new.ts');
     expect(calls).toContainEqual(["Couldn't delete new.ts", 'Permission denied']);
     await screen.findByText('U');
+  });
+
+  it('duplicates a file beside it from the long-press menu and opens the copy', async () => {
+    const { onOpenFile } = await setup();
+    // Folders don't offer it.
+    await fireEvent(screen.getByTestId('tree-src'), 'longPress');
+    expect(screen.queryByText('Duplicate')).toBeNull();
+    await fireEvent.press(screen.getByText('Rename'));
+    await fireEvent.press(screen.getByText('Cancel'));
+
+    await fireEvent(screen.getByTestId('tree-new.ts'), 'longPress');
+    await fireEvent.press(screen.getByText('Duplicate'));
+    await act(async () => new Promise((r) => setTimeout(r, 0)));
+    expect(workspace.duplicatePath).toHaveBeenCalledWith('p', 'new.ts');
+    expect(projectsStore.getState().copyEntry).toHaveBeenCalledWith('p', 'new.ts', 'new copy.ts');
+    expect(onOpenFile).toHaveBeenCalledWith('new copy.ts');
+    await screen.findByText('U');
+  });
+
+  it('says when a duplicate fails', async () => {
+    (projectsStore.getState().copyEntry as jest.Mock).mockRejectedValueOnce(new Error('Disk full'));
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+    try {
+      const { onOpenFile } = await setup();
+      await fireEvent(screen.getByTestId('tree-new.ts'), 'longPress');
+      await fireEvent.press(screen.getByText('Duplicate'));
+      await act(async () => new Promise((r) => setTimeout(r, 0)));
+      expect(alert).toHaveBeenCalledWith("Couldn't duplicate new.ts", 'Disk full');
+      expect(onOpenFile).not.toHaveBeenCalled();
+    } finally {
+      alert.mockRestore();
+    }
+    await screen.findByText('U');
+  });
+
+  it('reveals a file: clears the filter, opens its folders, scrolls to it and highlights it', async () => {
+    jest.useFakeTimers();
+    const scroll = jest.spyOn(FlatList.prototype, 'scrollToIndex').mockImplementation(() => undefined);
+    try {
+      const props = { project: 'p', nodes: tree, activePath: 'new.ts', onOpenFile: jest.fn() };
+      const { rerender } = await render(<FileTree {...props} />);
+      await fireEvent.changeText(screen.getByTestId('tree-filter'), 'index');
+      expect(screen.queryByTestId('tree-src/lib')).toBeNull();
+
+      await rerender(<FileTree {...props} reveal={{ path: 'src/lib/a.ts', nonce: 1 }} />);
+      expect(screen.getByTestId('tree-filter').props.value).toBe('');
+      const row = screen.getByTestId('tree-src/lib/a.ts');
+      expect(screen.getByTestId('tree-src/index.ts')).toBeTruthy();
+      // src, src/lib, then a.ts.
+      expect(scroll).toHaveBeenCalledWith({ index: 2, viewPosition: 0.5, animated: true });
+      expect(row).toHaveStyle({ borderWidth: expect.any(Number) });
+      await act(async () => jest.advanceTimersByTime(2000));
+      expect(screen.getByTestId('tree-src/lib/a.ts')).not.toHaveStyle({ borderWidth: expect.any(Number) });
+
+      // Revealing the same file again scrolls again.
+      scroll.mockClear();
+      await rerender(<FileTree {...props} reveal={{ path: 'src/lib/a.ts', nonce: 2 }} />);
+      expect(scroll).toHaveBeenCalledTimes(1);
+    } finally {
+      scroll.mockRestore();
+      jest.useRealTimers();
+    }
   });
 });

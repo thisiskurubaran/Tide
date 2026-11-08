@@ -1,6 +1,6 @@
 import { createMemoryFs } from './memoryFs';
 import { RUN_CONFIG_FILE, templates } from './templates';
-import { WorkspaceError, createWorkspace, normalizePath, validateName } from './workspace';
+import { WorkspaceError, copyName, createWorkspace, normalizePath, validateName } from './workspace';
 
 function setup() {
   const fs = createMemoryFs();
@@ -222,5 +222,28 @@ describe('stat, list, move and copy', () => {
     await expectCode(ws.copyEntry('demo', 'src/a.js', 'missing/a.js'), 'not-found');
     await expectCode(ws.moveEntry('demo', 'ghost.js', 'x.js'), 'not-found');
     await expectCode(ws.moveEntry('demo', '', 'x'), 'invalid-path');
+  });
+});
+
+describe('duplicate', () => {
+  it('names copies like Finder, keeping the extension', () => {
+    expect(copyName('app.js')).toBe('app copy.js');
+    expect(copyName('app.test.ts', 2)).toBe('app.test copy 2.ts');
+    expect(copyName('.env')).toBe('.env copy');
+    expect(copyName('Makefile', 3)).toBe('Makefile copy 3');
+    // Still held to the name rules.
+    expect(() => copyName(`${'x'.repeat(125)}.js`)).toThrow(WorkspaceError);
+  });
+
+  it('finds the first free copy name in the same folder', async () => {
+    const fs = createMemoryFs();
+    const ws = createWorkspace(fs);
+    await ws.createProject('demo', 'node-hello');
+    await ws.createFolder('demo', '', 'src');
+    await ws.createFile('demo', 'src', 'a.js', 'x');
+    await expect(ws.duplicatePath('demo', 'src/a.js')).resolves.toBe('src/a copy.js');
+    await ws.copyEntry('demo', 'src/a.js', 'src/a copy.js');
+    await expect(ws.duplicatePath('demo', 'src/a.js')).resolves.toBe('src/a copy 2.js');
+    await expectCode(ws.duplicatePath('demo', 'src'), 'not-found');
   });
 });

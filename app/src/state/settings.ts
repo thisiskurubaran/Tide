@@ -29,6 +29,10 @@ export interface SettingsState {
   snippets: Snippet[];
   // The first problem on a line, shown at its end (error lens).
   errorLens: boolean;
+  // On save (autosave too), unless the file's .editorconfig says otherwise.
+  // Markdown line breaks (two trailing spaces) are never trimmed.
+  trimTrailingWhitespace: boolean;
+  insertFinalNewline: boolean;
   haptics: boolean;
   // "system" follows the device's Increase Contrast setting.
   contrast: ContrastSetting;
@@ -40,6 +44,9 @@ export interface SettingsState {
   // Runs, tests and deploys on the Lock Screen and in the Dynamic Island (iOS).
   liveActivities: boolean;
   setLiveActivities(on: boolean): void;
+  // The screen stays on while a terminal runs something (a program, task, tests, a dev server).
+  keepAwake: boolean;
+  setKeepAwake(on: boolean): void;
   // Touch gestures in the editor (Settings > Gestures).
   gestures: EditorGestures;
   setGesture(key: keyof EditorGestures, on: boolean): void;
@@ -59,7 +66,7 @@ export interface SettingsState {
 
 export type ContrastSetting = 'system' | 'standard' | 'high';
 
-export type EditorOptionKey = 'wordWrap' | 'folding' | 'indentGuides' | 'minimap' | 'emmet' | 'errorLens';
+export type EditorOptionKey = 'wordWrap' | 'folding' | 'indentGuides' | 'minimap' | 'emmet' | 'errorLens' | 'trimTrailingWhitespace' | 'insertFinalNewline';
 
 export function createSettingsStore(storage: StateStorage) {
   return createStore<SettingsState>()(
@@ -77,6 +84,8 @@ export function createSettingsStore(storage: StateStorage) {
         emmet: true,
         snippets: [],
         errorLens: true,
+        trimTrailingWhitespace: false,
+        insertFinalNewline: false,
         haptics: true,
         contrast: 'system',
         codeFont: DEFAULT_CODE_FONT,
@@ -84,6 +93,8 @@ export function createSettingsStore(storage: StateStorage) {
         matchChrome: true,
         liveActivities: true,
         setLiveActivities: (liveActivities) => set({ liveActivities }),
+        keepAwake: true,
+        setKeepAwake: (keepAwake) => set({ keepAwake }),
         gestures: ALL_GESTURES,
         // Merged with the defaults, so a gesture added later starts on for settings saved before it.
         setGesture: (key, on) => set((s) => ({ gestures: { ...ALL_GESTURES, ...s.gestures, [key]: on } })),
@@ -104,7 +115,7 @@ export function createSettingsStore(storage: StateStorage) {
         name: 'settings',
         version: 1,
         storage: createJSONStorage(() => storage),
-        partialize: ({ theme, editorFontSize, terminalFontSize, crashReports, wordWrap, folding, indentGuides, minimap, keymap, emmet, snippets, errorLens, haptics, contrast, codeFont, ligatures, matchChrome, gestures, liveActivities }) => ({
+        partialize: ({ theme, editorFontSize, terminalFontSize, crashReports, wordWrap, folding, indentGuides, minimap, keymap, emmet, snippets, errorLens, trimTrailingWhitespace, insertFinalNewline, haptics, contrast, codeFont, ligatures, matchChrome, gestures, liveActivities, keepAwake }) => ({
           theme,
           editorFontSize,
           terminalFontSize,
@@ -117,12 +128,15 @@ export function createSettingsStore(storage: StateStorage) {
           emmet,
           snippets,
           errorLens,
+          trimTrailingWhitespace,
+          insertFinalNewline,
           haptics,
           contrast,
           codeFont,
           ligatures,
           matchChrome,
           liveActivities,
+          keepAwake,
           gestures,
         }),
       },

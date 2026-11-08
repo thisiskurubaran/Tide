@@ -14,7 +14,7 @@ import { GIT_PRO_PANEL } from '../../extensions/gitPro';
 import type { ProjectContext } from '../../extensions/types';
 import { buffersStore, projectsStore, runnerStore, snapshots, tabsStore, useBuffers, useProjects, useRunner, useTabs, workspace } from '../../state';
 import { bufferKey, isDirty } from '../../state/buffers';
-import { projectTabs } from '../../state/tabs';
+import { isPinned, othersToClose, projectTabs } from '../../state/tabs';
 import { borderWidth, fonts, radius, spacing } from '../../theme/tokens';
 import { exportProject } from '../backup/actions';
 import { SnapshotsSheet } from '../backup/SnapshotsSheet';
@@ -29,6 +29,7 @@ import { useKeyboardHeight } from '../editor/useKeyboardHeight';
 import { TerminalKeyBar } from '../terminal/TerminalKeyBar';
 import { SourceControlSheet } from '../git/SourceControlSheet';
 import { Command, CommandPalette } from '../search/CommandPalette';
+import { editorCommands } from '../editor/editorCommands';
 import { SearchPanel } from '../search/SearchPanel';
 import { TodosPanel } from '../todos/TodosPanel';
 import { OutlinePanel } from '../outline/OutlinePanel';
@@ -154,6 +155,8 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
   const [panel, setPanel] = useState<string | null>(null);
   const [showSnapshots, setShowSnapshots] = useState(false);
   const [showLinked, setShowLinked] = useState(false);
+  // A file the tree should open its folders to, scroll to and highlight.
+  const [reveal, setReveal] = useState<{ path: string; nonce: number } | null>(null);
   const reduceMotion = useReduceMotion();
   const [compare, setCompare] = useState<CompareRequest | null>(null);
   const [historyOf, setHistoryOf] = useState<string | null>(null);
@@ -416,6 +419,26 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     terminal.current?.input('\x03');
   };
   const showFiles = () => (wide ? setSidebarHidden((h) => !h) : setDrawerOpen((o) => !o));
+  // Shows the files (sidebar or drawer) with the file found and highlighted.
+  const revealInTree = (path: string | null) => {
+    if (!path) return;
+    if (wide) setSidebarHidden(false);
+    else setDrawerOpen(true);
+    setReveal((r) => ({ path, nonce: (r?.nonce ?? 0) + 1 }));
+  };
+
+  // ⇧⌘T: the last closed tab whose file is still there, back where it was.
+  const reopenClosedTab = async () => {
+    const exists = async (path: string) => (await workspace.stat(project, path).catch(() => null)) === 'file';
+    const path = await tabsStore.getState().reopenClosedTab(project, exists, !rightFocused);
+    if (path && rightFocused) setSplit({ path });
+    else if (!path) haptic('warning');
+  };
+  // Pinned tabs stay; each other tab closes as ⌘W would, saving first.
+  const closeTabs = async (paths: string[]) => {
+    for (const path of paths) await closeFile(path);
+  };
+  const closeOtherTabs = (keep: string | null) => closeTabs(othersToClose(projectTabs(tabsStore.getState(), project), keep));
   const deployStatus = useDeployStatus(deployStore, project);
   // A finished deploy's note goes away after a moment; failures stay until tapped.
   useEffect(() => {
@@ -562,6 +585,21 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     { id: 'goto-line', title: 'Go to line', icon: 'corner-down-right', hint: '⌘L', run: () => current && setGoingToLine(true) },
     { id: 'save', title: 'Save file', icon: 'save', hint: '⌘S', run: () => current && save(current).then(() => haptic('tap')) },
     { id: 'close-tab', title: 'Close file', icon: 'x', hint: '⌘W', run: () => current && closeFile(current) },
+    { id: 'reopen-tab', title: 'Reopen closed tab', icon: 'rotate-ccw', hint: '⇧⌘T', run: () => reopenClosedTab() },
+    ...(current
+      ? [
+          isPinned(tabs, current)
+            ? { id: 'tab.unpin', title: 'Unpin tab', icon: 'map-pin' as const, run: () => tabsStore.getState().unpinTab(project, current) }
+            : { id: 'tab.pin', title: 'Pin tab', icon: 'map-pin' as const, run: () => tabsStore.getState().pinTab(project, current) },
+          { id: 'reveal-file', title: 'Reveal in file tree', icon: 'sidebar' as const, run: () => revealInTree(current) },
+        ]
+      : []),
+    ...(othersToClose(tabs, current).length
+      ? [{ id: 'close-other-tabs', title: 'Close other tabs', icon: 'x-square' as const, run: () => closeOtherTabs(current) }]
+      : []),
+    ...(othersToClose(tabs, null).length
+      ? [{ id: 'close-all-tabs', title: 'Close all tabs (keeps pinned)', icon: 'x-circle' as const, run: () => closeOtherTabs(null) }]
+      : []),
     ...(wide ? [{ id: 'split', title: splitOn ? 'Close the second editor' : 'Split editor', icon: 'columns' as const, hint: '⌘\\', run: toggleSplit }] : []),
     ...(canToggle(current)
       ? [{ id: 'preview', title: previewing(current) ? 'Show source' : 'Show preview', icon: 'eye' as const, hint: '⇧⌘V', run: togglePreview }]
@@ -668,6 +706,8 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
       icon: 'share',
       run: () => current && shareFile(project, current).catch((e: Error) => Alert.alert("Couldn't share", e.message)),
     },
+    // Line commands, Copy selection as Markdown, Share selection as image.
+    ...editorCommands(editor, !!current),
     { id: 'copy-link', title: 'Copy link to this project', icon: 'link', run: () => copyLink() },
     { id: 'copy-run-link', title: 'Copy link that runs this project', icon: 'link', run: () => copyLink({ run: true }) },
     ...(current ? [{ id: 'copy-file-link', title: 'Copy link to this file', icon: 'link' as const, run: () => copyLink({ file: current }) }] : []),
@@ -875,7 +915,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
         {wide && !sidebarHidden && (
           <>
             <View style={[styles.sidebar, { width: sidebarWidth }]} testID="sidebar">
-              <FileTree project={project} nodes={tree ?? []} activePath={current} onOpenFile={openFile} />
+              <FileTree project={project} nodes={tree ?? []} activePath={current} onOpenFile={openFile} reveal={reveal} />
             </View>
             <SplitDivider
               ratio={bodyWidth > 0 ? sidebarWidth / bodyWidth : 0.25}
@@ -889,12 +929,25 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
           </>
         )}
         <View style={styles.body} onLayout={(e) => setMainHeight(e.nativeEvent.layout.height)}>
-          <TabBar open={tabs.open} active={current} onSelect={openFile} dirty={dirty} onClose={(path) => closeFile(path)} />
+          <TabBar
+            open={tabs.open}
+            active={current}
+            onSelect={openFile}
+            dirty={dirty}
+            onClose={(path) => closeFile(path)}
+            pinned={tabs.pinned}
+            onPin={(path) => tabsStore.getState().pinTab(project, path)}
+            onUnpin={(path) => tabsStore.getState().unpinTab(project, path)}
+            onCloseOthers={(path) => closeOtherTabs(path)}
+            onReveal={revealInTree}
+            compact={!wide}
+          />
           {wide && current && !previewing(current) && (
             <Breadcrumbs
               project={project}
               path={current}
-              onShowFiles={() => setSidebarHidden(false)}
+              // Tapping the path shows the file in the tree.
+              onShowFiles={() => revealInTree(current)}
               onJump={(line) => openAt(current, line)}
             />
           )}
@@ -1043,7 +1096,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
               },
             ]}
           >
-            <FileTree project={project} nodes={tree ?? []} activePath={current} onOpenFile={openFile} />
+            <FileTree project={project} nodes={tree ?? []} activePath={current} onOpenFile={openFile} reveal={reveal} />
           </Animated.View>
         </>
       )}
@@ -1061,6 +1114,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
           { label: 'Find in file', icon: 'search', onPress: () => editor.current?.send({ type: 'find' }) },
           { label: 'Select line', icon: 'minus', onPress: () => editor.current?.send({ type: 'select', unit: 'line' }) },
           { label: 'Select all', icon: 'maximize', onPress: () => editor.current?.send({ type: 'select', unit: 'all' }) },
+          { label: 'Share selection as image', icon: 'image', onPress: () => editor.current?.send({ type: 'shareImage', lineNumbers: true }) },
           { label: 'Command palette', icon: 'command', onPress: () => setPalette('commands') },
         ]}
         onClose={() => setEditorActions(false)}

@@ -1,6 +1,6 @@
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { EditorView } from '@codemirror/view';
-import { tags as t } from '@lezer/highlight';
+import { Tag, tags as t } from '@lezer/highlight';
 
 import type { EditorTheme } from '../../src/theme/editor';
 import { SHAPES } from './problems';
@@ -145,7 +145,14 @@ export function buildTheme(theme: EditorTheme, dark: boolean) {
     },
     { dark },
   );
-  const highlight = HighlightStyle.define([
+  const highlight = HighlightStyle.define(highlightSpecs(theme));
+  return [view, syntaxHighlighting(highlight)];
+}
+
+// Syntax colors by tag, shared by the editor and the code image (codeImage.ts).
+export function highlightSpecs(theme: EditorTheme): { tag: Tag | Tag[]; color: string; fontStyle?: string; fontWeight?: string; textDecoration?: string }[] {
+  const s = theme.syntax;
+  return [
     { tag: [t.keyword, t.controlKeyword, t.moduleKeyword, t.operatorKeyword, t.definitionKeyword], color: s.keyword },
     { tag: [t.string, t.special(t.string), t.regexp], color: s.string },
     { tag: [t.number, t.bool, t.null, t.atom], color: s.number },
@@ -158,6 +165,5 @@ export function buildTheme(theme: EditorTheme, dark: boolean) {
     { tag: [t.heading], color: s.keyword, fontWeight: '600' },
     { tag: [t.link, t.url], color: s.function, textDecoration: 'underline' },
     { tag: t.invalid, color: s.invalid },
-  ]);
-  return [view, syntaxHighlighting(highlight)];
+  ];
 }

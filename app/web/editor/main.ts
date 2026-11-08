@@ -49,7 +49,10 @@ import {
   EditorKey,
   EditorOptions,
   FromEditor,
+  IndentConfig,
   Language,
+  languageFor,
+  LineCommand,
   NO_FEATURES,
   NO_GESTURES,
   parseToEditor,
@@ -66,7 +69,6 @@ import {
   execLineEffect,
   featureExtensions,
   lintDiagnostics,
-  minimalChange,
   setBreakpoints,
 } from './features';
 import { attachGestures, createPullPill, PULL_PILL_CSS } from './gestures';
@@ -79,6 +81,10 @@ import { closePeek, PeekConfig, peekAt, peekExtension, showPeek } from './peek';
 import { problemExtensions } from './problems';
 import { acceptCompletion as acceptGhost, dismissCompletion, ghostExtension, ghostOf, GhostHost, nextCompletion, setCompletions, setGhostTheme, showCompletion } from './ghost';
 import { buildTheme, FONT_FAMILY } from './theme';
+import { drawCodeCard, highlightedLines, imageName, imageRange } from './codeImage';
+import { lineChanges } from './lineDiff';
+import { duplicateSelection, joinLines, LINE_COMMAND_RUN } from './lines';
+import { copiedText, markdownBlock } from './markdownCopy';
 
 const CHANGE_DEBOUNCE_MS = 150;
 const CURSOR_DEBOUNCE_MS = 200;
@@ -117,6 +123,14 @@ const featureConf = new Compartment();
 const optionsConf = new Compartment();
 // Gutter shapes and the error lens (problems.ts); the lens is a setting.
 const problemsConf = new Compartment();
+// Tab width and indent unit, from the file's .editorconfig (two spaces without one).
+const indentConf = new Compartment();
+const indents = new Map<string, IndentConfig>();
+function indentExtension(path: string | null): Extension {
+  const c = path ? indents.get(path) : undefined;
+  if (!c) return [EditorState.tabSize.of(2), indentUnit.of('  ')];
+  return [EditorState.tabSize.of(c.tabWidth), indentUnit.of(c.unit === 'tab' ? '\t' : ' '.repeat(c.size))];
+}
 let themeExtension: Extension = [];
 let theme: EditorTheme | null = null;
 let features: EditorFeatures = NO_FEATURES;
@@ -181,6 +195,15 @@ function postShortcut(id: Shortcut) {
   post({ type: 'shortcut', id });
 }
 
+// Line commands with their usual keys: Shift-Alt-Down duplicates the line,
+// or the selection when there is one (CodeMirror's own only copies lines),
+// and Ctrl-J joins lines on a Mac keyboard, as in Sublime Text and Xcode.
+// Normal precedence, so Vim and Emacs bindings still win.
+const lineKeymap = keymap.of([
+  { key: 'Shift-Alt-ArrowDown', run: duplicateSelection, preventDefault: true },
+  { mac: 'Ctrl-j', run: joinLines, preventDefault: true },
+]);
+
 const saveKeymap = keymap.of([
   {
     key: 'Mod-s',
@@ -236,8 +259,8 @@ function baseExtensions(lang: Language): Extension[] {
       ],
     }),
     languageServices(services),
-    EditorState.tabSize.of(2),
-    indentUnit.of('  '),
+    indentConf.of(indentExtension(currentPath)),
+    lineKeymap,
     keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...completionKeymap]),
     saveKeymap,
     languageConf.of(languageExtension(lang)),
@@ -252,7 +275,8 @@ function baseExtensions(lang: Language): Extension[] {
         if (pendingCursor !== null) clearTimeout(pendingCursor);
         pendingCursor = setTimeout(() => {
           pendingCursor = null;
-          if (currentPath) post({ type: 'cursor', path: currentPath, offset: view.state.selection.main.head });
+          const { head, anchor } = view.state.selection.main;
+          if (currentPath) post({ type: 'cursor', path: currentPath, offset: head, anchor });
         }, CURSOR_DEBOUNCE_MS);
       }
       if (!u.docChanged) return;
@@ -278,8 +302,10 @@ const view = new EditorView({
   state: EditorState.create({ doc: '', extensions: baseExtensions('plain') }),
 });
 
-function open(path: string, content: string, lang: Language) {
+function open(path: string, content: string, lang: Language, indent?: IndentConfig) {
   flushChange();
+  if (indent) indents.set(path, indent);
+  else indents.delete(path);
   // A suggestion belongs to the moment it was made, not to the cached state.
   dismissCompletion(view);
   if (currentPath !== null) states.set(currentPath, view.state);
@@ -295,6 +321,7 @@ function open(path: string, content: string, lang: Language) {
         featureConf.reconfigure(featureExtension()),
         optionsConf.reconfigure(optionExtension()),
         problemsConf.reconfigure(problemExtension()),
+        indentConf.reconfigure(indentExtension(path)),
         closePeek,
       ],
     });
@@ -324,8 +351,10 @@ function setContent(path: string, content: string, base: string | undefined) {
   const doc = view.state.doc.toString();
   // Typing that the app hasn't seen yet wins over a change computed from older text.
   if (base !== undefined && doc !== base) return;
-  const change = minimalChange(doc, content);
-  if (change) view.dispatch({ changes: change, userEvent: 'input.replace' });
+  // One change per changed line where it can (format on save trims lines),
+  // so the cursor stays put.
+  const changes = lineChanges(doc, content);
+  if (changes.length) view.dispatch({ changes, userEvent: 'input.replace' });
 }
 
 function goto(path: string, line: number, column = 1) {
@@ -404,6 +433,38 @@ function copy(cut: boolean) {
   if (cut) view.dispatch({ changes: parts.map(({ from, to }) => ({ from, to })), userEvent: 'delete.cut' });
 }
 
+// Palette line commands: the same commands as the keys, focus kept as it was.
+function runLineCommand(command: LineCommand) {
+  if (currentPath === null) return;
+  LINE_COMMAND_RUN[command](view);
+}
+
+function copyMarkdown() {
+  if (currentPath === null) return;
+  const { text, lines } = copiedText(view.state);
+  post({ type: 'clipboard', text: markdownBlock(currentPath, languageFor(currentPath), text, lines) });
+  post({ type: 'announce', text: 'Copied as Markdown' });
+}
+
+async function shareImage(lineNumbers: boolean) {
+  const path = currentPath;
+  if (path === null) return;
+  const range = imageRange(view.state);
+  if ('error' in range) {
+    post({ type: 'notice', title: "Can't share as an image", message: range.error });
+    return;
+  }
+  if (!theme) return;
+  try {
+    const lines = highlightedLines(view.state, range, theme);
+    const family = getComputedStyle(document.documentElement).getPropertyValue('--tide-code-font').trim() || "'JetBrains Mono'";
+    const base64 = await drawCodeCard(lines, { theme, title: path, lineNumbers, firstLine: range.firstLine, fontFamily: `${family}, monospace` });
+    post({ type: 'image', path, name: imageName(path), base64 });
+  } catch (e) {
+    post({ type: 'notice', title: "Couldn't make the image", message: String((e as Error)?.message ?? e) });
+  }
+}
+
 function setFont(font: CodeFont, ligatures: boolean) {
   const root = document.documentElement.style;
   root.setProperty('--tide-code-font', `'${CODE_FONTS[font].family}'`);
@@ -419,7 +480,13 @@ function setFont(font: CodeFont, ligatures: boolean) {
 function handle(msg: ToEditor) {
   switch (msg.type) {
     case 'open':
-      return open(msg.path, msg.content, msg.language);
+      return open(msg.path, msg.content, msg.language, msg.indent);
+    case 'lines':
+      return runLineCommand(msg.command);
+    case 'copyMarkdown':
+      return copyMarkdown();
+    case 'shareImage':
+      return shareImage(msg.lineNumbers);
     case 'setTheme':
       theme = msg.theme;
       themeExtension = buildTheme(msg.theme, msg.dark);

@@ -150,3 +150,28 @@ describe('code fonts', () => {
     expect(isCodeFont(undefined)).toBe(false);
   });
 });
+
+describe('line, Markdown and image messages', () => {
+  const to = (m: object) => parseToEditor(JSON.stringify(m));
+  const from = (m: object) => parseFromEditor(JSON.stringify(m));
+
+  it('accepts them with valid fields, each in its own direction', () => {
+    expect(to({ type: 'lines', command: 'sortAsc' })).toEqual({ type: 'lines', command: 'sortAsc' });
+    expect(to({ type: 'lines', command: 'rm -rf' })).toBeNull();
+    expect(to({ type: 'copyMarkdown' })).toEqual({ type: 'copyMarkdown' });
+    expect(to({ type: 'shareImage', lineNumbers: false })).toEqual({ type: 'shareImage', lineNumbers: false });
+    expect(to({ type: 'shareImage' })).toBeNull();
+    expect(to({ type: 'close' })).toEqual({ type: 'close' });
+    expect(from({ type: 'image', path: 'a.ts', name: 'a.png', base64: 'iVBOR' })).toBeTruthy();
+    expect(from({ type: 'image', path: 'a.ts', name: 'a.png' })).toBeNull();
+    expect(from({ type: 'notice', title: 'T', message: 'M' })).toBeTruthy();
+    expect(from({ type: 'notice', title: 'T' })).toBeNull();
+    expect(to({ type: 'image', path: 'a.ts', name: 'a.png', base64: 'x' })).toBeNull();
+  });
+
+  it('carries the indentation with open, and the selection anchor with cursor', () => {
+    const open = { type: 'open', path: 'Makefile', content: '', language: 'makefile', indent: { unit: 'tab', size: 4, tabWidth: 4 } };
+    expect(to(open)).toEqual(open);
+    expect(from({ type: 'cursor', path: 'a.md', offset: 4, anchor: 1 })).toEqual({ type: 'cursor', path: 'a.md', offset: 4, anchor: 1 });
+  });
+});

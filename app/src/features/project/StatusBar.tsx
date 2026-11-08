@@ -11,6 +11,7 @@ import { makeStyles, useColors } from '../../theme/theme';
 import { borderWidth, fonts } from '../../theme/tokens';
 import { Language, languageFor } from '../editor/bridge';
 import { LARGE_CHARS } from '../editor/largeFiles';
+import { useMarkdownWordCount } from '../editor/wordCount';
 import { useGitStatus } from '../git/status';
 import { cursorStore } from '../outline/Breadcrumbs';
 
@@ -87,6 +88,8 @@ export function StatusBar({ project, path, running, onBranch, onProblems, onGoTo
   const mode = useRunner((s) => s.mode);
   const content = useBuffers((s) => (path ? s.buffers[bufferKey(project, path)]?.content : undefined));
   const offset = useStore(cursorStore, (s) => (s.path === path ? s.offset : 0));
+  // Markdown only: words and reading time, of the selection when there is one.
+  const words = useMarkdownWordCount(project, path);
   const position = useMemo(
     () => (content !== undefined && content.length <= LARGE_CHARS ? positionAt(lineStarts(content), offset) : null),
     [content, offset],
@@ -129,6 +132,13 @@ export function StatusBar({ project, path, running, onBranch, onProblems, onGoTo
         <View style={styles.item} accessibilityLiveRegion="polite" accessibilityLabel="Running">
           <View style={[styles.dot, { backgroundColor: colors.success }]} />
           <Text style={[styles.text, { color: colors.success }]}>Running</Text>
+        </View>
+      )}
+      {words && (
+        <View style={styles.item} testID="status-words">
+          <Text style={styles.text} numberOfLines={1}>
+            {words}
+          </Text>
         </View>
       )}
       {path && position && item(`Line ${position.line}, column ${position.column}. Go to line`, onGoToLine, <Text style={styles.text}>{`Ln ${position.line}, Col ${position.column}`}</Text>, 'status-position')}

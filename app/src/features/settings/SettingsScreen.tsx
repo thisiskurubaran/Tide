@@ -26,6 +26,7 @@ import { useAccounts } from '../hosts/accounts';
 import { useAiSettings } from '../ai/settings';
 import { iconsSupported, setMidnightIcon, usingMidnightIcon } from './appIcon';
 import { CodeFontSection } from './CodeFontSection';
+import { SaveFormattingRows } from './SaveFormattingRows';
 import { ThemeGrid } from './ThemeGrid';
 
 export function SettingsScreen() {
@@ -37,6 +38,7 @@ export function SettingsScreen() {
   const crashReports = useSettings((s) => s.crashReports);
   const haptics = useSettings((s) => s.haptics);
   const liveActivities = useSettings((s) => s.liveActivities);
+  const keepAwake = useSettings((s) => s.keepAwake);
   const contrast = useSettings((s) => s.contrast);
   const matchChrome = useSettings((s) => s.matchChrome);
   const themesOn = useExtensions((s) => isActive(s, 'themes'));
@@ -47,7 +49,8 @@ export function SettingsScreen() {
     accountStore.getState().refresh();
   }, []);
   const [icon, setIcon] = useState<'standard' | 'midnight'>(() => (usingMidnightIcon() ? 'midnight' : 'standard'));
-  const editorOptions: Record<EditorOptionKey, boolean> = {
+  // The save options have their own rows (SaveFormattingRows).
+  const editorOptions: Record<ViewOptionKey, boolean> = {
     wordWrap: useSettings((s) => s.wordWrap),
     folding: useSettings((s) => s.folding),
     indentGuides: useSettings((s) => s.indentGuides),
@@ -151,7 +154,7 @@ export function SettingsScreen() {
               ['indentGuides', 'Indent guides'],
               ['minimap', 'Minimap (iPad and wide windows)'],
               ['errorLens', 'Show problems at the end of the line'],
-            ] as [EditorOptionKey, string][]
+            ] as [ViewOptionKey, string][]
           ).map(([key, label]) => (
             <Row key={key} label={label}>
               <Switch
@@ -170,6 +173,7 @@ export function SettingsScreen() {
               trackColor={{ true: colors.brand, false: colors.secondary }}
             />
           </Row>
+          <SaveFormattingRows />
           <LinkRow label="AI assistant" detail={aiKey ? 'Connected · models, completions and spend limit' : 'Claude, GPT, Gemini or your own server, with your own key'} onPress={() => router.push('/settings/ai')} testID="settings-ai" />
           <LinkRow
             label="Snippets"
@@ -212,6 +216,17 @@ export function SettingsScreen() {
               />
             </Row>
           )}
+          <Row label="Keep screen awake while running">
+            <Switch
+              testID="settings-keep-awake"
+              value={keepAwake}
+              onValueChange={(on) => settings.setKeepAwake(on)}
+              trackColor={{ true: colors.brand, false: colors.secondary }}
+            />
+          </Row>
+          <Text variant="muted" style={styles.note}>
+            The screen doesn't lock while a program, task, test run or dev server runs in a terminal, Local or Remote. It locks as usual once they finish.
+          </Text>
         </Section>
 
         <Section title="Extensions">
@@ -288,6 +303,8 @@ export function SettingsScreen() {
     </View>
   );
 }
+
+type ViewOptionKey = Exclude<EditorOptionKey, 'trimTrailingWhitespace' | 'insertFinalNewline'>;
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   const styles = useStyles();
