@@ -478,7 +478,13 @@ const commands = {
       // A branch only on origin becomes a local one tracking it (isomorphic-git does that part).
       const to = (await tree.resolveCommit(dir, ref).catch(() => null)) ?? (await tree.resolveCommit(dir, `refs/remotes/origin/${ref}`).catch(() => null));
       if (!to) throw new GitError(`pathspec '${ref}' did not match any branch`);
-      await tree.checkoutSafely(dir, { ref, to });
+      const { detached } = await tree.checkoutSafely(dir, { ref, to });
+      if (detached) {
+        // A tag, an oid or HEAD~1: no branch to be on, as in real git.
+        const { commit } = await git.readCommit({ fs, dir, oid: to });
+        console.log(`HEAD is now at ${to.slice(0, 7)} ${commit.message.split('\n')[0]}`);
+        return 0;
+      }
     }
     console.log(`Switched to ${create ? 'a new ' : ''}branch '${ref}'`);
     return 0;

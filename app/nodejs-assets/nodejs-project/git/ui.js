@@ -8,7 +8,7 @@ const fs = require('fs');
 const { blame } = require('./blame');
 const path = require('path');
 const { CONFLICTS, assertNoOperation, conflicts, gitFile, readGitFile, setConflicts } = require('./state');
-const { lstatWork, readWork, sameEntry } = require('./tree');
+const { lstatWork, readWork, sameEntry, GITLINK, SYMLINK } = require('./tree');
 
 // Merge state isomorphic-git doesn't keep: the commit being merged (as real
 // git does) and which files had conflicts, until they are staged (state.js).
@@ -17,6 +17,51 @@ const MERGE_MSG = 'MERGE_MSG';
 
 /** @param {Buffer | Uint8Array} buf */
 const isBinary = (buf) => buf.subarray(0, 8000).includes(0);
+
+/**
+ * An fs for isomorphic-git's merge that writes nothing into the working
+ * tree: with abortOnConflict false, its merge writes every file of the merged
+ * tree with a plain writeFile, which follows tracked symlinks and overwrites
+ * the files they point at, in the repo or outside it. What it would write is
+ * kept in `writes` instead (repo-relative path to content and mode), for
+ * writing safely afterwards; .git is written as usual.
+ */
+function worktreeCapture(/** @type {string} */ dir) {
+  const root = path.resolve(dir);
+  const gitdir = path.join(root, '.git');
+  /** @type {Map<string, { data: Buffer, mode: number | undefined }>} */
+  const writes = new Map();
+  const inWorktree = (/** @type {string} */ f) => {
+    const abs = path.resolve(String(f));
+    return abs.startsWith(`${root}${path.sep}`) && abs !== gitdir && !abs.startsWith(`${gitdir}${path.sep}`);
+  };
+  const p = fs.promises;
+  const promises = {
+    readFile: p.readFile.bind(p),
+    stat: p.stat.bind(p),
+    lstat: p.lstat.bind(p),
+    readdir: p.readdir.bind(p),
+    readlink: p.readlink.bind(p),
+    rmdir: p.rmdir.bind(p),
+    unlink: p.unlink.bind(p),
+    rm: p.rm.bind(p),
+    async writeFile(/** @type {string} */ f, /** @type {any} */ data, /** @type {any} */ opts) {
+      if (!inWorktree(f)) return p.writeFile(f, data, opts);
+      writes.set(path.relative(root, path.resolve(f)).split(path.sep).join('/'), { data: Buffer.from(data), mode: opts && opts.mode });
+      return undefined;
+    },
+    async mkdir(/** @type {string} */ f, /** @type {any} */ opts) {
+      if (!inWorktree(f)) return p.mkdir(f, opts);
+      return undefined;
+    },
+    async symlink(/** @type {string} */ target, /** @type {string} */ f) {
+      if (!inWorktree(f)) return p.symlink(target, f);
+      writes.set(path.relative(root, path.resolve(f)).split(path.sep).join('/'), { data: Buffer.from(target), mode: SYMLINK });
+      return undefined;
+    },
+  };
+  return { fs: { promises }, writes };
+}
 
 /**
  * @param {{ git: any, http: any, findRoot(): Promise<string>, changes(dir: string, paths?: string[]): Promise<any[]>,
@@ -75,30 +120,65 @@ function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure,
   }
 
   /**
-   * After a merge with conflicts, makes the index hold the merge result for
-   * every path that isn't conflicted, as real git does, so only conflicted
-   * paths are left to resolve. isomorphic-git (abortOnConflict: false) stages
-   * only paths both sides changed: a file changed or added only on their side
-   * was left unstaged or untracked, and one deleted only on their side wasn't
-   * deleted, so committing the merge dropped those changes.
+   * After a merge with conflicts, makes the working tree and index hold the
+   * merge result for every path, as real git does, so only conflicted paths
+   * are left to resolve. isomorphic-git (abortOnConflict: false) stages only
+   * paths both sides changed: a file changed or added only on their side was
+   * left unstaged or untracked, and one deleted only on their side wasn't
+   * deleted, so committing the merge dropped those changes. Its own working
+   * tree writes were caught (`writes`, see worktreeCapture); the merged text
+   * of files both sides changed is written from them here, never through a
+   * symlink, and a link is written as a link.
    * @param {string} dir @param {string} oursOid @param {string} theirsOid @param {string[]} unmerged
+   * @param {Map<string, { data: Buffer, mode: number | undefined }>} writes
    */
-  async function stageMergeResult(dir, oursOid, theirsOid, unmerged) {
+  async function stageMergeResult(dir, oursOid, theirsOid, unmerged, writes) {
     const [base] = await git.findMergeBase({ fs, dir, oids: [oursOid, theirsOid] });
     const [b, o, t] = await Promise.all([base ? tree.files(dir, base) : new Map(), tree.files(dir, oursOid), tree.files(dir, theirsOid)]);
     const skip = new Set(unmerged);
+    /** @type {string[]} */
+    const theirsOnly = [];
+    /** @type {string[]} */
+    const merged = [];
     for (const filepath of new Set([...b.keys(), ...o.keys(), ...t.keys()])) {
-      if (skip.has(filepath)) continue;
       const [be, oe, te] = [b.get(filepath) ?? null, o.get(filepath) ?? null, t.get(filepath) ?? null];
+      if (skip.has(filepath)) {
+        merged.push(filepath);
+        continue;
+      }
       // Ours already is the result.
       if (sameEntry(oe, te) || sameEntry(be, te)) continue;
       // Only their side changed it: take theirs, in the working tree and index.
-      if (sameEntry(be, oe)) {
-        await tree.setFile(dir, filepath, te);
-        continue;
+      if (sameEntry(be, oe)) theirsOnly.push(filepath);
+      else merged.push(filepath);
+    }
+    // Their side's changes, as a checkout of those paths from their commit.
+    const result = new Map(o);
+    for (const p of theirsOnly) {
+      const te = t.get(p);
+      if (te) result.set(p, te);
+      else result.delete(p);
+    }
+    await tree.switchFiles(dir, o, result, theirsOnly.sort(), { to: theirsOid, what: 'merge' });
+
+    // Both changed it: the merged text, or the conflict with markers. Kept as
+    // ours, as real git does, where markers can't go: a binary file, a
+    // symlink or a submodule both sides changed.
+    for (const filepath of merged) {
+      const w = writes.get(filepath);
+      const [oe, te] = [o.get(filepath) ?? null, t.get(filepath) ?? null];
+      const both = !!oe && !!te;
+      const keepOurs =
+        !w ||
+        (both && [oe, te].some((e) => e.mode === SYMLINK || e.mode === GITLINK)) ||
+        (both && (isBinary(await tree.blob(dir, oe.oid)) || isBinary(await tree.blob(dir, te.oid))));
+      if (!keepOurs) {
+        const mode = w.mode === SYMLINK || w.mode === 0o100755 ? w.mode : 0o100644;
+        tree.writeFile(dir, filepath, w.data, mode);
       }
-      // Both changed it and it merged cleanly: stage what the merge wrote.
-      if (lstatWork(dir, filepath)) await git.add({ fs, dir, filepath });
+      if (skip.has(filepath)) continue;
+      // Merged cleanly: stage what was written.
+      if (lstatWork(dir, filepath)) await git.add({ fs, dir, filepath, force: true });
       else await git.remove({ fs, dir, filepath });
     }
   }
@@ -149,14 +229,16 @@ function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure,
     async discard(dir, paths) {
       for (const filepath of paths) {
         const entry = await indexEntry(dir, filepath);
-        const abs = path.join(dir, filepath);
         if (!entry) {
-          fs.rmSync(abs, { force: true });
+          // Untracked: a file or link goes (a link, not what it points at).
+          if (!lstatWork(dir, filepath)?.isDirectory()) tree.removeFile(dir, filepath);
           continue;
         }
+        // A submodule's files aren't checked out here.
+        if (entry.mode === GITLINK) continue;
         const { blob } = await git.readBlob({ fs, dir, oid: entry.oid });
-        fs.mkdirSync(path.dirname(abs), { recursive: true });
-        fs.writeFileSync(abs, Buffer.from(blob));
+        // Replaces what is there, never writing through a symlink; a link comes back as a link.
+        tree.writeFile(dir, filepath, Buffer.from(blob), entry.mode);
       }
       return null;
     },
@@ -233,16 +315,20 @@ function createUi({ git, http, findRoot, changes, author, onAuth, onAuthFailure,
       const [base] = await git.findMergeBase({ fs, dir, oids: [oursOid, theirsCommit] });
       await tree.assertCanSwitch(dir, oursOid, theirsCommit, 'merge', { base: base ?? null });
       const message = `Merge branch '${theirs}' into ${ours}`;
+      const capture = worktreeCapture(dir);
       try {
-        const result = await git.merge({ fs, dir, ours, theirs, author: author(), message, abortOnConflict: false });
-        // merge moves the branch; the working tree has to follow it.
-        await git.checkout({ fs, dir, ref: ours, force: true });
+        const result = await git.merge({ fs: capture.fs, dir, ours, theirs, author: author(), message, abortOnConflict: false, noUpdateBranch: true });
+        // The working tree follows the merge result, then the branch moves.
+        if (!result.alreadyMerged) {
+          await tree.moveTo(dir, oursOid, result.oid, { what: 'merge' });
+          await git.writeRef({ fs, dir, ref: `refs/heads/${ours}`, value: result.oid, force: true });
+        }
         return { conflicts: [], fastForward: !!result.fastForward, alreadyMerged: !!result.alreadyMerged };
       } catch (e) {
         const err = /** @type {any} */ (e);
         if (err && err.code === 'MergeConflictError') {
           const files = err.data && err.data.filepaths ? err.data.filepaths : [];
-          await stageMergeResult(dir, oursOid, theirsOid, files);
+          await stageMergeResult(dir, oursOid, theirsOid, files, capture.writes);
           fs.writeFileSync(gitFile(dir, MERGE_HEAD), `${theirsOid}\n`);
           fs.writeFileSync(gitFile(dir, MERGE_MSG), `${message}\n`);
           setConflicts(dir, files);

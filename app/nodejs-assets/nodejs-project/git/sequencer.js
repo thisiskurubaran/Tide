@@ -170,13 +170,14 @@ function createSequencer({ git, author, changes, GitError, tree }) {
     const onto = await tree.resolveCommit(dir, upstream);
     const [base] = await git.findMergeBase({ fs, dir, oids: [ours, onto] });
     if (base === onto) return { status: 'up-to-date' };
-    // The forced checkouts below would overwrite untracked files at paths the
+    // The checkouts below would overwrite untracked files at paths the
     // upstream tracks; refuse before changing anything, as real git does.
     await tree.assertCanSwitch(dir, ours, onto, 'checkout');
     const ref = `refs/heads/${branch}`;
     if (base === ours) {
+      // Files first, then the branch, so a failure leaves the branch where it was.
+      await tree.moveTo(dir, ours, onto, { what: 'rebase' });
       await git.writeRef({ fs, dir, ref, value: onto, force: true });
-      await git.checkout({ fs, dir, ref: branch, force: true });
       return { status: 'fast-forward' };
     }
     // The branch's own commits, oldest first. Merge commits are left out, as
@@ -185,6 +186,9 @@ function createSequencer({ git, author, changes, GitError, tree }) {
     const picks = (await git.log({ fs, dir, ref: ours }))
       .filter((/** @type {any} */ e) => !upstreamHas.has(e.oid) && e.commit.parent.length === 1)
       .reverse();
+    // Onto the upstream: files first, then the state and the branch, so a
+    // failure (a symlink in the way, say) leaves no rebase half started.
+    await tree.moveTo(dir, ours, onto, { what: 'rebase' });
     writeGitFile(dir, rebaseFile('head-name'), ref);
     writeGitFile(dir, rebaseFile('onto'), onto);
     writeGitFile(dir, rebaseFile('orig-head'), ours);
@@ -192,7 +196,6 @@ function createSequencer({ git, author, changes, GitError, tree }) {
     writeGitFile(dir, rebaseFile('git-rebase-todo'), picks.map((/** @type {any} */ e) => `pick ${e.oid} ${subject(e.commit.message)}`).join('\n'));
     writeGitFile(dir, 'ORIG_HEAD', ours);
     await git.writeRef({ fs, dir, ref, value: onto, force: true });
-    await git.checkout({ fs, dir, ref: branch, force: true });
     return replay(dir);
   }
 
@@ -235,8 +238,10 @@ function createSequencer({ git, author, changes, GitError, tree }) {
     const ref = /** @type {string} */ (readGitFile(dir, rebaseFile('head-name')));
     const orig = /** @type {string} */ (readGitFile(dir, rebaseFile('orig-head')));
     await undoStopped(dir);
+    // Back to where the branch was, like git reset --hard: local changes go too.
+    const extra = (await changes(dir)).filter((c) => c.code !== '??').map((c) => c.path);
+    await tree.moveTo(dir, await head(dir), orig, { what: 'rebase', extra });
     await git.writeRef({ fs, dir, ref, value: orig, force: true });
-    await git.checkout({ fs, dir, ref: ref.replace(/^refs\/heads\//, ''), force: true });
     removeGitFile(dir, REBASE);
     removeGitFile(dir, 'REBASE_HEAD');
   }

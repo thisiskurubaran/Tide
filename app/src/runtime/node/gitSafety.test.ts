@@ -730,6 +730,379 @@ withGit('rm options', () => {
   });
 });
 
+withGit('rebase and Git Pro merge across a folder that became a file', () => {
+  /** up replaces folder d/ with a file d; main has a commit of its own. */
+  async function typeChange() {
+    const dir = tmp();
+    await git(dir, ['init']);
+    write(dir, 'd/x', 'x\n');
+    write(dir, 'a.txt', 'a\n');
+    await git(dir, ['add', '-A']);
+    await git(dir, ['commit', '-m', 'base']);
+    await git(dir, ['branch', 'up']);
+    await git(dir, ['checkout', 'up']);
+    await git(dir, ['rm', '-rq', 'd']);
+    write(dir, 'd', 'file\n');
+    await git(dir, ['add', '-A']);
+    await git(dir, ['commit', '-m', 'up']);
+    await git(dir, ['checkout', 'main']);
+    write(dir, 'a.txt', 'main\n');
+    await git(dir, ['commit', '-am', 'main']);
+    return dir;
+  }
+
+  it('rebase keeps the file in the rewritten commit', async () => {
+    const dir = await typeChange();
+    const r = await git(dir, ['rebase', 'up']);
+    expect(r.code).toBe(0);
+    expect(real(dir, 'ls-tree', '-r', '--name-only', 'HEAD')).toBe('a.txt\nd\n');
+    expect(real(dir, 'show', 'HEAD:d')).toBe('file\n');
+    expect(real(dir, 'show', 'HEAD:a.txt')).toBe('main\n');
+    expect(read(dir, 'd')).toBe('file\n');
+    expect(real(dir, 'status', '--porcelain')).toBe('');
+  });
+
+  it('rebase fast-forwards across it, and abort goes back across it', async () => {
+    const dir = await typeChange();
+    // Fast-forward: a branch with nothing of its own.
+    await git(dir, ['checkout', '-b', 'behind', 'up~1']);
+    real(dir, 'reset', '-q', '--hard', real(dir, 'rev-parse', 'up~1').trim());
+    expect((await git(dir, ['rebase', 'up'])).code).toBe(0);
+    expect(read(dir, 'd')).toBe('file\n');
+    expect(real(dir, 'status', '--porcelain')).toBe('');
+
+    // Abort: main's own commit conflicts with one on up2, which also has the file.
+    await git(dir, ['checkout', 'up']);
+    await git(dir, ['checkout', '-b', 'up2']);
+    write(dir, 'a.txt', 'up2\n');
+    await git(dir, ['commit', '-am', 'up2']);
+    await git(dir, ['checkout', 'main']);
+    const before = real(dir, 'rev-parse', 'HEAD');
+    const r = await git(dir, ['rebase', 'up2']);
+    expect(r.out).toMatch(/conflict/i);
+    expect(read(dir, 'd')).toBe('file\n');
+    expect((await git(dir, ['rebase', '--abort'])).code).toBe(0);
+    expect(real(dir, 'rev-parse', 'HEAD')).toBe(before);
+    expect(read(dir, 'd/x')).toBe('x\n');
+    expect(read(dir, 'a.txt')).toBe('main\n');
+    expect(real(dir, 'status', '--porcelain')).toBe('');
+  });
+
+  it('Git Pro merge leaves the file, staged and committed', async () => {
+    const dir = await typeChange();
+    const r = JSON.parse((await git(dir, ['__tide', 'merge', 'up'])).out);
+    expect(r.conflicts).toEqual([]);
+    expect(real(dir, 'log', '-1', '--format=%p').trim().split(' ')).toHaveLength(2);
+    expect(real(dir, 'ls-tree', '-r', '--name-only', 'HEAD')).toBe('a.txt\nd\n');
+    expect(fs.lstatSync(path.join(dir, 'd')).isFile()).toBe(true);
+    expect(read(dir, 'd')).toBe('file\n');
+    expect(real(dir, 'status', '--porcelain')).toBe('');
+  });
+
+  it('Git Pro merge with a conflict elsewhere takes their file in place of the folder', async () => {
+    const dir = await typeChange();
+    await git(dir, ['checkout', 'up']);
+    write(dir, 'a.txt', 'up\n');
+    await git(dir, ['commit', '-am', 'up a']);
+    await git(dir, ['checkout', 'main']);
+    expect(JSON.parse((await git(dir, ['__tide', 'merge', 'up'])).out).conflicts).toEqual(['a.txt']);
+    expect(read(dir, 'd')).toBe('file\n');
+    expect(real(dir, 'status', '--porcelain')).toBe('UU a.txt\nA  d\nD  d/x\n');
+  });
+});
+
+withGit('a conflicted Git Pro merge never writes through a symlink', () => {
+  /** zlink -> a.txt and out -> ../outside.txt are committed; feat and main both change c.txt. */
+  async function linked() {
+    const parent = tmp();
+    const dir = path.join(parent, 'repo');
+    fs.mkdirSync(dir);
+    write(parent, 'outside.txt', 'OUTSIDE\n');
+    await git(dir, ['init']);
+    write(dir, 'a.txt', 'a\n');
+    write(dir, 'c.txt', 'c\n');
+    fs.symlinkSync('a.txt', path.join(dir, 'zlink'));
+    fs.symlinkSync('../outside.txt', path.join(dir, 'out'));
+    await git(dir, ['add', '-A']);
+    await git(dir, ['commit', '-m', 'base']);
+    await git(dir, ['branch', 'feat']);
+    await git(dir, ['checkout', 'feat']);
+    write(dir, 'c.txt', 'feat\n');
+    // Their side points a link somewhere else and adds one leading out of the repo.
+    fs.unlinkSync(path.join(dir, 'zlink'));
+    fs.symlinkSync('c.txt', path.join(dir, 'zlink'));
+    fs.symlinkSync('../outside.txt', path.join(dir, 'out2'));
+    await git(dir, ['add', '-A']);
+    await git(dir, ['commit', '-m', 'feat']);
+    await git(dir, ['checkout', 'main']);
+    write(dir, 'c.txt', 'main\n');
+    await git(dir, ['commit', '-am', 'main']);
+    return { dir, parent };
+  }
+
+  it('leaves the files links point at, inside and outside the repo, and writes links as links', async () => {
+    const { dir, parent } = await linked();
+    expect(JSON.parse((await git(dir, ['__tide', 'merge', 'feat'])).out).conflicts).toEqual(['c.txt']);
+    expect(read(dir, 'a.txt')).toBe('a\n');
+    expect(read(parent, 'outside.txt')).toBe('OUTSIDE\n');
+    expect(fs.readlinkSync(path.join(dir, 'zlink'))).toBe('c.txt');
+    expect(fs.readlinkSync(path.join(dir, 'out'))).toBe('../outside.txt');
+    expect(fs.readlinkSync(path.join(dir, 'out2'))).toBe('../outside.txt');
+    expect(read(dir, 'c.txt')).toMatch(/<<<<<<< .*\nmain\n=======\nfeat\n>>>>>>> /);
+    expect(real(dir, 'status', '--porcelain')).toBe('UU c.txt\nA  out2\nM  zlink\n');
+
+    write(dir, 'c.txt', 'resolved\n');
+    await git(dir, ['add', 'c.txt']);
+    expect((await git(dir, ['commit', '-m', 'merge'])).code).toBe(0);
+    expect(real(dir, 'ls-tree', 'HEAD', 'zlink', 'out2')).toMatch(/^120000 blob \w+\tout2\n120000 blob \w+\tzlink\n$/);
+    expect(real(dir, 'status', '--porcelain')).toBe('');
+    expect(read(parent, 'outside.txt')).toBe('OUTSIDE\n');
+  });
+
+  it('Git Pro discard puts a link back as a link, never writing through one', async () => {
+    const { dir, parent } = await linked();
+    // A link to a.txt retargeted out of the repo: discard must not write "a.txt" into outside.txt.
+    fs.unlinkSync(path.join(dir, 'zlink'));
+    fs.symlinkSync('../outside.txt', path.join(dir, 'zlink'));
+    // A link replaced by a plain file.
+    fs.unlinkSync(path.join(dir, 'out'));
+    write(dir, 'out', 'plain\n');
+    expect((await git(dir, ['__tide', 'discard', 'zlink', 'out'])).code).toBe(0);
+    expect(fs.readlinkSync(path.join(dir, 'zlink'))).toBe('a.txt');
+    expect(fs.readlinkSync(path.join(dir, 'out'))).toBe('../outside.txt');
+    expect(read(parent, 'outside.txt')).toBe('OUTSIDE\n');
+    expect(read(dir, 'a.txt')).toBe('a\n');
+    expect(real(dir, 'status', '--porcelain')).toBe('');
+  });
+});
+
+withGit('submodules (gitlinks)', () => {
+  /** main has a.txt; sub adds submodule lib (a gitlink, made with real git). */
+  async function withSubmodule() {
+    const dir = tmp();
+    real(dir, 'init', '-q');
+    write(dir, 'a.txt', 'a\n');
+    real(dir, 'add', '-A');
+    real(dir, 'commit', '-qm', 'base');
+    const sha = real(dir, 'rev-parse', 'HEAD').trim();
+    real(dir, 'checkout', '-qb', 'sub');
+    real(dir, 'update-index', '--add', '--cacheinfo', `160000,${sha},lib`);
+    real(dir, 'commit', '-qm', 'sub');
+    fs.mkdirSync(path.join(dir, 'lib'));
+    return { dir, sha };
+  }
+
+  it('switching away removes the submodule from the index, and back adds it', async () => {
+    const { dir, sha } = await withSubmodule();
+    expect((await git(dir, ['checkout', 'main'])).code).toBe(0);
+    expect(real(dir, 'ls-files', '-s')).not.toMatch(/lib/);
+    expect(fs.existsSync(path.join(dir, 'lib'))).toBe(false);
+    expect(real(dir, 'status', '--porcelain')).toBe('');
+    write(dir, 'a.txt', 'main edit\n');
+    expect((await git(dir, ['commit', '-am', 'edit'])).code).toBe(0);
+    expect(real(dir, 'ls-tree', '--name-only', 'HEAD')).toBe('a.txt\n');
+
+    expect((await git(dir, ['checkout', 'sub'])).code).toBe(0);
+    expect(real(dir, 'ls-files', '-s', 'lib')).toBe(`160000 ${sha} 0\tlib\n`);
+    expect(fs.statSync(path.join(dir, 'lib')).isDirectory()).toBe(true);
+    expect((await git(dir, ['status', '-s'])).out).toBe('');
+    expect(real(dir, 'status', '--porcelain')).toBe('');
+    write(dir, 'a.txt', 'sub edit\n');
+    expect((await git(dir, ['commit', '-am', 'edit'])).code).toBe(0);
+    expect(real(dir, 'ls-tree', 'HEAD', 'lib')).toBe(`160000 commit ${sha}\tlib\n`);
+  });
+
+  it("leaves a submodule's files in its folder when switching away, and switches back over them", async () => {
+    const { dir, sha } = await withSubmodule();
+    write(dir, 'lib/s.txt', 'submodule file\n');
+    expect((await git(dir, ['checkout', 'main'])).code).toBe(0);
+    expect(read(dir, 'lib/s.txt')).toBe('submodule file\n');
+    expect(real(dir, 'ls-files', '-s')).not.toMatch(/lib/);
+    expect((await git(dir, ['checkout', 'sub'])).code).toBe(0);
+    expect(real(dir, 'ls-files', '-s', 'lib')).toBe(`160000 ${sha} 0\tlib\n`);
+    expect(read(dir, 'lib/s.txt')).toBe('submodule file\n');
+  });
+
+  describe('pull', () => {
+    let server: { url: string; close(): void };
+    let root: string;
+    beforeAll(async () => {
+      root = tmp();
+      server = await gitServer(root);
+    });
+    afterAll(() => server.close());
+
+    it('adds, bumps and removes a submodule, and the next commit keeps what was pulled', async () => {
+      const seed = tmp();
+      real(seed, 'init', '-q');
+      write(seed, 'f.txt', 'one\n');
+      real(seed, 'add', '-A');
+      real(seed, 'commit', '-qm', 'one');
+      const first = real(seed, 'rev-parse', 'HEAD').trim();
+      real(root, 'clone', '-q', '--bare', seed, 'subs.git');
+      const local = tmp();
+      real(local, 'clone', '-q', path.join(root, 'subs.git'), '.');
+      real(local, 'remote', 'set-url', 'origin', `${server.url}/subs.git`);
+      const pushFrom = tmp();
+      real(pushFrom, 'clone', '-q', path.join(root, 'subs.git'), '.');
+      const push = (gitlink: string | null, msg: string) => {
+        if (gitlink) real(pushFrom, 'update-index', '--add', '--cacheinfo', `160000,${gitlink},lib`);
+        else real(pushFrom, 'update-index', '--force-remove', 'lib');
+        real(pushFrom, 'commit', '-qm', msg);
+        real(pushFrom, 'push', '-q', 'origin', 'main');
+      };
+      const commitEdit = async (text: string) => {
+        write(local, 'f.txt', text);
+        expect((await git(local, ['commit', '-am', text.trim()])).code).toBe(0);
+        real(pushFrom, 'pull', '-q', '--no-rebase', 'origin', 'main');
+      };
+
+      push(first, 'add lib');
+      expect((await git(local, ['pull'])).code).toBe(0);
+      expect(real(local, 'ls-files', '-s', 'lib')).toBe(`160000 ${first} 0\tlib\n`);
+      expect(real(local, 'status', '--porcelain')).toBe('');
+
+      const second = real(pushFrom, 'rev-parse', 'HEAD').trim();
+      push(second, 'bump lib');
+      expect((await git(local, ['pull'])).code).toBe(0);
+      expect(real(local, 'ls-files', '-s', 'lib')).toBe(`160000 ${second} 0\tlib\n`);
+      expect(real(local, 'status', '--porcelain')).toBe('');
+      // The bump isn't reverted by the next commit.
+      await commitEdit('two\n');
+      expect(real(local, 'rev-parse', 'HEAD:lib')).toBe(`${second}\n`);
+
+      push(null, 'drop lib');
+      expect((await git(local, ['pull'])).code).toBe(0);
+      expect(real(local, 'ls-files', '-s')).not.toMatch(/lib/);
+      expect(real(local, 'status', '--porcelain')).toBe('');
+      await commitEdit('three\n');
+      expect(real(local, 'ls-tree', '--name-only', 'HEAD')).toBe('f.txt\n');
+    });
+
+    it('a pull into an unborn branch that fails leaves the branch unborn', async () => {
+      const seed = tmp();
+      real(seed, 'init', '-q');
+      write(seed, 'g.txt', 'g\n');
+      write(seed, 'h.txt', 'h\n');
+      real(seed, 'add', '-A');
+      real(seed, 'commit', '-qm', 'one');
+      real(root, 'clone', '-q', '--bare', seed, 'unborn.git');
+      const unborn = () => {
+        const empty = tmp();
+        real(empty, 'init', '-q', '-b', 'main');
+        real(empty, 'remote', 'add', 'origin', `${server.url}/unborn.git`);
+        return empty;
+      };
+      const isUnborn = (dir: string) => spawnSync('git', ['rev-parse', '--verify', '-q', 'refs/heads/main'], { cwd: dir }).status !== 0;
+
+      // An ignored file where the remote has one: real git refuses this pull too.
+      const ignored = unborn();
+      write(ignored, '.git/info/exclude', 'g.txt\n');
+      write(ignored, 'g.txt', 'mine\n');
+      const r = await git(ignored, ['pull', 'origin', 'main']);
+      expect(r.code).toBe(128);
+      expect(r.out).toMatch(/untracked working tree files would be overwritten by merge:\n\tg\.txt/);
+      expect(isUnborn(ignored)).toBe(true);
+      expect(read(ignored, 'g.txt')).toBe('mine\n');
+      expect(fs.existsSync(path.join(ignored, 'h.txt'))).toBe(false);
+
+      // A nested repo where the remote has a file.
+      const nested = unborn();
+      real(nested, 'init', '-q', 'g.txt');
+      write(nested, 'g.txt/inner.txt', 'mine\n');
+      const n = await git(nested, ['pull', 'origin', 'main']);
+      expect(n.code).toBe(128);
+      expect(isUnborn(nested)).toBe(true);
+      expect(read(nested, 'g.txt/inner.txt')).toBe('mine\n');
+    });
+  });
+});
+
+withGit('checkout of a revision, and checks before changes', () => {
+  it('checks out HEAD~1 and a short oid across a type change, detached, as real git does', async () => {
+    const dir = tmp();
+    await git(dir, ['init']);
+    write(dir, 'x', 'file\n');
+    await git(dir, ['add', '-A']);
+    await git(dir, ['commit', '-m', 'file']);
+    const first = real(dir, 'rev-parse', 'HEAD').trim();
+    await git(dir, ['rm', '-q', 'x']);
+    write(dir, 'x/y', 'inside\n');
+    await git(dir, ['add', '-A']);
+    await git(dir, ['commit', '-m', 'folder']);
+    const second = real(dir, 'rev-parse', 'HEAD').trim();
+
+    const r = await git(dir, ['checkout', 'HEAD~1']);
+    expect(r.code).toBe(0);
+    expect(r.out).toMatch(/HEAD is now at/);
+    expect(real(dir, 'rev-parse', 'HEAD')).toBe(`${first}\n`);
+    expect(spawnSync('git', ['symbolic-ref', '-q', 'HEAD'], { cwd: dir }).status).not.toBe(0);
+    expect(read(dir, 'x')).toBe('file\n');
+    expect(real(dir, 'status', '--porcelain')).toBe('');
+
+    expect((await git(dir, ['checkout', second.slice(0, 7)])).code).toBe(0);
+    expect(real(dir, 'rev-parse', 'HEAD')).toBe(`${second}\n`);
+    expect(read(dir, 'x/y')).toBe('inside\n');
+    expect(real(dir, 'status', '--porcelain')).toBe('');
+
+    expect((await git(dir, ['checkout', 'main'])).code).toBe(0);
+    expect(real(dir, 'symbolic-ref', 'HEAD')).toBe('refs/heads/main\n');
+  });
+
+  /** main has d/x and ignores *.log; other has a file d instead. */
+  async function folderToFile() {
+    const dir = tmp();
+    await git(dir, ['init']);
+    write(dir, '.gitignore', '*.log\n');
+    write(dir, 'd/x', 'x\n');
+    await git(dir, ['add', '-A']);
+    await git(dir, ['commit', '-m', 'base']);
+    await git(dir, ['checkout', '-b', 'other']);
+    await git(dir, ['rm', '-rq', 'd']);
+    write(dir, 'd', 'file\n');
+    await git(dir, ['add', '-A']);
+    await git(dir, ['commit', '-m', 'file']);
+    await git(dir, ['checkout', 'main']);
+    return dir;
+  }
+
+  it('a folder holding ignored files becomes a file, as in real git', async () => {
+    const dir = await folderToFile();
+    write(dir, 'd/build.log', 'log\n');
+    write(dir, 'd/deep/more.log', 'log\n');
+    const r = await git(dir, ['checkout', 'other']);
+    expect(r.code).toBe(0);
+    expect(read(dir, 'd')).toBe('file\n');
+    expect(real(dir, 'status', '--porcelain', '--ignored')).toBe('');
+    expect(real(dir, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('other\n');
+  });
+
+  it('refuses before changing anything when a file that is not ignored is in that folder', async () => {
+    const dir = await folderToFile();
+    write(dir, 'd/build.log', 'log\n');
+    write(dir, 'd/notes', 'mine\n');
+    const r = await git(dir, ['checkout', 'other']);
+    expect(r.code).toBe(128);
+    expect(r.out).toMatch(/untracked working tree files would be overwritten by checkout:\n\td\/notes/);
+    expect(read(dir, 'd/x')).toBe('x\n');
+    expect(read(dir, 'd/build.log')).toBe('log\n');
+    expect(real(dir, 'status', '--porcelain')).toBe('?? d/notes\n');
+    expect(real(dir, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('main\n');
+  });
+
+  it('refuses before changing anything when a nested repo is in that folder', async () => {
+    const dir = await folderToFile();
+    real(dir, 'init', '-q', 'd/nested');
+    const r = await git(dir, ['checkout', 'other']);
+    expect(r.code).toBe(128);
+    expect(r.out).toMatch(/would be (removed|overwritten) by checkout/);
+    expect(read(dir, 'd/x')).toBe('x\n');
+    expect(fs.existsSync(path.join(dir, 'd/nested/.git/HEAD'))).toBe(true);
+    expect(real(dir, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('main\n');
+    expect(real(dir, 'ls-files', '-s', 'd/x')).toMatch(/\td\/x\n$/);
+  });
+});
+
 describe('credentials', () => {
   class GitError extends Error {}
   const auth = (env: Record<string, string>) => createAuth({ env, GitError });
