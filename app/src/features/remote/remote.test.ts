@@ -205,6 +205,69 @@ describe('RemoteSync', () => {
     expect(onSyncError).toHaveBeenCalledWith('big.bin', expect.any(String));
   });
 
+  it('never reads a file too big to send, and does not look at it again on every tree reload', async () => {
+    const big = 'a'.repeat(MAX_SYNC_BYTES + 1);
+    let readBase64: jest.SpyInstance | null = null;
+    let fileSize: jest.SpyInstance | null = null;
+    const { socket, workspace, sync } = await setup(async (workspace) => {
+      await workspace.createFile('demo', '', 'big.bin', big);
+      readBase64 = jest.spyOn(workspace, 'readBase64');
+      fileSize = jest.spyOn(workspace, 'fileSize');
+    });
+    const readsOf = (spy: jest.SpyInstance | null, path: string) => spy!.mock.calls.filter((c) => c[1] === path).length;
+    expect((sent(socket)[0] as { skippedPaths?: string[] }).skippedPaths).toEqual(['big.bin']);
+    socket.receive({ type: 'ready' });
+    await flush();
+    sync.changed();
+    await flush();
+    expect(readsOf(readBase64, 'big.bin')).toBe(0);
+    const sized = readsOf(fileSize, 'big.bin');
+
+    // Tree reloads skip it; a save naming it looks again (and sends it once it fits).
+    sync.changed([]);
+    sync.changed([]);
+    await flush();
+    expect(readsOf(fileSize, 'big.bin')).toBe(sized);
+    await workspace.writeFile('demo', 'big.bin', 'small now');
+    socket.sent.length = 0;
+    sync.changed(['big.bin']);
+    await flush();
+    expect(changes(socket)).toEqual([{ type: 'file', path: 'big.bin', data: b64('small now') }]);
+    expect(readsOf(readBase64, 'big.bin')).toBe(1);
+  });
+
+  it('keeps a save not yet sent when a container version of the file arrives after ready', async () => {
+    const { socket, workspace } = await setup();
+    socket.receive({ type: 'ready' });
+    await flush();
+    socket.sent.length = 0;
+    // Saved; the editor's changed() call hasn't run yet.
+    await workspace.writeFile('demo', 'index.js', 'unsent save');
+    socket.receive({ type: 'file', path: 'index.js', data: b64('from container') });
+    await flush();
+    expect(await workspace.readFile('demo', 'index.js')).toBe('from container');
+    expect(await workspace.readFile('demo', 'index.js.phone-conflict')).toBe('unsent save');
+    expect(sent(socket)).toEqual([
+      { type: 'ack', path: 'index.js', ok: true },
+      { type: 'file', path: 'index.js.phone-conflict', data: b64('unsent save') },
+    ]);
+  });
+
+  it('keeps a save not yet sent when the container deletes the file after ready', async () => {
+    const { socket, workspace } = await setup();
+    socket.receive({ type: 'ready' });
+    await flush();
+    socket.sent.length = 0;
+    await workspace.writeFile('demo', 'index.js', 'unsent save');
+    socket.receive({ type: 'delete', path: 'index.js' });
+    await flush();
+    expect(await workspace.readFile('demo', 'index.js')).toBe('unsent save');
+    expect(sent(socket)).toEqual([
+      { type: 'ack', path: 'index.js', ok: true },
+      { type: 'file', path: 'index.js', data: b64('unsent save') },
+    ]);
+  });
+
   it('sends no skippedPaths when every file fits', async () => {
     const { socket } = await setup();
     expect(sent(socket)[0]).not.toHaveProperty('skippedPaths');

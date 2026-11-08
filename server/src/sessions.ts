@@ -72,6 +72,18 @@ export function streamDone(stream: NodeJS.ReadableStream & { destroy?(err?: Erro
   });
 }
 
+// Folders the container has, as far as the watcher's reports tell: the parents
+// of every file it reported (session.modes) and of every path it owns.
+export function existingDirs(session: Pick<Session, 'modes' | 'skipped'>): (dir: string) => boolean {
+  const dirs = new Set<string>();
+  const add = (p: string) => {
+    for (let i = p.indexOf('/'); i !== -1; i = p.indexOf('/', i + 1)) dirs.add(p.slice(0, i));
+  };
+  for (const p of session.modes.keys()) add(p);
+  for (const p of session.skipped) add(p);
+  return (dir) => dirs.has(dir);
+}
+
 export interface Session {
   id: string;
   project: string;
@@ -98,6 +110,7 @@ export interface Session {
 
 export class SessionManager {
   private sessions = new Map<string, Session>();
+  private opening = new Map<string, Promise<Session>>();
   private sweeper: NodeJS.Timeout | null = null;
 
   private docker: Docker;
@@ -135,7 +148,17 @@ export class SessionManager {
   }
 
   // One container per project: reconnecting after the app was backgrounded gets the same one.
-  async open(project: string): Promise<Session> {
+  // Concurrent opens of one project (two sockets racing at reconnect) share one
+  // attempt, so they can't each create a container.
+  open(project: string): Promise<Session> {
+    const pending = this.opening.get(project);
+    if (pending) return pending;
+    const attempt = this.openNow(project).finally(() => this.opening.delete(project));
+    this.opening.set(project, attempt);
+    return attempt;
+  }
+
+  private async openNow(project: string): Promise<Session> {
     for (const s of this.sessions.values()) {
       if (s.project === project) {
         const state = await s.container.inspect().catch(() => null);
@@ -201,9 +224,36 @@ export class SessionManager {
     }
   }
 
-  async writeFiles(session: Session, files: TarFile[]) {
+  // Writes files under `dir` (default: the workspace; it must exist). Gives up
+  // after `timeoutMs`, like run() and output(), so a stuck docker call can't
+  // stall the sync chain forever.
+  async writeFiles(session: Session, files: TarFile[], opts: { dir?: string; timeoutMs?: number } = {}) {
     if (!files.length) return;
-    await session.container.putArchive(packTar(files), { path: WORKSPACE });
+    const dir = opts.dir ?? WORKSPACE;
+    const tar = packTar(files, dir === WORKSPACE ? existingDirs(session) : undefined);
+    const ms = opts.timeoutMs ?? EXEC_TIMEOUT_MS;
+    const abort = new AbortController();
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        abort.abort();
+        reject(new Error(`container write timed out after ${Math.round(ms / 1000)}s`));
+      }, ms);
+    });
+    try {
+      await Promise.race([session.container.putArchive(tar, { path: dir, abortSignal: abort.signal } as never), timeout]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  // Moves files (absolute paths) inside the container as the tide user,
+  // creating each destination's folders.
+  async moveFiles(session: Session, pairs: [from: string, to: string][]) {
+    const script = 'while [ $# -gt 1 ]; do mkdir -p -- "$(dirname -- "$2")" && mv -fT -- "$1" "$2" || exit 1; shift 2; done';
+    for (let i = 0; i < pairs.length; i += 128) {
+      if ((await this.run(session, ['sh', '-c', script, 'sh', ...pairs.slice(i, i + 128).flat()])) !== 0) throw new Error('could not move files in the container');
+    }
   }
 
   // Stops an exec started with withPid, and everything it started.

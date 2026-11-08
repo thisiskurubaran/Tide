@@ -2,6 +2,11 @@
 // 1000 (the container's tide user) so the shell can edit what the app uploads.
 // Each file carries its permission bits (the container copy's, when it has
 // one) so overwriting a script keeps its execute bit.
+// Folder entries are only written for folders that don't exist yet: docker
+// applies an entry's mode, owner and mtime to a folder that is already there,
+// so every save used to reset its parents to 0755 tide:tide. A missing parent
+// with no entry would be created root-owned (and unwritable for tide), so new
+// ones do get an entry.
 const BLOCK = 512;
 const UID = 1000;
 export const DEFAULT_FILE_MODE = 0o644;
@@ -47,7 +52,9 @@ function entry(name: string, data: Buffer, type: '0' | '5', mode: number): Buffe
 
 export type TarFile = { path: string; data: Buffer; mode?: number };
 
-export function packTar(files: TarFile[]): Buffer {
+// `exists` says whether a parent folder is already there (relative to the
+// extraction root); without it every parent gets an entry.
+export function packTar(files: TarFile[], exists: (dir: string) => boolean = () => false): Buffer {
   const dirs = new Set<string>();
   const parts: Buffer[] = [];
   for (const file of files) {
@@ -56,6 +63,7 @@ export function packTar(files: TarFile[]): Buffer {
       const dir = segments.slice(0, i).join('/');
       if (dirs.has(dir)) continue;
       dirs.add(dir);
+      if (exists(dir)) continue;
       parts.push(...entry(`${dir}/`, Buffer.alloc(0), '5', DIR_MODE));
     }
     parts.push(...entry(file.path, file.data, '0', file.mode ?? DEFAULT_FILE_MODE));

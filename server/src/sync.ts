@@ -6,6 +6,7 @@ import type { WebSocket } from 'ws';
 import type { SyncInit, SyncToApp, SyncToServer } from '../../shared/protocol.ts';
 import { safePath, WORKSPACE } from './paths.ts';
 import { WATCHER, type Session, type SessionManager } from './sessions.ts';
+import type { TarFile } from './tar.ts';
 import { isSyncSkipped } from './syncRules.ts';
 
 // Content hash used everywhere on the server and by the watcher's snapshot: sha1 of the bytes.
@@ -15,8 +16,14 @@ export const CONFLICT_SUFFIX = '.phone-conflict';
 // Paths per exec when reading container files to send to the app, and per rm.
 const READ_CHUNK = 32;
 const RM_CHUNK = 256;
-// Hashes kept per path for echo suppression (writes the watcher hasn't seen yet).
+// Hashes kept per path for echo suppression (writes the watcher hasn't seen
+// yet), and for how long: the watcher polls every 0.5s, so a write it hasn't
+// reported by then never will be, and a real container file with that content
+// must not be hidden.
 const MAX_ECHOES = 8;
+export const ECHO_TTL_MS = 5000;
+// Where conflict copies wait in the container until the init's last batch names them.
+const SPILL_DIR = '/tmp';
 // How long an app delete of a container-owned file waits for the 'file' that
 // would make it a rename (see ownedDeletes in attachSync).
 export const RENAME_WINDOW_MS = 1000;
@@ -63,12 +70,19 @@ type InitState = {
   // Paths whose container copy the app must get (container won, or a conflict).
   toApp: Set<string>;
   deleteOnApp: Set<string>;
-  // Both sides changed `path`: the phone's version (base64 `data`) gets a
-  // conflict copy. Named only after the last batch, once every phone path is
-  // known, so a copy never lands on a path the phone sends later in the init.
-  conflicts: { path: string; data: string; hash: string }[];
-  // Watcher reports that arrived during the init, delivered after it.
-  later: (() => void)[];
+  // Both sides changed `path`: the phone's version gets a conflict copy. Named
+  // only after the last batch, once every phone path is known, so a copy never
+  // lands on a path the phone sends later in the init. Until then each batch's
+  // copies wait in the container under SPILL_DIR/`spill` (as `tmp`), so their
+  // data isn't held in memory across batches.
+  conflicts: { path: string; tmp: string; hash: string }[];
+  spill: string | null;
+  // Watcher reports that arrived during the init, delivered after it unless
+  // superseded. `at` orders them against `touched`.
+  later: { path: string; at: number; file: { data: string; hash: string } | null; wasSkipped: boolean }[];
+  // When the init last wrote, removed, read or sent each path (same clock as `at`).
+  touched: Map<string, number>;
+  clock: number;
 };
 
 // Two-way file sync for one connection. The app sends the project once
@@ -79,18 +93,25 @@ export function attachSync(
   session: Session,
   ws: WebSocket,
   touch: () => void,
-  opts: { renameWindowMs?: number } = {},
+  opts: { renameWindowMs?: number; echoTtlMs?: number } = {},
 ) {
   const renameWindowMs = opts.renameWindowMs ?? RENAME_WINDOW_MS;
+  const echoTtlMs = opts.echoTtlMs ?? ECHO_TTL_MS;
   const send = (msg: SyncToApp) => ws.readyState === ws.OPEN && ws.send(JSON.stringify(msg));
   // What the container has as far as this connection knows, so a file the app
   // just pushed isn't echoed back and one the watcher reported isn't sent twice.
   const known = new Map<string, string>();
   // Hashes this connection wrote from the app that the watcher may still report
   // (a read between two quick writes sees the older one): never sent back.
-  const echoes = new Map<string, Set<string>>();
-  // Files and deletes sent to the app and not yet acknowledged, in order.
-  const unacked: { path: string; hash: string | null }[] = [];
+  // hash -> when it stops counting as an echo.
+  const echoes = new Map<string, Map<string, number>>();
+  let echoSweep = 0;
+  // Files and deletes sent to the app and not yet acknowledged, in order, with
+  // the path's appWrites count when sent.
+  const unacked: { path: string; hash: string | null; seq: number }[] = [];
+  // App writes and deletes per path. An ack whose path the app wrote after it
+  // was sent is stale: the app's write is what both sides have.
+  const appWrites = new Map<string, number>();
   let watcher: { stop(): void } | null = null;
   let chain = Promise.resolve();
   let closed = false;
@@ -115,18 +136,41 @@ export function attachSync(
     return false;
   };
 
+  const pruneEchoes = (path: string, now: number) => {
+    const hashes = echoes.get(path);
+    if (!hashes) return;
+    for (const [h, until] of hashes) if (until <= now) hashes.delete(h);
+    if (!hashes.size) echoes.delete(path);
+  };
+
   const addEcho = (path: string, hash: string) => {
-    const set = echoes.get(path) ?? new Set<string>();
-    set.delete(hash);
-    set.add(hash);
-    if (set.size > MAX_ECHOES) set.delete(set.values().next().value!);
-    echoes.set(path, set);
+    const now = Date.now();
+    if (now - echoSweep > echoTtlMs) {
+      echoSweep = now;
+      for (const p of [...echoes.keys()]) pruneEchoes(p, now);
+    }
+    const hashes = echoes.get(path) ?? new Map<string, number>();
+    hashes.delete(hash);
+    hashes.set(hash, now + echoTtlMs);
+    if (hashes.size > MAX_ECHOES) hashes.delete(hashes.keys().next().value!);
+    echoes.set(path, hashes);
+  };
+
+  const isEcho = (path: string, hash: string) => {
+    pruneEchoes(path, Date.now());
+    return echoes.get(path)?.has(hash) ?? false;
+  };
+
+  // Records that the init acted on `path` now: watcher reports queued before are stale.
+  const touchInit = (path: string) => {
+    if (init) init.touched.set(path, ++init.clock);
   };
 
   const write = async (files: { path: string; data: Buffer; hash: string }[]) => {
     for (const f of files) {
       known.set(f.path, f.hash);
       addEcho(f.path, f.hash);
+      touchInit(f.path);
     }
     await manager.writeFiles(
       session,
@@ -137,7 +181,9 @@ export function attachSync(
   const remove = async (paths: string[]) => {
     for (const p of paths) {
       known.delete(p);
+      echoes.delete(p);
       session.modes.delete(p);
+      touchInit(p);
     }
     for (let i = 0; i < paths.length; i += RM_CHUNK) {
       await manager.run(session, ['rm', '-rf', '--', ...paths.slice(i, i + RM_CHUNK).map((p) => `${WORKSPACE}/${p}`)]);
@@ -154,39 +200,49 @@ export function attachSync(
   //   container's (bigger, newer) file is moved to the new path instead of
   //   being replaced by the app's stale copy, and the app is told the container
   //   owns the new path ('skipped').
-  // So each delete waits renameWindowMs for such a 'file' before it runs.
+  // So each delete waits its own renameWindowMs for such a 'file' before it
+  // runs. When the socket closes, deletes still waiting are dropped: the
+  // rename's 'file' may be about to arrive in the next connection's init, and
+  // deleting now would lose the container's copy.
   // Paths inside a symlinked folder are never deleted from the app: rm would
   // reach through the link, and the app's view of them is stale.
   // path -> the hash the app last agreed on for it (undefined: none).
-  const ownedDeletes = new Map<string, string | undefined>();
+  type OwnedDelete = { hash: string | undefined };
+  const ownedDeletes = new Map<string, OwnedDelete>();
+  const ownedTimers = new Set<NodeJS.Timeout>();
 
-  const flushOwnedDeletes = async () => {
+  const flushOwnedDelete = async (path: string, entry: OwnedDelete) => {
+    if (ownedDeletes.get(path) !== entry) return; // Moved by a rename, or superseded.
+    ownedDeletes.delete(path);
     // A path the container changed since (it shrank and was sent to the app) is newer than the delete: kept.
-    const paths = [...ownedDeletes.keys()].filter((p) => session.skipped.has(p));
-    ownedDeletes.clear();
-    for (const p of paths) session.skipped.delete(p);
-    await remove(paths);
+    if (!session.skipped.delete(path)) return;
+    await remove([path]);
   };
 
   const deleteOwned = (path: string) => {
-    ownedDeletes.set(path, session.agreed?.get(path));
+    const entry: OwnedDelete = { hash: session.agreed?.get(path) };
+    ownedDeletes.set(path, entry);
     session.agreed?.delete(path);
     known.delete(path);
-    setTimeout(() => {
-      chain = chain.then(flushOwnedDeletes).catch((e: Error) => ws.close(1011, e.message.slice(0, 100)));
-    }, renameWindowMs).unref();
+    const timer = setTimeout(() => {
+      ownedTimers.delete(timer);
+      chain = chain.then(() => flushOwnedDelete(path, entry)).catch((e: Error) => ws.close(1011, e.message.slice(0, 100)));
+    }, renameWindowMs);
+    timer.unref();
+    ownedTimers.add(timer);
   };
 
   // Moves a container-owned file the app just renamed; false if it wasn't a rename after all.
   const moveOwned = async (to: string, hash: string): Promise<boolean> => {
     let from: string | undefined;
-    for (const [p, h] of ownedDeletes) if (h !== undefined && h === hash && session.skipped.has(p)) from = p;
+    for (const [p, e] of ownedDeletes) if (e.hash !== undefined && e.hash === hash && session.skipped.has(p)) from = p;
     if (from === undefined) return false;
+    const entry = ownedDeletes.get(from)!;
     ownedDeletes.delete(from);
     const dir = to.includes('/') ? to.slice(0, to.lastIndexOf('/')) : '';
     if (dir) await manager.run(session, ['mkdir', '-p', '--', `${WORKSPACE}/${dir}`]);
     if ((await manager.run(session, ['mv', '-fT', '--', `${WORKSPACE}/${from}`, `${WORKSPACE}/${to}`])) !== 0) {
-      ownedDeletes.set(from, hash); // Still deleted, once the window ends.
+      ownedDeletes.set(from, entry); // Still deleted, once its window ends.
       return false;
     }
     session.skipped.delete(from);
@@ -200,14 +256,28 @@ export function attachSync(
 
   const sendFile = (path: string, data: string, hash: string) => {
     known.set(path, hash);
-    unacked.push({ path, hash });
+    touchInit(path);
+    unacked.push({ path, hash, seq: appWrites.get(path) ?? 0 });
     send({ type: 'file', path, data });
   };
 
   const sendDelete = (path: string) => {
     known.delete(path);
-    unacked.push({ path, hash: null });
+    touchInit(path);
+    unacked.push({ path, hash: null, seq: appWrites.get(path) ?? 0 });
     send({ type: 'delete', path });
+  };
+
+  // The app wrote or deleted `path` (its result: `hash`, null for a delete).
+  // If a container change it hasn't acknowledged crossed it on the wire, the
+  // app will apply that change over its own write when it arrives, while the
+  // container keeps the app's write: send the app's result back so both end
+  // up with it.
+  const crossed = (path: string, hash: string | null, data: string) => {
+    const last = unacked.findLast((u) => u.path === path);
+    if (!last || last.hash === hash) return;
+    if (hash === null) sendDelete(path);
+    else sendFile(path, data, hash);
   };
 
   const deliverFile = (path: string, data: string, hash: string) => {
@@ -239,14 +309,13 @@ export function attachSync(
         if (msg.mode !== undefined) session.modes.set(path, msg.mode);
         const hash = hashBytes(Buffer.from(data, 'base64'));
         init?.container.set(path, hash);
-        const mine = echoes.get(path);
-        if (mine?.has(hash)) {
+        if (isEcho(path, hash)) {
           // Our own write. If it's an older one, a newer write is on its way
           // and the watcher will see it: the app keeps its newer copy.
           if (known.get(path) === hash) echoes.delete(path);
           return;
         }
-        if (init) init.later.push(() => deliverFile(path, data, hash));
+        if (init) init.later.push({ path, at: ++init.clock, file: { data, hash }, wasSkipped: false });
         else deliverFile(path, data, hash);
         return;
       }
@@ -257,7 +326,7 @@ export function attachSync(
         const wasSkipped = session.skipped.delete(path);
         if (init) {
           init.container.delete(path);
-          init.later.push(() => deliverDelete(path, wasSkipped));
+          init.later.push({ path, at: ++init.clock, file: null, wasSkipped });
         } else deliverDelete(path, wasSkipped);
         return;
       }
@@ -293,7 +362,12 @@ export function attachSync(
             resolve();
           } else if (snapshot) onWatcher(msg);
         });
-        lines.on('close', () => !snapshot && reject(new Error('file watcher exited')));
+        lines.on('close', () => {
+          if (!snapshot) reject(new Error('file watcher exited'));
+          // Container changes would go unnoticed from now on: close, so the app
+          // reconnects and a fresh init (with a new watcher) reconciles.
+          else if (!closed && watcher === proc) ws.close(1011, 'file watcher exited');
+        });
       }, reject);
     });
 
@@ -323,13 +397,19 @@ export function attachSync(
   };
 
   // A free name for the phone's side of a conflict: not a container file (owned
-  // ones included), nor any path the phone has (sent, unsent, or already a copy).
+  // ones included), nor any path the phone has (sent, unsent, or already a copy),
+  // nor a folder on either side (`dirs`).
   // Only called after the last init batch, when `seen` holds every phone path.
-  const conflictName = (state: InitState, path: string) => {
+  const conflictName = (state: InitState, dirs: Set<string>, path: string) => {
     for (let n = 1; ; n++) {
       const name = `${path}${CONFLICT_SUFFIX}${n > 1 ? `-${n}` : ''}`;
-      if (!state.container.has(name) && !state.seen.has(name) && !containerOwned(name)) return name;
+      if (!state.container.has(name) && !state.seen.has(name) && !dirs.has(name) && !containerOwned(name)) return name;
     }
+  };
+
+  const parentDirs = (paths: Iterable<string>, into: Set<string>) => {
+    for (const p of paths) for (let i = p.indexOf('/'); i !== -1; i = p.indexOf('/', i + 1)) into.add(p.slice(0, i));
+    return into;
   };
 
   const handleInit = async (msg: SyncInitMessage) => {
@@ -341,13 +421,26 @@ export function attachSync(
     }
     if (!init) {
       const first = !session.agreed;
-      init = { first, container: new Map(), seen: new Set(), unsent: new Set(), toApp: new Set(), deleteOnApp: new Set(), conflicts: [], later: [] };
+      init = {
+        first,
+        container: new Map(),
+        seen: new Set(),
+        unsent: new Set(),
+        toApp: new Set(),
+        deleteOnApp: new Set(),
+        conflicts: [],
+        spill: null,
+        later: [],
+        touched: new Map(),
+        clock: 0,
+      };
       await startWatcher(init);
       session.agreed ??= new Map();
     }
     const state = init;
     const agreed = session.agreed!;
     const writes: { path: string; data: Buffer; hash: string }[] = [];
+    const spill: TarFile[] = [];
     for (const p of Array.isArray(msg.skippedPaths) ? msg.skippedPaths : []) {
       let path: string;
       try {
@@ -382,30 +475,43 @@ export function attachSync(
         case 'delete-phone':
           state.deleteOnApp.add(path);
           break;
-        case 'conflict':
-          // The container's file keeps its name; the phone's version is kept next to it (named after the last batch).
-          state.conflicts.push({ path, data: f.data, hash });
+        case 'conflict': {
+          // The container's file keeps its name; the phone's version is kept
+          // next to it (named after the last batch, parked in the container until then).
+          state.spill ??= `tide-conflicts-${crypto.randomBytes(8).toString('hex')}`;
+          const tmp = `${state.spill}/${state.conflicts.length}`;
+          spill.push({ path: tmp, data, mode: session.modes.get(path) });
+          state.conflicts.push({ path, tmp, hash });
           known.set(path, container!);
           state.toApp.add(path);
           break;
+        }
       }
     }
     await write(writes);
+    await manager.writeFiles(session, spill, { dir: SPILL_DIR });
     if (msg.more) {
       send({ type: 'init-ack' });
       return;
     }
 
-    // Every phone path is known now: name and write the conflict copies.
-    const copies: { path: string; data: string; hash: string }[] = [];
+    // Every phone path is known now: name the conflict copies and move them into place.
+    const dirs = parentDirs(session.skipped, parentDirs(state.seen, parentDirs(state.container.keys(), new Set())));
+    const copies: string[] = [];
+    const moves: [string, string][] = [];
     for (const c of state.conflicts) {
-      const copy = conflictName(state, c.path);
+      const copy = conflictName(state, dirs, c.path);
       state.seen.add(copy);
       const mode = session.modes.get(c.path);
       if (mode !== undefined) session.modes.set(copy, mode);
-      copies.push({ path: copy, data: c.data, hash: c.hash });
+      known.set(copy, c.hash);
+      addEcho(copy, c.hash);
+      touchInit(copy);
+      copies.push(copy);
+      moves.push([`${SPILL_DIR}/${c.tmp}`, `${WORKSPACE}/${copy}`]);
     }
-    await write(copies.map((c) => ({ path: c.path, data: Buffer.from(c.data, 'base64'), hash: c.hash })));
+    if (moves.length) await manager.moveFiles(session, moves);
+    await dropSpill(state);
 
     // A file the phone has but couldn't send: the container's copy (if any)
     // stays, and isn't sent over the phone's.
@@ -421,14 +527,47 @@ export function attachSync(
         agreed.delete(path);
       } else state.toApp.add(path); // New (or changed) in the container.
     }
+    // Gone on both sides: nothing left to agree on. A record kept here would
+    // read a later container file with the same content as a phone delete.
+    for (const path of [...agreed.keys()]) {
+      if (!state.container.has(path) && !state.seen.has(path) && !containerOwned(path)) agreed.delete(path);
+    }
     await remove(removeHere);
-    for (const c of copies) sendFile(c.path, c.data, c.hash);
-    await sendFromContainer(state, [...state.toApp]);
+    // The copies are read back from the container rather than kept in memory.
+    await sendFromContainer(state, [...copies, ...state.toApp]);
     for (const path of state.deleteOnApp) sendDelete(path);
     init = null;
     initDone = true;
-    for (const deliver of state.later) deliver();
+    replay(state);
     send({ type: 'ready' });
+  };
+
+  // Delivers the watcher reports that came in during the init: only each
+  // path's last one, and only if nothing superseded it. A report the init's
+  // own write, delete, read or send came after is stale, and so is one that
+  // no longer matches the container (a later report, an echo of our own
+  // write, changed it).
+  const replay = (state: InitState) => {
+    const last = new Map<string, InitState['later'][number]>();
+    const wasSkipped = new Set<string>();
+    for (const l of state.later) {
+      if (l.wasSkipped) wasSkipped.add(l.path);
+      last.delete(l.path);
+      last.set(l.path, l);
+    }
+    for (const l of last.values()) {
+      if ((state.touched.get(l.path) ?? 0) > l.at) continue;
+      if (l.file === null) {
+        if (!state.container.has(l.path)) deliverDelete(l.path, wasSkipped.has(l.path));
+      } else if (state.container.get(l.path) === l.file.hash) deliverFile(l.path, l.file.data, l.file.hash);
+    }
+  };
+
+  const dropSpill = async (state: InitState) => {
+    if (state.spill === null) return;
+    const dir = `${SPILL_DIR}/${state.spill}`;
+    state.spill = null;
+    await manager.run(session, ['rm', '-rf', '--', dir]);
   };
 
   const handle = async (msg: SyncToServer): Promise<void> => {
@@ -440,26 +579,32 @@ export function attachSync(
         const path = safePath(msg.path);
         const data = Buffer.from(msg.data, 'base64');
         const hash = hashBytes(data);
+        appWrites.set(path, (appWrites.get(path) ?? 0) + 1);
         if (ownedDeletes.size && !isSyncSkipped(path) && !containerOwned(path) && (await moveOwned(path, hash))) return;
         if (!writable(path)) return;
         session.agreed?.set(path, hash);
         await write([{ path, data, hash }]);
+        crossed(path, hash, msg.data);
         return;
       }
       case 'delete': {
         const path = safePath(msg.path);
+        appWrites.set(path, (appWrites.get(path) ?? 0) + 1);
         if (!isSyncSkipped(path) && session.skipped.has(path)) return deleteOwned(path);
         if (!writable(path)) return;
         session.agreed?.delete(path);
         await remove([path]);
+        crossed(path, null, '');
         return;
       }
       case 'ack': {
         const i = unacked.findIndex((u) => u.path === msg.path);
         if (i === -1) return;
-        const [{ path, hash }] = unacked.splice(i, 1);
+        const [{ path, hash, seq }] = unacked.splice(i, 1);
         const agreed = session.agreed;
         if (!agreed) return;
+        // The app wrote the path after this was sent: its write set `agreed`, and this ack is stale.
+        if ((appWrites.get(path) ?? 0) !== seq) return;
         if (hash !== null) {
           // The app stored it, or couldn't: then it has no copy to agree on, so a
           // later init won't read its absence as a delete.
@@ -484,7 +629,16 @@ export function attachSync(
   ws.on('close', () => {
     closed = true;
     watcher?.stop();
-    // No rename can follow any more: pending deletes run now.
-    chain = chain.then(flushOwnedDeletes).catch(() => undefined);
+    // Owned deletes still in their rename window are dropped (see ownedDeletes).
+    for (const t of ownedTimers) clearTimeout(t);
+    ownedTimers.clear();
+    ownedDeletes.clear();
+    echoes.clear();
+    // An init cut off before its last batch leaves its parked conflict copies behind.
+    chain = chain
+      .then(async () => {
+        if (init) await dropSpill(init);
+      })
+      .catch(() => undefined);
   });
 }

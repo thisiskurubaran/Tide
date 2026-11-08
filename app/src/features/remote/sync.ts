@@ -6,6 +6,9 @@ import { isSyncSkipped, SYNC_MAX_BYTES } from './syncRules';
 export interface SyncFiles {
   listFiles(project: string): Promise<string[]>;
   readBase64(project: string, path: string): Promise<string>;
+  // Size in bytes of the file at `path` (throws if it isn't a file): checked
+  // before reading, so a file too big to sync is never loaded into memory.
+  fileSize(project: string, path: string): Promise<number>;
   writeBase64(project: string, path: string, data: string): Promise<void>;
   removeIfPresent(project: string, path: string): Promise<void>;
   // What is at `path` ('file', 'dir'), or null when nothing is.
@@ -66,6 +69,10 @@ export class RemoteSync {
   private skipped = new Set<string>();
   // Resolves the wait for the server's 'init-ack' between init batches.
   private initAck: (() => void) | null = null;
+  // Files on disk last found too big to send (or unreadable). A full diff
+  // (changed() with no paths) and a save naming them look again; a tree
+  // reload (changed([])) doesn't.
+  private unsendable = new Set<string>();
 
   private socket: WebSocket;
   private project: string;
@@ -124,8 +131,8 @@ export class RemoteSync {
           this.send({ type: 'delete', path });
         }
       }
-      const check = paths ? paths.filter((p) => set.has(p)) : present;
-      for (const path of present) if (!this.known.has(path) && !check.includes(path)) check.push(path);
+      const check = new Set(paths ? paths.filter((p) => set.has(p)) : present);
+      for (const path of present) if (!this.known.has(path) && !this.unsendable.has(path)) check.add(path);
       for (const path of check) {
         const data = await this.read(path);
         if (data === null || this.known.get(path) === data) continue;
@@ -155,12 +162,26 @@ export class RemoteSync {
   }
 
   // Looks at the disk, not `known`: a file the phone couldn't send is on disk
-  // but was never known to the container.
+  // but was never known to the container. The size comes first: a file over
+  // the limit is never read.
   private async local(path: string): Promise<Local> {
+    const local = await this.look(path);
+    if (local.kind === 'unsendable') this.unsendable.add(path);
+    else this.unsendable.delete(path);
+    return local;
+  }
+
+  private async look(path: string): Promise<Local> {
+    const size = await this.files.fileSize(this.project, path).catch(() => null);
+    if (size === null) {
+      const kind = await this.files.stat(this.project, path).catch(() => null);
+      return kind === null ? { kind: 'none' } : { kind: 'unsendable' };
+    }
+    if (size > MAX_SYNC_BYTES) return { kind: 'unsendable' };
     const data = await this.files.readBase64(this.project, path).catch(() => null);
-    if (data !== null) return base64Bytes(data) <= MAX_SYNC_BYTES ? { kind: 'file', data } : { kind: 'unsendable' };
-    const kind = await this.files.stat(this.project, path).catch(() => null);
-    return kind === null ? { kind: 'none' } : { kind: 'unsendable' };
+    // Unreadable, or it grew past the limit since the size check.
+    if (data === null || base64Bytes(data) > MAX_SYNC_BYTES) return { kind: 'unsendable' };
+    return { kind: 'file', data };
   }
 
   // Flow-controlled: each batch waits for the server's 'init-ack' of the one
@@ -226,7 +247,10 @@ export class RemoteSync {
             // stored, so the container keeps its own copy too (ok: false).
             if (local.kind === 'unsendable') throw new Error("The phone's copy is too big to sync or can't be read, so it was kept");
             const isNew = local.kind === 'none';
-            if (!this.ready && !wasSkipped && local.kind === 'file' && local.data !== data && local.data !== this.known.get(path)) {
+            // A save not diffed yet (before or after 'ready'): the phone's file
+            // differs from what both sides last agreed on. Kept as a conflict
+            // copy rather than silently overwritten.
+            if (!wasSkipped && local.kind === 'file' && local.data !== data && local.data !== this.known.get(path)) {
               await this.keepLocalEdit(path, local.data);
             }
             await this.files.writeBase64(this.project, path, data);
@@ -248,10 +272,11 @@ export class RemoteSync {
         let ok = true;
         if (this.known.delete(path) || wasSkipped) {
           try {
-            if (!this.ready && !wasSkipped && (await this.editedSince(path, had))) {
-              // Saved after the init read it: that edit is newer than the
-              // container's delete, so it stays and is sent once 'ready' arrives.
-              this.addPending(path);
+            if (!wasSkipped && (await this.editedSince(path, had))) {
+              // Saved since the phone last sent it (or the init read it), and
+              // not diffed yet: that edit is newer than the container's delete,
+              // so it stays and is sent (at once, or once 'ready' arrives).
+              this.sendLater(path);
             } else {
               await this.files.removeIfPresent(this.project, path);
               this.hooks.onTreeChanged();
@@ -273,19 +298,24 @@ export class RemoteSync {
     return local.kind === 'unsendable' || (local.kind === 'file' && local.data !== had);
   }
 
-  private addPending(path: string) {
+  // Sends `path` after the message being applied: right after it once
+  // 'ready' has arrived (changed() queues behind it), otherwise with the rest
+  // of the changes made during the init.
+  private sendLater(path: string) {
+    if (this.ready) return this.changed([path]);
     if (this.pending === 'all') return;
     this.pending ??= new Set();
     this.pending.add(path);
   }
 
-  // Before 'ready' the container's reconcile result can arrive for a file the
-  // user saved after the init read it (that edit is still pending): keep the
-  // edit as a conflict copy, which is sent once 'ready' arrives.
+  // A container change can arrive for a file the user saved that this side
+  // hasn't diffed yet (before 'ready': saved after the init read it; after:
+  // its changed() is still queued): keep the edit as a conflict copy, which is
+  // sent to the container like any new file.
   private async keepLocalEdit(path: string, local: string) {
     const copy = await this.conflictName(path);
     await this.files.writeBase64(this.project, copy, local);
-    this.addPending(copy);
+    this.sendLater(copy);
     this.hooks.onTreeChanged();
   }
 

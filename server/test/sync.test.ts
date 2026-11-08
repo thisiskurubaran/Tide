@@ -20,7 +20,7 @@ import type { SyncToApp } from '../../shared/protocol.ts';
 import { createApp } from '../src/app.ts';
 import type { Config } from '../src/config.ts';
 import { handlePreview } from '../src/preview.ts';
-import { streamDone, type Session, type SessionManager } from '../src/sessions.ts';
+import { existingDirs, SessionManager, streamDone, type Session } from '../src/sessions.ts';
 import { attachSync, hashBytes } from '../src/sync.ts';
 import { isSyncSkipped, SYNC_MAX_BYTES, SYNC_PROTOCOL, SYNC_ROOT_SKIP_DIRS, SYNC_SKIP_DIRS } from '../src/syncRules.ts';
 import { packTar, type TarFile } from '../src/tar.ts';
@@ -63,11 +63,14 @@ class FakeWs extends EventEmitter {
   readonly OPEN = 1;
   readyState = 1;
   sent: SyncToApp[] = [];
+  closedWith: [number | undefined, string | undefined] | null = null;
   send(data: string) {
     this.sent.push(JSON.parse(data));
   }
-  close() {
+  close(code?: number, reason?: string) {
+    if (this.readyState === 3) return;
     this.readyState = 3;
+    this.closedWith = [code, reason];
     this.emit('close');
   }
   receive(msg: object) {
@@ -91,6 +94,8 @@ function fakeContainer(initial: Record<string, string> = {}, opts: { owned?: str
   const removed: string[] = [];
   const moved: [string, string][] = [];
   const runs: string[][] = [];
+  // Files written outside /workspace (conflict copies parked during the init), by absolute path.
+  const outside = new Map<string, TarFile>();
   let watcherOut = new PassThrough();
   const fileMsg = (p: string) => ({ type: 'file', path: p, data: files.get(p)!.toString('base64'), mode: modes.get(p) ?? 0o644 });
   const manager = {
@@ -99,8 +104,12 @@ function fakeContainer(initial: Record<string, string> = {}, opts: { owned?: str
         .slice(cmd.indexOf('--read') + 1)
         .map((p) => JSON.stringify(owned.has(p) ? { type: 'skipped', path: p } : files.has(p) ? fileMsg(p) : { type: 'delete', path: p }))
         .join('\n'),
-    writeFiles: async (_s: Session, list: TarFile[]) => {
+    writeFiles: async (_s: Session, list: TarFile[], opts: { dir?: string } = {}) => {
       if (!list.length) return;
+      if (opts.dir) {
+        for (const f of list) outside.set(`${opts.dir}/${f.path}`, f);
+        return;
+      }
       writes.push(list.map((f) => f.path));
       for (const f of list) {
         files.set(f.path, f.data);
@@ -125,12 +134,28 @@ function fakeContainer(initial: Record<string, string> = {}, opts: { owned?: str
       }
       if (cmd[0] === 'rm') {
         for (const p of cmd.slice(cmd.indexOf('--') + 1)) {
+          if (!p.startsWith('/workspace/')) {
+            for (const k of [...outside.keys()]) if (k.startsWith(`${p}/`)) outside.delete(k);
+            continue;
+          }
           const rel = p.replace('/workspace/', '');
           files.delete(rel);
           removed.push(rel);
         }
       }
       return 0;
+    },
+    moveFiles: async (_s: Session, pairs: [string, string][]) => {
+      const to: string[] = [];
+      for (const [from, dest] of pairs) {
+        const f = outside.get(from)!;
+        outside.delete(from);
+        const rel = dest.replace('/workspace/', '');
+        files.set(rel, f.data);
+        written.push({ ...f, path: rel });
+        to.push(rel);
+      }
+      writes.push(to);
     },
     touch() {},
   };
@@ -142,7 +167,9 @@ function fakeContainer(initial: Record<string, string> = {}, opts: { owned?: str
     removed,
     moved,
     runs,
+    outside,
     watch: (msg: object) => watcherOut.write(JSON.stringify(msg) + '\n'),
+    endWatcher: () => watcherOut.end(),
     text: (p: string) => files.get(p)?.toString(),
   };
 }
@@ -152,9 +179,9 @@ const until = async (cond: () => boolean) => {
 };
 const settle = (ws: FakeWs, type: string) => until(() => ws.sent.some((m) => m.type === type));
 
-async function connect(c: ReturnType<typeof fakeContainer>, session: Session, init: Record<string, string>, renameWindowMs?: number) {
+async function connect(c: ReturnType<typeof fakeContainer>, session: Session, init: Record<string, string>, renameWindowMs?: number, echoTtlMs?: number) {
   const ws = new FakeWs();
-  attachSync(c.manager, session, ws as never, () => {}, { renameWindowMs });
+  attachSync(c.manager, session, ws as never, () => {}, { renameWindowMs, echoTtlMs });
   ws.receive({ type: 'init', files: Object.entries(init).map(([path, s]) => ({ path, data: b64(s) })) });
   await settle(ws, 'ready');
   return ws;
@@ -451,7 +478,7 @@ test('an app rename of a container-owned file moves the container copy and hands
   assert.deepEqual(c.removed, []);
 });
 
-test('a pending owned delete runs when the socket closes; deletes inside a symlinked folder never do', async () => {
+test('a pending owned delete is dropped when the socket closes; deletes inside a symlinked folder never run', async () => {
   const c = fakeContainer({}, { owned: ['vendor'] });
   const session = fakeSession();
   const ws = await ownedAfterAgreeing(c, session, 60_000);
@@ -460,9 +487,94 @@ test('a pending owned delete runs when the socket closes; deletes inside a symli
   await tick();
   assert.deepEqual(ws.sent, [{ type: 'skipped', path: 'vendor/lib.js' }]);
   assert.deepEqual(c.removed, []);
+  // The rename's 'file' may come in the next connection's init: the container's copy must survive.
   ws.close();
+  await tick();
+  await tick();
+  assert.deepEqual(c.removed, []);
+  assert.equal(c.text('a.txt'), 'BIG');
+});
+
+test('each owned delete waits for its own rename window', async () => {
+  const c = fakeContainer();
+  const session = fakeSession();
+  const ws = await connect(c, session, { 'a.txt': 'a', 'b.txt': 'b' }, 150);
+  for (const p of ['a.txt', 'b.txt']) {
+    c.files.set(p, Buffer.from(`BIG ${p}`));
+    c.watch({ type: 'skipped', path: p });
+  }
+  await until(() => ws.sent.filter((m) => m.type === 'skipped').length === 2);
+  ws.receive({ type: 'delete', path: 'a.txt' });
+  await new Promise((r) => setTimeout(r, 100));
+  ws.receive({ type: 'delete', path: 'b.txt' });
+  // a.txt's window ends first; b.txt's is still open and must not be flushed with it.
   await until(() => c.removed.length > 0);
   assert.deepEqual(c.removed, ['a.txt']);
+  // b.txt turns out to be a rename: still possible, since its own window hasn't ended.
+  ws.receive({ type: 'file', path: 'c.txt', data: b64('b') });
+  await until(() => c.moved.length > 0);
+  assert.deepEqual(c.moved, [['b.txt', 'c.txt']]);
+  assert.equal(c.text('c.txt'), 'BIG b.txt');
+  await new Promise((r) => setTimeout(r, 200));
+  assert.deepEqual(c.removed, ['a.txt']);
+});
+
+test('packTar writes folder entries only for folders that are new', () => {
+  const tar = packTar(
+    [
+      { path: 'src/app/index.ts', data: Buffer.from('x') },
+      { path: 'new/dir/a.txt', data: Buffer.from('y') },
+    ],
+    (dir) => dir === 'src' || dir === 'src/app',
+  );
+  const names = execFileSync('tar', ['-tf', '-'], { input: tar }).toString().trim().split('\n');
+  assert.deepEqual(names, ['src/app/index.ts', 'new/', 'new/dir/', 'new/dir/a.txt']);
+  const session = { modes: new Map([['src/app/index.ts', 0o644]]), skipped: new Set(['lib/big.bin']) };
+  const exists = existingDirs(session);
+  assert.deepEqual(['src', 'src/app', 'lib', 'new', 'src/app/index.ts'].map(exists), [true, true, true, false, false]);
+});
+
+test('container writes leave existing folders alone and time out', async () => {
+  let archive: Buffer | null = null;
+  let signal: AbortSignal | undefined;
+  const session = {
+    ...fakeSession(),
+    modes: new Map([['src/a.ts', 0o644]]),
+    container: {
+      putArchive: (tar: Buffer, opts: { abortSignal?: AbortSignal }) => {
+        archive = tar;
+        signal = opts.abortSignal;
+        return new Promise(() => {}); // Docker never answers.
+      },
+    },
+  } as unknown as Session;
+  const manager = new SessionManager({} as never, {} as Config);
+  await assert.rejects(
+    manager.writeFiles(session, [{ path: 'src/b.ts', data: Buffer.from('b') }, { path: 'pkg/c.ts', data: Buffer.from('c') }], { timeoutMs: 20 }),
+    /timed out/,
+  );
+  assert.equal(signal?.aborted, true);
+  const names = execFileSync('tar', ['-tf', '-'], { input: archive! }).toString().trim().split('\n');
+  assert.deepEqual(names, ['src/b.ts', 'pkg/', 'pkg/c.ts']);
+});
+
+test('concurrent opens of one project share one container', async () => {
+  let created = 0;
+  const docker = {
+    createContainer: async () => {
+      created++;
+      await tick();
+      return { start: async () => {}, inspect: async () => ({ State: { Running: true } }), remove: async () => {} };
+    },
+  };
+  const manager = new SessionManager(docker as never, { image: 'i', memoryBytes: 1, cpus: 1, pids: 1, idleMs: 1 } as Config);
+  const [a, b] = await Promise.all([manager.open('p'), manager.open('p')]);
+  assert.equal(created, 1);
+  assert.equal(a, b);
+  assert.equal(await manager.open('p'), a);
+  assert.equal(created, 1);
+  await manager.open('other');
+  assert.equal(created, 2);
 });
 
 test('packTar writes each file with its mode', () => {
@@ -748,4 +860,176 @@ test('the server reports its sync protocol on /health and with each session', as
     server.closeAllConnections();
     server.close();
   }
+});
+
+test('a path deleted on both sides is forgotten: the container recreating it is not deleted', async () => {
+  const c = fakeContainer();
+  const session = fakeSession();
+  let ws = await connect(c, session, { 'pkg/__init__.py': '' });
+  await ackAll(ws);
+  ws.close();
+  // Deleted in the container and on the phone while disconnected.
+  c.files.delete('pkg/__init__.py');
+  ws = await connect(c, session, {});
+  await ackAll(ws);
+  ws.close();
+  assert.equal(session.agreed!.has('pkg/__init__.py'), false);
+  // Recreated in the container with the same content: new there, so the app gets it.
+  c.files.set('pkg/__init__.py', Buffer.from(''));
+  ws = await connect(c, session, {});
+  assert.deepEqual(c.removed, []);
+  assert.deepEqual(decoded(ws), [{ type: 'file', path: 'pkg/__init__.py', data: '' }, { type: 'ready' }]);
+});
+
+test('conflict copies wait in the container between init batches, not in memory', async () => {
+  const c = fakeContainer();
+  const session = fakeSession();
+  const ws1 = await connect(c, session, { 'a.txt': 'a0', 'b.txt': 'b0' });
+  await ackAll(ws1);
+  ws1.close();
+  c.files.set('a.txt', Buffer.from('a-container'));
+  c.files.set('b.txt', Buffer.from('b-container'));
+  const ws2 = new FakeWs();
+  attachSync(c.manager, session, ws2 as never, () => {});
+  ws2.receive({ type: 'init', files: [{ path: 'a.txt', data: b64('a-phone') }], more: true });
+  await settle(ws2, 'init-ack');
+  // Parked outside the workspace (the watcher never sees it), with no name yet.
+  assert.deepEqual([...c.outside.values()].map((f) => f.data.toString()), ['a-phone']);
+  assert.ok([...c.outside.keys()].every((k) => k.startsWith('/tmp/tide-conflicts-')));
+  ws2.receive({ type: 'init', files: [{ path: 'b.txt', data: b64('b-phone') }, { path: 'a.txt.phone-conflict', data: b64('older') }] });
+  await settle(ws2, 'ready');
+  assert.equal(c.outside.size, 0);
+  assert.equal(c.text('a.txt.phone-conflict'), 'older');
+  assert.equal(c.text('a.txt.phone-conflict-2'), 'a-phone');
+  assert.equal(c.text('b.txt.phone-conflict'), 'b-phone');
+  assert.deepEqual(decoded(ws2).slice(1, 3), [
+    { type: 'file', path: 'a.txt.phone-conflict-2', data: 'a-phone' },
+    { type: 'file', path: 'b.txt.phone-conflict', data: 'b-phone' },
+  ]);
+  assert.ok(c.runs.some((r) => r[0] === 'rm' && r.at(-1)!.startsWith('/tmp/tide-conflicts-')));
+
+  // An init cut off mid-way leaves nothing parked behind.
+  await ackAll(ws2);
+  ws2.close();
+  c.files.set('b.txt', Buffer.from('b-container-2'));
+  const ws3 = new FakeWs();
+  attachSync(c.manager, session, ws3 as never, () => {});
+  ws3.receive({ type: 'init', files: [{ path: 'b.txt', data: b64('b-phone-2') }], more: true });
+  await settle(ws3, 'init-ack');
+  assert.equal(c.outside.size, 1);
+  ws3.close();
+  await until(() => c.outside.size === 0);
+  assert.equal(c.outside.size, 0);
+});
+
+test('a conflict copy name never collides with a folder on either side', async () => {
+  const c = fakeContainer();
+  const session = fakeSession();
+  const ws1 = await connect(c, session, { 'x.txt': 'x0' });
+  await ackAll(ws1);
+  ws1.close();
+  c.files.set('x.txt', Buffer.from('x-container'));
+  c.files.set('x.txt.phone-conflict/in-container.txt', Buffer.from('c'));
+  await connect(c, session, { 'x.txt': 'x-phone', 'x.txt.phone-conflict-2/on-phone.txt': 'p' });
+  assert.equal(c.text('x.txt.phone-conflict'), undefined);
+  assert.equal(c.text('x.txt.phone-conflict-2'), undefined);
+  assert.equal(c.text('x.txt.phone-conflict-3'), 'x-phone');
+});
+
+test('a watcher that dies after its snapshot closes the socket so the app reconnects', async () => {
+  const c = fakeContainer({ 'a.txt': 'a' });
+  const ws = await connect(c, fakeSession(), { 'a.txt': 'a' });
+  assert.equal(ws.closedWith, null);
+  c.endWatcher();
+  await until(() => ws.closedWith !== null);
+  assert.deepEqual(ws.closedWith, [1011, 'file watcher exited']);
+});
+
+test('echo hashes expire and are cleared by deletes, so they never hide a real container file', async () => {
+  const c = fakeContainer();
+  const ws = await connect(c, fakeSession(), {}, undefined, 50);
+  ws.sent.length = 0;
+  // The watcher never reported v1 (v2 overwrote it first).
+  ws.receive({ type: 'file', path: 'a.txt', data: b64('v1') });
+  ws.receive({ type: 'file', path: 'a.txt', data: b64('v2') });
+  await until(() => c.writes.length === 2);
+  await new Promise((r) => setTimeout(r, 80));
+  // Much later a container tool writes v1 back: real, so the app gets it.
+  c.watch({ type: 'file', path: 'a.txt', data: b64('v1') });
+  await until(() => ws.sent.length === 1);
+  assert.deepEqual(decoded(ws), [{ type: 'file', path: 'a.txt', data: 'v1' }]);
+
+  // The app writes b.txt and deletes it before the watcher looked; the container then creates it with that content.
+  ws.sent.length = 0;
+  ws.receive({ type: 'file', path: 'b.txt', data: b64('same') });
+  ws.receive({ type: 'delete', path: 'b.txt' });
+  await until(() => c.removed.includes('b.txt'));
+  c.watch({ type: 'file', path: 'b.txt', data: b64('same') });
+  await until(() => ws.sent.length === 1);
+  assert.deepEqual(decoded(ws), [{ type: 'file', path: 'b.txt', data: 'same' }]);
+});
+
+test('a container change crossing an app save: the save wins on both sides and the stale ack is ignored', async () => {
+  const c = fakeContainer({ 'a.txt': 'a0' });
+  const session = fakeSession();
+  const ws = await connect(c, session, { 'a.txt': 'a0' });
+  ws.sent.length = 0;
+  // The container changes a.txt; the app saved its own edit before getting that.
+  c.files.set('a.txt', Buffer.from('container'));
+  c.watch({ type: 'file', path: 'a.txt', data: b64('container') });
+  await settle(ws, 'file');
+  ws.receive({ type: 'file', path: 'a.txt', data: b64('phone') });
+  ws.receive({ type: 'ack', path: 'a.txt', ok: true }); // The app stored 'container' over its save.
+  await until(() => ws.sent.length === 2);
+  await tick();
+  assert.equal(c.text('a.txt'), 'phone');
+  assert.equal(session.agreed!.get('a.txt'), hashBytes(Buffer.from('phone')));
+  // The app is sent its save back, so it ends up with what the container has.
+  assert.deepEqual(decoded(ws), [
+    { type: 'file', path: 'a.txt', data: 'container' },
+    { type: 'file', path: 'a.txt', data: 'phone' },
+  ]);
+  ws.receive({ type: 'ack', path: 'a.txt', ok: true });
+  await tick();
+  assert.equal(session.agreed!.get('a.txt'), hashBytes(Buffer.from('phone')));
+
+  // Same for a delete crossing an app save.
+  ws.sent.length = 0;
+  c.files.delete('a.txt');
+  c.watch({ type: 'delete', path: 'a.txt' });
+  await settle(ws, 'delete');
+  ws.receive({ type: 'file', path: 'a.txt', data: b64('phone 2') });
+  ws.receive({ type: 'ack', path: 'a.txt', ok: true });
+  await until(() => ws.sent.length === 2);
+  await tick();
+  assert.equal(session.agreed!.get('a.txt'), hashBytes(Buffer.from('phone 2')));
+  assert.deepEqual(decoded(ws)[1], { type: 'file', path: 'a.txt', data: 'phone 2' });
+});
+
+test('watcher reports queued during the init are dropped when the init has newer content', async () => {
+  const c = fakeContainer({ 'a.txt': 'a0', 'b.txt': 'b0' });
+  const session = fakeSession();
+  const ws1 = await connect(c, session, { 'a.txt': 'a0', 'b.txt': 'b0' });
+  await ackAll(ws1);
+  ws1.close();
+
+  const ws = new FakeWs();
+  attachSync(c.manager, session, ws as never, () => {});
+  ws.receive({ type: 'init', files: [], more: true });
+  await settle(ws, 'init-ack');
+  // Reported once, then changed again before the watcher's next look.
+  c.files.set('a.txt', Buffer.from('a1'));
+  c.watch({ type: 'file', path: 'a.txt', data: b64('a1') });
+  c.files.set('a.txt', Buffer.from('a2'));
+  // Deleted in the container (reported), then recreated by the init from the phone's edit.
+  c.files.delete('b.txt');
+  c.watch({ type: 'delete', path: 'b.txt' });
+  await tick();
+  ws.receive({ type: 'init', files: [{ path: 'a.txt', data: b64('a0') }, { path: 'b.txt', data: b64('b-phone') }] });
+  await settle(ws, 'ready');
+  await tick();
+  // a.txt is read at the end of the init (a2); the queued a1 is older and never sent.
+  // The queued delete of b.txt came before the init wrote it, so the app keeps its edit.
+  assert.deepEqual(decoded(ws).slice(1), [{ type: 'file', path: 'a.txt', data: 'a2' }, { type: 'ready' }]);
+  assert.equal(c.text('b.txt'), 'b-phone');
 });
