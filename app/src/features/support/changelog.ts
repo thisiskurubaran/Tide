@@ -9,6 +9,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '2.0.1',
+    items: [
+      'Git Pro merges and rebases keep files that changed from a file to a folder, or back',
+      'Merging never writes through symbolic links, and discarding a change restores a link as a link',
+      'Switching branches and pulling keep submodules as they are in the branch',
+      'Unreviewed agent changes and "Always allow" approvals are kept after relaunching on Android',
+      'Remote mode: a .phone-conflict copy made when reconnecting is never overwritten, edits you save while reconnecting are kept, and files over 2 MB on your phone are never deleted or replaced',
+      'Python: a second script started from another folder of the project lists files correctly',
+    ],
+  },
+  {
     version: '2.0.0',
     highlights: [
       'Everything in Tide is free: every feature and every extension, with no subscription',

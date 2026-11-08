@@ -10,7 +10,7 @@
 **A full mobile IDE for iPhone, iPad and Android.**<br>
 Code editor, file manager and terminal, with Node.js, Python, Lua, Ruby and PHP running on the device, offline, and a real Linux shell in a container you host.
 
-![Version](https://img.shields.io/badge/version-2.0.0-3b5bdb)
+![Version](https://img.shields.io/badge/version-2.0.1-3b5bdb)
 ![Platforms](https://img.shields.io/badge/platforms-iOS%20%7C%20iPadOS%20%7C%20Android-0e1a4d)
 ![Price](https://img.shields.io/badge/price-free-2f9e44)
 ![Expo SDK](https://img.shields.io/badge/Expo%20SDK-58-000020?logo=expo&logoColor=white)
