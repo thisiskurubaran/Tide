@@ -200,7 +200,8 @@
         ]
       ],
       "@bacons/apple-targets",
-      "./plugins/withAppIntents.js"
+      "./plugins/withAppIntents.js",
+      "./plugins/withQuietBuild.js"
     ]
   }
 }

@@ -79,10 +79,13 @@ const withPythonInstallPhase = (config) =>
       (phase) => typeof phase === 'object' && phase.name === `"${IOS_PHASE_NAME}"`,
     );
     if (!exists) {
-      project.addBuildPhase([], 'PBXShellScriptBuildPhase', IOS_PHASE_NAME, project.getFirstTarget().uuid, {
+      const { buildPhase } = project.addBuildPhase([], 'PBXShellScriptBuildPhase', IOS_PHASE_NAME, project.getFirstTarget().uuid, {
         shellPath: '/bin/sh',
         shellScript: IOS_PHASE_SCRIPT,
       });
+      // The copy has to run on every build (Python files change without Xcode knowing),
+      // so say so: without this Xcode warns that the phase has no outputs.
+      buildPhase.alwaysOutOfDate = 1;
     }
     return cfg;
   });
