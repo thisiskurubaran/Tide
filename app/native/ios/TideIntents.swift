@@ -112,9 +112,29 @@ struct SendRequestIntent: AppIntent {
 
 struct TideShortcuts: AppShortcutsProvider {
   static var appShortcuts: [AppShortcut] {
-    AppShortcut(intent: RunProjectIntent(), phrases: ["Run a project in \(.applicationName)", "Run my code in \(.applicationName)"])
-    AppShortcut(intent: DeployProjectIntent(), phrases: ["Deploy a project with \(.applicationName)", "Deploy my site with \(.applicationName)"])
-    AppShortcut(intent: SendRequestIntent(), phrases: ["Send a request with \(.applicationName)"])
-    AppShortcut(intent: OpenProjectIntent(), phrases: ["Open a project in \(.applicationName)"])
+    AppShortcut(
+      intent: RunProjectIntent(),
+      phrases: ["Run a project in \(.applicationName)", "Run my code in \(.applicationName)"],
+      shortTitle: "Run Project",
+      systemImageName: "play.fill"
+    )
+    AppShortcut(
+      intent: DeployProjectIntent(),
+      phrases: ["Deploy a project with \(.applicationName)", "Deploy my site with \(.applicationName)"],
+      shortTitle: "Deploy Project",
+      systemImageName: "icloud.and.arrow.up"
+    )
+    AppShortcut(
+      intent: SendRequestIntent(),
+      phrases: ["Send a request with \(.applicationName)"],
+      shortTitle: "Send Request",
+      systemImageName: "paperplane"
+    )
+    AppShortcut(
+      intent: OpenProjectIntent(),
+      phrases: ["Open a project in \(.applicationName)"],
+      shortTitle: "Open Project",
+      systemImageName: "folder"
+    )
   }
 }

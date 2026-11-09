@@ -9,8 +9,10 @@ public class PythonRuntimeModule: Module {
 
     Events("onOutput", "onExit")
 
-    OnCreate {
-      TidePython.setOutputHandler { [weak self] runId, kind, text in
+    // Capture self weakly in the outer closure too: a [weak self] list on the inner
+    // closure alone makes the outer one hold self strongly.
+    OnCreate { [weak self] in
+      TidePython.setOutputHandler { runId, kind, text in
         self?.sendEvent("onOutput", ["id": runId, "kind": kind, "data": text])
       }
     }
@@ -23,8 +25,8 @@ public class PythonRuntimeModule: Module {
       try TidePython.runSnippet(code)
     }.runOnQueue(queue)
 
-    AsyncFunction("run") { (id: String, entry: String, cwd: String, args: [String], extraPaths: [String], purgeRoot: String) in
-      TidePython.run(withId: id, entry: entry, cwd: cwd, args: args, extraPaths: extraPaths, purgeRoot: purgeRoot) { [weak self] code, killed in
+    AsyncFunction("run") { [weak self] (id: String, entry: String, cwd: String, args: [String], extraPaths: [String], purgeRoot: String) in
+      TidePython.run(withId: id, entry: entry, cwd: cwd, args: args, extraPaths: extraPaths, purgeRoot: purgeRoot) { code, killed in
         self?.sendEvent("onExit", ["id": id, "code": code, "killed": killed])
       }
     }.runOnQueue(queue)
