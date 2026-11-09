@@ -9,6 +9,13 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '2.1.0',
+    items: [
+      'Tide\'s Siri and Shortcuts actions (Run, Deploy, Send Request and Open Project) now have their own titles and icons in the Shortcuts app and Spotlight',
+      'A cleaner iOS build: Tide\'s own code builds without warnings, and warnings from third-party libraries are turned off',
+    ],
+  },
+  {
     version: '2.0.1',
     highlights: [
       'Redesigned widgets: Recent Projects, Quick actions, Last run and Lock Screen widgets',
