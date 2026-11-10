@@ -133,10 +133,12 @@
     "build:ssh": "node scripts/build-ssh.js",
     "build:lua": "node scripts/build-lua.js",
     "build:runtimes": "node scripts/build-runtimes.js --page",
+    "build:changelog": "node scripts/build-changelog.js",
     "test:runtimes": "node scripts/test-runtimes.js",
     "build:sql": "node scripts/build-sql.js"
   },
   "private": true,
+  "license": "MIT",
   "jest": {
     "preset": "jest-expo",
     "moduleNameMapper": {

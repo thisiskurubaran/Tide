@@ -34,3 +34,7 @@ node scripts/store-assets/build.js iphone/03  # only templates whose path contai
 ```
 
 The build stops if a page has a script error, if a code or terminal line is clipped, or if a PNG doesn't come out at the exact size.
+
+## License
+
+These images and their templates are Tide brand assets and aren't covered by the MIT License. See [TRADEMARKS.md](../../../TRADEMARKS.md).

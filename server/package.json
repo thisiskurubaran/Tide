@@ -2,6 +2,7 @@
   "name": "tide-server",
   "version": "0.2.1",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=24"
