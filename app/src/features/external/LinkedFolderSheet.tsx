@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../components/Icon';
 import { useState } from 'react';
 import { Alert, Switch, View } from 'react-native';
 
@@ -74,7 +74,7 @@ export function LinkedFolderSheet({ project, onClose }: { project: string | null
       ) : (
         <>
           <View style={styles.row}>
-            <Feather name="folder" size={18} color={colors.brand} />
+            <Icon name="folder" size={18} color={colors.brand} />
             <View style={styles.flex}>
               <Text variant="label">{link.name}</Text>
               <Text variant="muted">{link.syncedAt ? `Synced ${new Date(link.syncedAt).toLocaleString()}` : 'Not synced yet'}</Text>

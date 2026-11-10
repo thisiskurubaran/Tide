@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../components/Icon';
 import { useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 
@@ -88,7 +88,7 @@ export function TabBar({ open, active, dirty, onSelect, onClose, pinned = [], on
               }}
               style={({ pressed }) => [styles.tab, narrow && styles.narrow, selected && styles.selected, pressed && !selected && styles.pressed]}
             >
-              {pin && <Feather name="map-pin" size={11} color={colors.mutedForeground} testID={`pin-${path}`} />}
+              {pin && <Icon name="map-pin" size={11} color={colors.mutedForeground} testID={`pin-${path}`} />}
               <FileIcon name={name} fallback={<FileBadge name={name} size={14} />} />
               <Text style={[styles.name, { color: selected ? colors.foreground : colors.mutedForeground }]} numberOfLines={1}>
                 {folder && !narrow ? (
@@ -107,7 +107,7 @@ export function TabBar({ open, active, dirty, onSelect, onClose, pinned = [], on
                   testID={`close-${path}`}
                   style={styles.close}
                 >
-                  {unsaved ? <View style={styles.dirty} testID={`dirty-${path}`} /> : <Feather name="x" size={13} color={colors.mutedForeground} />}
+                  {unsaved ? <View style={styles.dirty} testID={`dirty-${path}`} /> : <Icon name="x" size={13} color={colors.mutedForeground} />}
                 </Pressable>
               )}
             </Pressable>

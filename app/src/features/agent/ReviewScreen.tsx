@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../components/Icon';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, ScrollViewInstance, View } from 'react-native';
@@ -74,7 +74,7 @@ export function ReviewScreen() {
       <ScrollView ref={scroll} style={styles.fill} contentContainerStyle={styles.content}>
         {test && (
           <View style={styles.test} testID="agent-review-test">
-            <Feather
+            <Icon
               name={test.code === 0 ? 'check-circle' : 'x-circle'}
               size={15}
               color={test.code === 0 ? colors.success : test.code === null && !test.timedOut ? colors.mutedForeground : colors.destructive}
@@ -91,7 +91,7 @@ export function ReviewScreen() {
 
         {changes.length === 0 ? (
           <View style={styles.empty}>
-            <Feather name="check" size={22} color={colors.success} />
+            <Icon name="check" size={22} color={colors.success} />
             <Text variant="title">All changes reviewed</Text>
             <Button title="Back to the agent" variant="outline" onPress={() => router.back()} />
           </View>
@@ -197,7 +197,7 @@ function FileDiff({ change, stats, open, busy, onToggle, onKeepFile, onRejectFil
   return (
     <View style={styles.file} testID={`agent-file-${change.path}`}>
       <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={onToggle} style={styles.fileHeader}>
-        <Feather name={open ? 'chevron-down' : 'chevron-right'} size={16} color={colors.mutedForeground} />
+        <Icon name={open ? 'chevron-down' : 'chevron-right'} size={16} color={colors.mutedForeground} />
         <FileBadge name={change.path} />
         <Text variant="mono" style={styles.fill} numberOfLines={1}>
           {change.path}

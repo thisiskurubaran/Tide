@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../components/Icon';
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, ScrollView, View } from 'react-native';
 
@@ -79,7 +79,7 @@ export function SnapshotsSheet({ project, onClose }: { project: string | null; o
         {list?.length === 0 && <Text variant="muted">No snapshots yet.</Text>}
         {list?.map((s) => (
           <View key={s.id} style={styles.row} testID={`snapshot-${s.id}`}>
-            <Feather name={s.reason === 'manual' ? 'bookmark' : 'clock'} size={16} color={colors.mutedForeground} />
+            <Icon name={s.reason === 'manual' ? 'bookmark' : 'clock'} size={16} color={colors.mutedForeground} />
             <View style={styles.flex}>
               <Text>{new Date(s.time).toLocaleString()}</Text>
               <Text variant="muted">

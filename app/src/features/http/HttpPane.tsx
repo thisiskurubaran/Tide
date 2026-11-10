@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../components/Icon';
 import * as Clipboard from 'expo-clipboard';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
@@ -256,7 +256,7 @@ export function HttpPane({ project, path }: { project: string; path: string }) {
                     accessibilityState={{ expanded: !!openHeaders[i] }}
                     style={styles.headersToggle}
                   >
-                    <Feather name={openHeaders[i] ? 'chevron-down' : 'chevron-right'} size={14} color={colors.mutedForeground} />
+                    <Icon name={openHeaders[i] ? 'chevron-down' : 'chevron-right'} size={14} color={colors.mutedForeground} />
                     <Text variant="muted">Headers ({result.response.headers.length})</Text>
                   </Pressable>
                   {openHeaders[i] &&

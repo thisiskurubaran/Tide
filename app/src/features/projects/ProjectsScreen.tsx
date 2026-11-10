@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../components/Icon';
 import * as Clipboard from 'expo-clipboard';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -204,7 +204,7 @@ export function ProjectsScreen() {
               {badge.text}
             </Text>
           ) : (
-            <Feather name="folder" size={16} color={colors.mutedForeground} />
+            <Icon name="folder" size={16} color={colors.mutedForeground} />
           )}
         </View>
         <View style={styles.cardBody}>
@@ -212,7 +212,7 @@ export function ProjectsScreen() {
             <Text style={styles.cardTitle} numberOfLines={1}>
               {item}
             </Text>
-            {links[item] && <Feather name="link-2" size={13} color={colors.mutedForeground} />}
+            {links[item] && <Icon name="link-2" size={13} color={colors.mutedForeground} />}
           </View>
           {summary.languages.length > 0 && (
             <Text variant="muted" style={styles.cardSubtitle} numberOfLines={1}>
@@ -222,7 +222,7 @@ export function ProjectsScreen() {
           <View style={styles.meta}>
             {status?.branch && (
               <View style={styles.metaItem}>
-                <Feather name="git-branch" size={11} color={colors.mutedForeground} />
+                <Icon name="git-branch" size={11} color={colors.mutedForeground} />
                 <Text style={styles.metaText} numberOfLines={1}>
                   {status.branch}
                 </Text>
@@ -236,7 +236,7 @@ export function ProjectsScreen() {
             )}
             {issues > 0 && (
               <View style={styles.metaItem}>
-                <Feather name="alert-circle" size={11} color={colors.destructive} />
+                <Icon name="alert-circle" size={11} color={colors.destructive} />
                 <Text style={[styles.metaText, { color: colors.destructive }]}>{issues}</Text>
               </View>
             )}
@@ -268,7 +268,7 @@ export function ProjectsScreen() {
         </View>
 
         <View style={styles.search}>
-          <Feather name="search" size={15} color={colors.mutedForeground} />
+          <Icon name="search" size={15} color={colors.mutedForeground} />
           <TextInput
             ref={searchInput}
             testID="projects-search"
@@ -297,7 +297,7 @@ export function ProjectsScreen() {
             accessibilityLabel="New project"
             style={({ pressed }) => [styles.action, styles.actionPrimary, pressed && styles.pressed]}
           >
-            <Feather name="plus" size={16} color={colors.brandForeground} />
+            <Icon name="plus" size={16} color={colors.brandForeground} />
             <Text style={[styles.actionText, { color: colors.brandForeground }]}>New project</Text>
           </Pressable>
           <Pressable
@@ -307,7 +307,7 @@ export function ProjectsScreen() {
             accessibilityLabel="Clone repo"
             style={({ pressed }) => [styles.action, styles.actionOutline, pressed && { backgroundColor: colors.secondary }]}
           >
-            <Feather name="git-branch" size={16} color={colors.foreground} />
+            <Icon name="git-branch" size={16} color={colors.foreground} />
             <Text style={styles.actionText}>Clone repo</Text>
           </Pressable>
         </View>
@@ -388,7 +388,7 @@ export function ProjectsScreen() {
                 style={({ pressed }) => [styles.tile, pressed && { backgroundColor: colors.secondary }]}
                 testID={p.testID}
               >
-                <Feather name={p.icon} size={18} color={colors.foreground} />
+                <Icon name={p.icon} size={18} color={colors.foreground} />
                 <Text variant="label" style={styles.tileLabel} numberOfLines={1}>
                   {p.label}
                 </Text>

@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../components/Icon';
 import { useFonts } from 'expo-font';
 import { Pressable, Switch, View } from 'react-native';
 
@@ -74,7 +74,7 @@ export function CodeFontSection() {
                   {SAMPLE}
                 </Text>
               </View>
-              {selected ? <Feather name="check" size={18} color={colors.brand} /> : <View style={styles.checkSpace} />}
+              {selected ? <Icon name="check" size={18} color={colors.brand} /> : <View style={styles.checkSpace} />}
             </Pressable>
           );
         })}

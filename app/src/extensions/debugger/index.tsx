@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../components/Icon';
 import type { DebugVariable } from '@shared/protocol';
 import { ComponentRef, useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, TextInput, View } from 'react-native';
@@ -65,7 +65,7 @@ function DebugBar({ ctx }: { ctx: ProjectContext }) {
     status === 'paused' ? (paused ? `Paused at ${paused.path.split('/').pop()}:${paused.line}` : 'Paused') : status === 'ended' ? 'Finished' : 'Running';
   return (
     <View style={styles.bar} testID="debug-bar">
-      <Feather name="crosshair" size={14} color={status === 'paused' ? colors.warning : colors.mutedForeground} />
+      <Icon name="crosshair" size={14} color={status === 'paused' ? colors.warning : colors.mutedForeground} />
       <Text variant="muted" style={styles.status} numberOfLines={1}>
         {label}
       </Text>
@@ -102,7 +102,7 @@ function VariableRow({ variable, depth }: { variable: DebugVariable; depth: numb
   return (
     <View>
       <Pressable accessibilityRole="button" onPress={toggle} style={[styles.variable, { paddingLeft: spacing.xs + depth * spacing.md }]} testID={`var-${variable.name}`}>
-        <Feather name={variable.ref ? (open ? 'chevron-down' : 'chevron-right') : 'minus'} size={12} color={variable.ref ? colors.mutedForeground : 'transparent'} />
+        <Icon name={variable.ref ? (open ? 'chevron-down' : 'chevron-right') : 'minus'} size={12} color={variable.ref ? colors.mutedForeground : 'transparent'} />
         <Text variant="mono" style={styles.varName}>
           {variable.name}
         </Text>

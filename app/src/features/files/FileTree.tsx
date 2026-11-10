@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../components/Icon';
 import * as Clipboard from 'expo-clipboard';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, FlatList, Pressable, TextInput, View } from 'react-native';
@@ -221,12 +221,12 @@ export function FileTree({ project, nodes, activePath, onOpenFile, reveal }: Fil
       >
         {guides(depth)}
         {isDir ? (
-          <Feather name={isOpen ? 'chevron-down' : 'chevron-right'} size={CHEVRON} color={colors.mutedForeground} style={styles.chevron} />
+          <Icon name={isOpen ? 'chevron-down' : 'chevron-right'} size={CHEVRON} color={colors.mutedForeground} style={styles.chevron} />
         ) : (
           <View style={styles.chevron} />
         )}
         {isDir ? (
-          <Feather name="folder" size={15} color={colors.brand} />
+          <Icon name="folder" size={15} color={colors.brand} />
         ) : (
           <FileIcon name={node.name} fallback={<FileBadge name={node.name} size={15} />} />
         )}
@@ -262,7 +262,7 @@ export function FileTree({ project, nodes, activePath, onOpenFile, reveal }: Fil
       </View>
 
       <View style={styles.filter}>
-        <Feather name="search" size={14} color={colors.mutedForeground} />
+        <Icon name="search" size={14} color={colors.mutedForeground} />
         <TextInput
           testID="tree-filter"
           value={query}
@@ -279,7 +279,7 @@ export function FileTree({ project, nodes, activePath, onOpenFile, reveal }: Fil
         />
         {query.length > 0 && (
           <Pressable testID="tree-filter-clear" onPress={() => changeQuery('')} hitSlop={spacing.sm} accessibilityRole="button" accessibilityLabel="Clear filter">
-            <Feather name="x-circle" size={14} color={colors.mutedForeground} />
+            <Icon name="x-circle" size={14} color={colors.mutedForeground} />
           </Pressable>
         )}
       </View>

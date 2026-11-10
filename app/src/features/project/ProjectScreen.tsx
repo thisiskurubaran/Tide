@@ -1,7 +1,7 @@
 import * as Clipboard from 'expo-clipboard';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../components/Icon';
 import { Alert, Animated, PanResponder, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -855,7 +855,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
           </Text>
           {git?.branch && (
             <Pressable onPress={openSourceControl} accessibilityRole="button" accessibilityLabel={`Branch ${git.branch}, ${changedCount} changed`} style={styles.subtitle} testID="header-branch">
-              <Feather name="git-branch" size={10} color={styles.subtitleText.color} />
+              <Icon name="git-branch" size={10} color={styles.subtitleText.color} />
               <Text style={styles.subtitleText} numberOfLines={1}>
                 {git.branch}
                 {changedCount > 0 ? ` · ${changedCount} changed` : ''}
@@ -882,7 +882,7 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
           onLayout={runTarget.onLayout}
           testID="run-button"
         >
-          <Feather name={running ? 'square' : 'play'} size={13} color={running ? styles.stopText.color : styles.runText.color} />
+          <Icon name={running ? 'square' : 'play'} size={13} color={running ? styles.stopText.color : styles.runText.color} />
           <Text style={running ? styles.stopText : styles.runText}>{running ? 'Stop' : 'Run'}</Text>
         </Pressable>
         <View ref={paletteTarget.ref} onLayout={paletteTarget.onLayout}>

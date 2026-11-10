@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../components/Icon';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
@@ -120,7 +120,7 @@ export function KeyBarSettingsScreen() {
               <View key={`${i}-${id}`} style={styles.row} testID={`keybar-key-${i}`}>
                 <View style={styles.face}>
                   {face.icon ? (
-                    <Feather name={face.icon as IconName} size={16} color={colors.foreground} />
+                    <Icon name={face.icon as IconName} size={16} color={colors.foreground} />
                   ) : (
                     <Text style={styles.faceLabel}>{face.label}</Text>
                   )}

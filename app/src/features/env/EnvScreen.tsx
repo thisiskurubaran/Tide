@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../components/Icon';
 import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
@@ -75,7 +75,7 @@ export function EnvScreen() {
             style={styles.row}
             testID={`env-var-${v.key}`}
           >
-            <Feather name={v.secret ? 'lock' : 'file-text'} size={16} color={v.secret ? colors.brand : colors.mutedForeground} />
+            <Icon name={v.secret ? 'lock' : 'file-text'} size={16} color={v.secret ? colors.brand : colors.mutedForeground} />
             <View style={styles.flex}>
               <Text variant="mono" numberOfLines={1}>
                 {v.key}
@@ -91,7 +91,7 @@ export function EnvScreen() {
                 accessibilityLabel={shown[v.key] ? `Hide ${v.key}` : `Show ${v.key}`}
                 hitSlop={spacing.sm}
               >
-                <Feather name={shown[v.key] ? 'eye-off' : 'eye'} size={16} color={colors.mutedForeground} />
+                <Icon name={shown[v.key] ? 'eye-off' : 'eye'} size={16} color={colors.mutedForeground} />
               </Pressable>
             )}
           </Pressable>

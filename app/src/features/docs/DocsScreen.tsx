@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../components/Icon';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, TextInput, View } from 'react-native';
@@ -66,7 +66,7 @@ export function DocsScreen() {
   return (
     <Screen title="Docs" subtitle="Offline, from DevDocs" testID="docs">
       <View style={styles.search}>
-        <Feather name="search" size={16} color={colors.mutedForeground} />
+        <Icon name="search" size={16} color={colors.mutedForeground} />
         <TextInput
           value={query}
           onChangeText={setQuery}
@@ -99,7 +99,7 @@ export function DocsScreen() {
                   {nameOf(r.slug)} · {r.type}
                 </Text>
               </View>
-              <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
+              <Icon name="chevron-right" size={16} color={colors.mutedForeground} />
             </Pressable>
           ))}
         </>
@@ -110,7 +110,7 @@ export function DocsScreen() {
           {installed?.length === 0 && <Text variant="muted">No docs yet. Download the ones you use; they work without a connection after that.</Text>}
           {installed?.map((d) => (
             <View key={d.slug} style={styles.row} testID={`docs-installed-${d.slug}`}>
-              <Feather name="book" size={16} color={colors.brand} />
+              <Icon name="book" size={16} color={colors.brand} />
               <View style={styles.flex}>
                 <Text variant="label">{label(d)}</Text>
                 <Text variant="muted">
@@ -118,7 +118,7 @@ export function DocsScreen() {
                 </Text>
               </View>
               <Pressable onPress={() => remove(d)} accessibilityRole="button" accessibilityLabel={`Remove ${d.name}`} hitSlop={8}>
-                <Feather name="trash-2" size={16} color={colors.mutedForeground} />
+                <Icon name="trash-2" size={16} color={colors.mutedForeground} />
               </Pressable>
             </View>
           ))}

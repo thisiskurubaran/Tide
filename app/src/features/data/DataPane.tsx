@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../components/Icon';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
@@ -110,7 +110,7 @@ export function DataPane({ project, path }: { project: string; path: string }) {
           testID="data-mode"
         />
         <View style={styles.search}>
-          <Feather name="search" size={14} color={colors.mutedForeground} />
+          <Icon name="search" size={14} color={colors.mutedForeground} />
           <TextInput
             value={query}
             onChangeText={setQuery}
@@ -136,7 +136,7 @@ export function DataPane({ project, path }: { project: string; path: string }) {
                 <Text variant="label" numberOfLines={1} style={styles.flexShrink}>
                   {c}
                 </Text>
-                {sort?.column === i && <Feather name={sort.dir === 'asc' ? 'arrow-up' : 'arrow-down'} size={12} color={colors.brand} />}
+                {sort?.column === i && <Icon name={sort.dir === 'asc' ? 'arrow-up' : 'arrow-down'} size={12} color={colors.brand} />}
               </Pressable>
             ))}
           </View>

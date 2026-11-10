@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../components/Icon';
 import { useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 
@@ -46,11 +46,11 @@ export function ProblemsPanel({ project, visible, onOpen, onClose, onExplainErro
   const paths = Object.keys(files ?? {}).sort();
   const icon = (d: Diagnostic) =>
     d.severity === 'error' ? (
-      <Feather name="x-circle" size={14} color={colors.destructive} />
+      <Icon name="x-circle" size={14} color={colors.destructive} />
     ) : d.severity === 'warning' ? (
-      <Feather name="alert-triangle" size={14} color={colors.warning} />
+      <Icon name="alert-triangle" size={14} color={colors.warning} />
     ) : (
-      <Feather name="info" size={14} color={colors.brand} />
+      <Icon name="info" size={14} color={colors.brand} />
     );
 
   return (

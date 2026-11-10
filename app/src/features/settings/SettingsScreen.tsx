@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../components/Icon';
 import { router } from 'expo-router';
 import { ReactNode, useEffect, useState } from 'react';
 import { Alert, Platform, Pressable, ScrollView, Switch, View } from 'react-native';
@@ -344,7 +344,7 @@ export function LinkRow({ label, detail, onPress, testID }: { label: string; det
           </Text>
         ) : null}
       </View>
-      <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+      <Icon name="chevron-right" size={18} color={colors.mutedForeground} />
     </Pressable>
   );
 }

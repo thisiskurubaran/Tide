@@ -10,11 +10,7 @@
       "deploymentTarget": "17.0",
       "supportsTablet": true,
       "bundleIdentifier": "com.thisiskurubaran.tide",
-      "icon": {
-        "light": "./assets/icons/ios-light.png",
-        "dark": "./assets/icons/ios-dark.png",
-        "tinted": "./assets/icons/ios-tinted.png"
-      },
+      "icon": "./assets/icons/Tide.icon",
       "privacyManifests": {
         "NSPrivacyTracking": false,
         "NSPrivacyAccessedAPITypes": [

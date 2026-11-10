@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from './Icon';
 import { useMemo, useRef } from 'react';
 import { PanResponder, View } from 'react-native';
 
@@ -53,7 +53,7 @@ export function Trackpad({ onStep, testID }: { onStep(direction: Direction): voi
       accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
       onAccessibilityAction={(e) => step.current(e.nativeEvent.actionName === 'increment' ? 'right' : 'left')}
     >
-      <Feather name="move" size={16} color={colors.foreground} />
+      <Icon name="move" size={16} color={colors.foreground} />
     </View>
   );
 }

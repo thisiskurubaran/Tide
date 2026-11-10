@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../components/Icon';
 import { useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 
@@ -35,7 +35,7 @@ function ReleaseNotes({ release }: { release: Release }) {
       <Text variant="label">Tide {release.version}</Text>
       {items.map((item) => (
         <View key={item} style={styles.item}>
-          <Feather name="check" size={14} color={colors.brand} style={styles.check} />
+          <Icon name="check" size={14} color={colors.brand} style={styles.check} />
           <Text style={styles.flex}>{item}</Text>
         </View>
       ))}

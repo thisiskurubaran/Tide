@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../components/Icon';
 import { ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, Text as RNText, StyleProp, TextInput, TextInputInstance, TextInputKeyPressEvent, TextStyle, View } from 'react-native';
 
@@ -371,7 +371,7 @@ export function CommandPalette({ mode, project, commands, onOpenFile, onClose, a
         onPress={() => choose(row)}
         style={({ pressed }) => [styles.row, (pressed || active) && styles.rowActive]}
       >
-        <Feather name={icon} size={16} color={row.kind === 'symbol' ? colors.brand : colors.mutedForeground} />
+        <Icon name={icon} size={16} color={row.kind === 'symbol' ? colors.brand : colors.mutedForeground} />
         {body}
         {hint ? (
           <Text variant="muted" style={styles.hint}>
@@ -385,7 +385,7 @@ export function CommandPalette({ mode, project, commands, onOpenFile, onClose, a
   return (
     <Overlay visible={visible} onClose={onClose}>
       <View style={styles.inputRow}>
-        <Feather name={INPUT_ICON[parsed.kind]} size={16} color={colors.mutedForeground} />
+        <Icon name={INPUT_ICON[parsed.kind]} size={16} color={colors.mutedForeground} />
         <TextInput
           ref={input}
           testID="palette-input"

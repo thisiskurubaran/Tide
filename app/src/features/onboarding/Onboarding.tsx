@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../components/Icon';
 import { useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -42,7 +42,7 @@ export function Onboarding({ visible, onDone }: OnboardingProps) {
               style={styles.back}
               testID="onboarding-back"
             >
-              <Feather name="chevron-left" size={18} color={colors.mutedForeground} />
+              <Icon name="chevron-left" size={18} color={colors.mutedForeground} />
               <Text variant="muted">Back</Text>
             </Pressable>
           )}
@@ -56,7 +56,7 @@ export function Onboarding({ visible, onDone }: OnboardingProps) {
         <ScrollView style={styles.flex} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
           <View style={styles.content} accessible accessibilityLabel={`Step ${index + 1} of ${STEPS.length}. ${step.title}. ${step.body}`}>
             <View style={styles.icon}>
-              <Feather name={step.icon} size={40} color={colors.brand} />
+              <Icon name={step.icon} size={40} color={colors.brand} />
             </View>
             <Text variant="heading" style={styles.center}>
               {step.title}

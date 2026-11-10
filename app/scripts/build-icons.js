@@ -136,3 +136,35 @@ for (const [name, build] of Object.entries(outputs)) {
   fs.writeFileSync(path.join(out, name), build());
   console.log(`wrote assets/icons/${name}`);
 }
+
+// The layered Liquid Glass icon for iOS 26+ (app.json ios.icon). Xcode builds it with
+// Icon Composer's renderer and also flattens it for iOS 17 and 18. The chevron and the
+// wave are separate groups, so the system gives them depth and glass highlights; it
+// derives the dark, tinted and clear versions itself. Open it in Icon Composer to tune.
+const ICON = path.join(out, 'Tide.icon');
+const layerSvg = (d, color, join) =>
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="1024" height="1024">` +
+  `<path d="${d}" fill="none" stroke="${color}" stroke-width="3" stroke-linecap="round"${join ? ' stroke-linejoin="round"' : ''}/></svg>\n`;
+const srgb = (hex) =>
+  'srgb:' + [1, 3, 5].map((i) => (parseInt(hex.slice(i, i + 2), 16) / 255).toFixed(5)).join(',') + ',1.00000';
+const glassGroup = (name) => ({
+  layers: [{ 'image-name': `${name}.svg`, name }],
+  shadow: { kind: 'neutral', opacity: 0.5 },
+  translucency: { enabled: true, value: 0.5 },
+});
+fs.mkdirSync(path.join(ICON, 'Assets'), { recursive: true });
+fs.writeFileSync(path.join(ICON, 'Assets', 'chevron.svg'), layerSvg(chevron, light.body, true));
+fs.writeFileSync(path.join(ICON, 'Assets', 'wave.svg'), layerSvg(wave, light.accent, false));
+fs.writeFileSync(
+  path.join(ICON, 'icon.json'),
+  JSON.stringify(
+    {
+      fill: { 'automatic-gradient': srgb(tileGradient[0]) },
+      groups: [glassGroup('chevron'), glassGroup('wave')],
+      'supported-platforms': { circles: ['watchOS'], squares: 'shared' },
+    },
+    null,
+    2,
+  ) + '\n',
+);
+console.log('wrote assets/icons/Tide.icon');

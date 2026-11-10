@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../components/Icon';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, ScrollViewInstance, TextInput, TextInputInstance, View } from 'react-native';
@@ -104,12 +104,12 @@ export function AgentScreen() {
           style={({ pressed }) => [styles.reviewBar, pressed && { opacity: 0.8 }]}
           testID="agent-review"
         >
-          <Feather name="git-pull-request" size={16} color={colors.brandForeground} />
+          <Icon name="git-pull-request" size={16} color={colors.brandForeground} />
           <Text style={styles.reviewText}>
             Review {changeCount} {changeCount === 1 ? 'change' : 'changes'}
           </Text>
           <PendingStats project={project} />
-          <Feather name="chevron-right" size={16} color={colors.brandForeground} />
+          <Icon name="chevron-right" size={16} color={colors.brandForeground} />
         </Pressable>
       )}
 
@@ -138,7 +138,7 @@ export function AgentScreen() {
             style={({ pressed }) => [styles.send, (!text.trim() || session.running) && { opacity: 0.4 }, pressed && { opacity: 0.7 }]}
             testID="agent-send"
           >
-            <Feather name="arrow-up" size={18} color={colors.brandForeground} />
+            <Icon name="arrow-up" size={18} color={colors.brandForeground} />
           </Pressable>
         </View>
       </View>
@@ -212,7 +212,7 @@ function TurnView({ project, turn, approval, onSetup }: { project: string; turn:
           </Text>
           {running && (
             <Pressable accessibilityRole="button" onPress={() => stopAgent(project)} style={styles.stop} testID="agent-stop">
-              <Feather name="square" size={12} color={colors.destructive} />
+              <Icon name="square" size={12} color={colors.destructive} />
               <Text style={styles.stopText}>Stop</Text>
             </Pressable>
           )}
@@ -236,7 +236,7 @@ function EndMessage({ turn, onSetup }: { turn: Turn; onSetup(): void }) {
   if (turn.status === 'stopped') return <Text variant="muted">Stopped. Changes made so far are still waiting for review.</Text>;
   return (
     <View style={styles.summary}>
-      <Feather name="check-circle" size={15} color={colors.success} style={{ marginTop: 2 }} />
+      <Icon name="check-circle" size={15} color={colors.success} style={{ marginTop: 2 }} />
       <Text style={[styles.agentText, styles.fill]} selectable>
         {turn.message}
       </Text>
@@ -253,15 +253,15 @@ function StepRowView({ row }: { row: StepRow }) {
   if (row.view.verb === 'Finished') return null;
   const dot =
     row.status === 'done' ? (
-      <Feather name="check" size={13} color={colors.success} />
+      <Icon name="check" size={13} color={colors.success} />
     ) : row.status === 'running' ? (
       <View style={[styles.dotFill, { backgroundColor: colors.brand }]} />
     ) : row.status === 'waiting' ? (
       <View style={[styles.dotRing, { borderColor: colors.mutedForeground }]} />
     ) : row.status === 'denied' ? (
-      <Feather name="slash" size={12} color={colors.mutedForeground} />
+      <Icon name="slash" size={12} color={colors.mutedForeground} />
     ) : (
-      <Feather name="x" size={13} color={colors.destructive} />
+      <Icon name="x" size={13} color={colors.destructive} />
     );
   const verb = row.status === 'running' ? VERB_RUNNING[row.view.verb] : row.status === 'waiting' ? `Waiting to run` : VERB_DONE[row.view.verb];
   return (
@@ -297,7 +297,7 @@ function ApprovalCard({ project, command, commandKey }: { project: string; comma
   return (
     <View style={styles.approval} testID="agent-approval">
       <View style={styles.approvalTitle}>
-        <Feather name="terminal" size={14} color={colors.warning} />
+        <Icon name="terminal" size={14} color={colors.warning} />
         <Text style={[styles.verb, { color: colors.warning }]}>Allow this command?</Text>
       </View>
       <View style={styles.commandBox}>

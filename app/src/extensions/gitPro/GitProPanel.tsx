@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../components/Icon';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Modal, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -117,7 +117,7 @@ export function GitProPanel({ ctx, visible, onClose }: PanelProps) {
           </Text>
           {status && status !== 'none' && (
             <View style={styles.branch}>
-              <Feather name="git-branch" size={14} color={colors.mutedForeground} />
+              <Icon name="git-branch" size={14} color={colors.mutedForeground} />
               <Text variant="muted" testID="gp-branch">
                 {status.branch ?? 'detached'}
               </Text>
@@ -143,7 +143,7 @@ export function GitProPanel({ ctx, visible, onClose }: PanelProps) {
             <Text variant="error" style={styles.flex}>
               {error}
             </Text>
-            <Feather name="x" size={16} color={colors.destructive} />
+            <Icon name="x" size={16} color={colors.destructive} />
           </Pressable>
         )}
         <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.lg }]} keyboardShouldPersistTaps="handled">
@@ -231,7 +231,7 @@ function Changes({ git, act, busy, setDetail, ctx, status }: Shared & { status: 
     <View style={styles.gap}>
       {status.merging && (
         <View style={styles.banner} testID="gp-merging">
-          <Feather name="git-merge" size={16} color={colors.warning} />
+          <Icon name="git-merge" size={16} color={colors.warning} />
           <Text style={styles.flex}>
             {status.merging}. {conflicts.length ? 'Resolve the conflicts in the editor, then stage each file.' : 'Commit to finish the merge.'}
           </Text>
@@ -329,7 +329,7 @@ function OperationBanner({ git, act, busy, setTab, status }: Shared & { status: 
   return (
     <View style={[styles.banner, styles.operation]} testID="gp-operation">
       <View style={styles.bannerHead}>
-        <Feather name={rebase ? 'git-pull-request' : 'git-commit'} size={16} color={colors.warning} />
+        <Icon name={rebase ? 'git-pull-request' : 'git-commit'} size={16} color={colors.warning} />
         <Text style={styles.flex}>
           {title} {conflicts.length ? `Resolve ${conflicts.map((c) => c.path).join(', ')} in the editor, then stage each file.` : 'Stage the resolved files, then Continue.'}
         </Text>
@@ -385,7 +385,7 @@ function Stashes({ git, act, busy, setDetail, status, dirty }: Omit<Shared, 'set
           onPress={() => setDetail({ kind: 'commit', stash: true, commit: { oid: s.oid, message: s.message, author: 'stash', timestamp: s.timestamp, parents: s.parents.slice(0, 1) } })}
           style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.secondary }]}
         >
-          <Feather name="archive" size={16} color={colors.mutedForeground} />
+          <Icon name="archive" size={16} color={colors.mutedForeground} />
           <View style={styles.flex}>
             <Text numberOfLines={1}>{s.message}</Text>
             <Text variant="muted">
@@ -548,7 +548,7 @@ function BranchList({ git, act, busy, status, setTab }: Shared & { status: Statu
             onPress={() => !current && checkout(b)}
             style={({ pressed }) => [styles.row, pressed && !current && { backgroundColor: colors.secondary }]}
           >
-            <Feather name={current ? 'check' : 'git-branch'} size={16} color={current ? colors.success : colors.mutedForeground} />
+            <Icon name={current ? 'check' : 'git-branch'} size={16} color={current ? colors.success : colors.mutedForeground} />
             <Text style={styles.flex} numberOfLines={1}>
               {b}
             </Text>
@@ -564,7 +564,7 @@ function BranchList({ git, act, busy, status, setTab }: Shared & { status: Statu
       {branches.remote.length > 0 && <Text variant="label">Remote</Text>}
       {branches.remote.map((b) => (
         <Pressable accessibilityRole="button" key={b} testID={`gp-remote-${b}`} onPress={() => checkout(b)} style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.secondary }]}>
-          <Feather name="cloud" size={16} color={colors.mutedForeground} />
+          <Icon name="cloud" size={16} color={colors.mutedForeground} />
           <Text style={styles.flex} numberOfLines={1}>
             {b}
           </Text>
@@ -618,7 +618,7 @@ function Tags({ git, act, busy, status }: Pick<Shared, 'git' | 'act' | 'busy'> &
       {tags?.length === 0 && <Text variant="muted">No tags. A tag names a commit, such as a release.</Text>}
       {tags?.map((t) => (
         <View key={t.name} style={styles.row} testID={`gp-tag-${t.name}`}>
-          <Feather name="tag" size={16} color={colors.mutedForeground} />
+          <Icon name="tag" size={16} color={colors.mutedForeground} />
           <View style={styles.flex}>
             <Text numberOfLines={1}>{t.name}</Text>
             <Text variant="muted" numberOfLines={1}>

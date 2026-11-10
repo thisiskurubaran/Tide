@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../components/Icon';
 import { router } from 'expo-router';
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
@@ -174,7 +174,7 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>
       <View style={styles.message} testID={`remote-${status.state}`}>
         {status.state === 'unconfigured' && (
           <>
-            <Feather name="server" size={22} color={colors.mutedForeground} />
+            <Icon name="server" size={22} color={colors.mutedForeground} />
             <Text variant="label" style={styles.center}>
               Remote isn't set up
             </Text>
@@ -225,7 +225,7 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>
                 onPress={() => setTabs((t) => ({ ...t, active: id }))}
                 style={[styles.tab, on && styles.tabOn]}
               >
-                <Feather name="terminal" size={12} color={on ? colors.foreground : colors.mutedForeground} />
+                <Icon name="terminal" size={12} color={on ? colors.foreground : colors.mutedForeground} />
                 <Text variant="label" style={{ color: on ? colors.foreground : colors.mutedForeground }}>
                   {i + 1}
                 </Text>
@@ -236,7 +236,7 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>
                     testID={`terminal-close-${i + 1}`}
                     onPress={() => setTabs((t) => closeTab(t, id))}
                   >
-                    <Feather name="x" size={12} color={colors.mutedForeground} />
+                    <Icon name="x" size={12} color={colors.mutedForeground} />
                   </Pressable>
                 )}
               </Pressable>
@@ -262,7 +262,7 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>
         </ScrollView>
         {problemCount > 0 && onShowProblems && (
           <Pressable onPress={onShowProblems} accessibilityRole="button" accessibilityLabel={`${problemCount} problems`} style={styles.problems} testID="terminal-problems">
-            <Feather name="alert-triangle" size={14} color={colors.warning} />
+            <Icon name="alert-triangle" size={14} color={colors.warning} />
             <Text style={styles.problemCount}>{problemCount}</Text>
           </Pressable>
         )}

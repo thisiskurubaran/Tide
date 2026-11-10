@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../components/Icon';
 import { useMemo } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 import { createStore, useStore } from 'zustand';
@@ -44,7 +44,7 @@ export function Breadcrumbs({ project, path, onShowFiles, onJump }: { project: s
   const chain = useMemo(() => symbolsAt(symbols, lines, line), [symbols, lines, line]);
   const parts = path.split('/');
 
-  const sep = <Feather name="chevron-right" size={12} color={colors.mutedForeground} />;
+  const sep = <Icon name="chevron-right" size={12} color={colors.mutedForeground} />;
   return (
     <View style={styles.bar} testID="breadcrumbs">
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
@@ -62,7 +62,7 @@ export function Breadcrumbs({ project, path, onShowFiles, onJump }: { project: s
           <View key={`s${s.line}`} style={styles.item}>
             {sep}
             <Pressable onPress={() => onJump(s.line)} accessibilityRole="button" accessibilityLabel={`${s.kind} ${s.name}, line ${s.line}`} hitSlop={6} style={styles.symbol} testID={`crumb-${s.name}`}>
-              <Feather name={ICONS[s.kind]} size={11} color={colors.brand} />
+              <Icon name={ICONS[s.kind]} size={11} color={colors.brand} />
               <Text style={[styles.text, styles.file]} numberOfLines={1}>
                 {s.name}
               </Text>

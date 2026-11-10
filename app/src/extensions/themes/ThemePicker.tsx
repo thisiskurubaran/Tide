@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../components/Icon';
 import { Pressable, ScrollView, Switch, View } from 'react-native';
 
 import { Sheet } from '../../components/Sheet';
@@ -37,7 +37,7 @@ export function ThemePicker({ visible, onClose }: { visible: boolean; onClose():
             >
               <Swatch theme={t.editor} />
               <Text style={styles.name}>{t.name}</Text>
-              {selected && <Feather name="check" size={18} color={colors.brand} />}
+              {selected && <Icon name="check" size={18} color={colors.brand} />}
             </Pressable>
           );
         })}

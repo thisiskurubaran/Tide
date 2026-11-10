@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../components/Icon';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, View } from 'react-native';
 
@@ -53,7 +53,7 @@ export function SchemaView({ source, onOpenTable }: { source: DbSource; onOpenTa
         return (
           <View key={t.name} style={styles.card} testID={`schema-${t.name}`}>
             <View style={styles.head}>
-              <Feather name={t.kind === 'view' ? 'eye' : 'grid'} size={14} color={colors.mutedForeground} />
+              <Icon name={t.kind === 'view' ? 'eye' : 'grid'} size={14} color={colors.mutedForeground} />
               <Text variant="label" style={styles.flex} onPress={() => onOpenTable(t.name)} accessibilityRole="link">
                 {t.name}
               </Text>
@@ -64,7 +64,7 @@ export function SchemaView({ source, onOpenTable }: { source: DbSource; onOpenTa
               return (
                 <View key={c.name} style={styles.col}>
                   <View style={styles.keyCell}>
-                    {c.primary ? <Feather name="key" size={12} color={colors.warning} /> : fk ? <Feather name="link" size={12} color={colors.brand} /> : null}
+                    {c.primary ? <Icon name="key" size={12} color={colors.warning} /> : fk ? <Icon name="link" size={12} color={colors.brand} /> : null}
                   </View>
                   <Text variant="mono" numberOfLines={1} style={[styles.small, styles.colName]}>
                     {c.name}

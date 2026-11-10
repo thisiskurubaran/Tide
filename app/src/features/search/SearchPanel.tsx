@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../components/Icon';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, SectionList, TextInput, View } from 'react-native';
 
@@ -123,7 +123,7 @@ export function SearchPanel({ visible, project, onOpen, onClose }: SearchPanelPr
           onPress={() => setReplacing((r) => !r)}
           hitSlop={spacing.sm}
         >
-          <Feather name={replacing ? 'chevron-down' : 'chevron-right'} size={16} color={colors.mutedForeground} />
+          <Icon name={replacing ? 'chevron-down' : 'chevron-right'} size={16} color={colors.mutedForeground} />
         </Pressable>
         <TextInput
           testID="search-input"
@@ -143,12 +143,12 @@ export function SearchPanel({ visible, project, onOpen, onClose }: SearchPanelPr
         <Toggle testID="search-word" label="Match whole word" text="ab|" on={wholeWord} onChange={setWholeWord} />
         <Toggle testID="search-regex" label="Use regular expression" text=".*" on={regex} onChange={setRegex} />
         <Pressable accessibilityRole="button" testID="search-filters" accessibilityLabel="Files to include or exclude" onPress={() => setFiltering((f) => !f)} hitSlop={spacing.xs}>
-          <Feather name="filter" size={16} color={filtering || include || exclude ? colors.brand : colors.mutedForeground} />
+          <Icon name="filter" size={16} color={filtering || include || exclude ? colors.brand : colors.mutedForeground} />
         </Pressable>
       </View>
       {replacing && (
         <View style={styles.inputRow}>
-          <Feather name="repeat" size={16} color={colors.mutedForeground} />
+          <Icon name="repeat" size={16} color={colors.mutedForeground} />
           <TextInput
             testID="replace-input"
             value={replacement}
@@ -218,7 +218,7 @@ export function SearchPanel({ visible, project, onOpen, onClose }: SearchPanelPr
                 disabled={busy}
                 hitSlop={spacing.xs}
               >
-                <Feather name="repeat" size={14} color={colors.mutedForeground} />
+                <Icon name="repeat" size={14} color={colors.mutedForeground} />
               </Pressable>
             )}
           </View>

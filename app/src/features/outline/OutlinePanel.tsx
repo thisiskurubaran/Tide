@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../components/Icon';
 import { useEffect, useMemo, useState } from 'react';
 import { FlatList, Pressable, TextInput, View } from 'react-native';
 
@@ -56,7 +56,7 @@ export function OutlinePanel({ visible, project, path, onOpen, onClose }: Outlin
   return (
     <Overlay visible={visible} onClose={onClose}>
       <View style={styles.inputRow}>
-        <Feather name="list" size={16} color={colors.mutedForeground} />
+        <Icon name="list" size={16} color={colors.mutedForeground} />
         <TextInput
           value={query}
           onChangeText={setQuery}
@@ -96,7 +96,7 @@ export function OutlinePanel({ visible, project, path, onOpen, onClose }: Outlin
             style={({ pressed }) => [styles.row, { paddingLeft: spacing.md + (query.trim() ? 0 : item.depth * 16) }, pressed && styles.pressed]}
             testID={`symbol-${item.name}`}
           >
-            <Feather name={ICON[item.kind]} size={14} color={item.kind === 'class' || item.kind === 'type' ? colors.warning : colors.brand} />
+            <Icon name={ICON[item.kind]} size={14} color={item.kind === 'class' || item.kind === 'type' ? colors.warning : colors.brand} />
             <Text numberOfLines={1} style={styles.name}>
               {item.name}
             </Text>

@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../../components/Icon';
 import { useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 
@@ -46,7 +46,7 @@ export function ChecksView({ report, onRun }: { report: AuditReport | null; onRu
                 .sort((a, b) => Number(a.ok) - Number(b.ok))
                 .map((x) => (
                   <Pressable key={x.id} onPress={() => x.items && setOpen(open === x.id ? null : x.id)} style={styles.check} accessibilityRole={x.items ? 'button' : undefined} testID={`check-${x.id}`}>
-                    <Feather name={x.info ? 'info' : x.ok ? 'check-circle' : 'x-circle'} size={15} color={x.info ? colors.mutedForeground : x.ok ? colors.success : colors.destructive} style={styles.icon} />
+                    <Icon name={x.info ? 'info' : x.ok ? 'check-circle' : 'x-circle'} size={15} color={x.info ? colors.mutedForeground : x.ok ? colors.success : colors.destructive} style={styles.icon} />
                     <View style={styles.flex}>
                       <Text>{x.title}</Text>
                       {x.detail ? <Text variant="muted">{x.detail}</Text> : null}
@@ -57,7 +57,7 @@ export function ChecksView({ report, onRun }: { report: AuditReport | null; onRu
                           </Text>
                         ))}
                     </View>
-                    {x.items && <Feather name={open === x.id ? 'chevron-up' : 'chevron-down'} size={15} color={colors.mutedForeground} />}
+                    {x.items && <Icon name={open === x.id ? 'chevron-up' : 'chevron-down'} size={15} color={colors.mutedForeground} />}
                   </Pressable>
                 ))}
             </View>

@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../components/Icon';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, LayoutChangeEvent, PanResponder, Pressable, StyleSheet, View } from 'react-native';
@@ -142,11 +142,11 @@ export function LivePreviewWindow({ project, path, onClose }: LivePreviewWindowP
             </Text>
             {source && (source.kind === 'server' || previewKind(source.path) === 'html') && (
               <Pressable onPress={expand} hitSlop={8} accessibilityRole="button" accessibilityLabel="Open full screen" testID="live-preview-expand">
-                <Feather name="maximize-2" size={13} color={colors.mutedForeground} />
+                <Icon name="maximize-2" size={13} color={colors.mutedForeground} />
               </Pressable>
             )}
             <Pressable onPress={onClose} hitSlop={8} accessibilityRole="button" accessibilityLabel="Close live preview" testID="live-preview-close">
-              <Feather name="x" size={14} color={colors.mutedForeground} />
+              <Icon name="x" size={14} color={colors.mutedForeground} />
             </Pressable>
           </View>
           <View style={styles.body}>
@@ -164,7 +164,7 @@ export function LivePreviewWindow({ project, path, onClose }: LivePreviewWindowP
               })()
             ) : (
               <View style={styles.empty}>
-                <Feather name="eye-off" size={18} color={colors.mutedForeground} />
+                <Icon name="eye-off" size={18} color={colors.mutedForeground} />
                 <Text variant="muted" style={styles.emptyText}>
                   Open an HTML or Markdown file, or start a dev server.
                 </Text>

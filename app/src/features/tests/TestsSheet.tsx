@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../components/Icon';
 import { useEffect, useRef, useState } from 'react';
 import { Modal, Pressable, SectionList, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -110,11 +110,11 @@ export function TestsSheet({ project, request, onClose, onOpen, onTerminal }: Te
 
   const icon = (t: TestResult) =>
     t.status === 'pass' ? (
-      <Feather name="check-circle" size={16} color={colors.success} />
+      <Icon name="check-circle" size={16} color={colors.success} />
     ) : t.status === 'fail' ? (
-      <Feather name="x-circle" size={16} color={colors.destructive} />
+      <Icon name="x-circle" size={16} color={colors.destructive} />
     ) : (
-      <Feather name="minus-circle" size={16} color={colors.mutedForeground} />
+      <Icon name="minus-circle" size={16} color={colors.mutedForeground} />
     );
 
   const both = !!available && available.js.length > 0 && available.python.length > 0;
@@ -187,7 +187,7 @@ export function TestsSheet({ project, request, onClose, onOpen, onTerminal }: Te
                 const c = summarize(section.run.results);
                 return (
                   <View style={styles.fileHeader}>
-                    <Feather name="file-text" size={14} color={colors.mutedForeground} />
+                    <Icon name="file-text" size={14} color={colors.mutedForeground} />
                     <Text variant="label" style={styles.flex} numberOfLines={1}>
                       {section.run.file}
                     </Text>

@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../components/Icon';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, Switch, View } from 'react-native';
@@ -49,20 +49,20 @@ function ExtensionCard({ manifest: m }: { manifest: ExtensionManifest }) {
     <View style={styles.card} testID={`ext-${m.id}`}>
       <Pressable onPress={() => setExpanded((e) => !e)} style={styles.cardHead} accessibilityRole="button" accessibilityState={{ expanded }}>
         <View style={[styles.icon, { backgroundColor: colors.brandSoft }]}>
-          <Feather name={m.icon as IconName} size={20} color={colors.brand} />
+          <Icon name={m.icon as IconName} size={20} color={colors.brand} />
         </View>
         <View style={styles.flex}>
           <Text variant="label">{m.name}</Text>
           <Text variant="muted">{m.tagline}</Text>
         </View>
-        <Feather name={expanded ? 'chevron-up' : 'chevron-down'} size={18} color={colors.mutedForeground} />
+        <Icon name={expanded ? 'chevron-up' : 'chevron-down'} size={18} color={colors.mutedForeground} />
       </Pressable>
 
       {expanded && (
         <View style={styles.features}>
           {m.features.map((f) => (
             <View key={f} style={styles.feature}>
-              <Feather name="check" size={14} color={colors.success} style={styles.check} />
+              <Icon name="check" size={14} color={colors.success} style={styles.check} />
               <Text variant="muted" style={styles.flex}>
                 {f}
               </Text>
@@ -75,7 +75,7 @@ function ExtensionCard({ manifest: m }: { manifest: ExtensionManifest }) {
       <View style={styles.actions}>
         {installed ? (
           <View style={[styles.flex, styles.status]}>
-            <Feather name="check-circle" size={15} color={colors.success} />
+            <Icon name="check-circle" size={15} color={colors.success} />
             <Text style={{ color: colors.success }} testID={`ext-${m.id}-status`}>
               Installed
             </Text>

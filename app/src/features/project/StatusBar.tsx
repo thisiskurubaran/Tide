@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../components/Icon';
 import { useMemo } from 'react';
 import { Pressable, View } from 'react-native';
 import { useStore } from 'zustand';
@@ -108,7 +108,7 @@ export function StatusBar({ project, path, running, onBranch, onProblems, onGoTo
           `Branch ${git.branch}, ${changed} changed`,
           onBranch,
           <>
-            <Feather name="git-branch" size={11} color={colors.mutedForeground} />
+            <Icon name="git-branch" size={11} color={colors.mutedForeground} />
             <Text style={styles.text} numberOfLines={1}>
               {git.branch}
               {changed > 0 ? ` · ${changed}` : ''}
@@ -120,9 +120,9 @@ export function StatusBar({ project, path, running, onBranch, onProblems, onGoTo
         `${errors} errors, ${warnings} warnings`,
         onProblems,
         <>
-          <Feather name="x-circle" size={11} color={errors ? colors.destructive : colors.mutedForeground} />
+          <Icon name="x-circle" size={11} color={errors ? colors.destructive : colors.mutedForeground} />
           <Text style={[styles.text, errors > 0 && { color: colors.destructive }]}>{errors}</Text>
-          <Feather name="alert-triangle" size={11} color={warnings ? colors.warning : colors.mutedForeground} />
+          <Icon name="alert-triangle" size={11} color={warnings ? colors.warning : colors.mutedForeground} />
           <Text style={[styles.text, warnings > 0 && { color: colors.warning }]}>{warnings}</Text>
         </>,
         'status-problems',
@@ -151,7 +151,7 @@ export function StatusBar({ project, path, running, onBranch, onProblems, onGoTo
         `Runs on ${mode === 'local' ? 'this device' : 'Remote'}`,
         onMode,
         <>
-          <Feather name={mode === 'local' ? 'smartphone' : 'server'} size={11} color={colors.brand} />
+          <Icon name={mode === 'local' ? 'smartphone' : 'server'} size={11} color={colors.brand} />
           <Text style={[styles.text, { color: colors.brand }]}>{mode === 'local' ? 'Local' : 'Remote'}</Text>
         </>,
         'status-mode',

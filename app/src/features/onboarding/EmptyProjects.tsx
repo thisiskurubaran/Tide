@@ -1,6 +1,6 @@
 // The projects home with nothing in it yet: an illustration, three samples
 // that create a project in one tap, and the other ways to start.
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../components/Icon';
 import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 
@@ -86,7 +86,7 @@ export function EmptyProjects({ onSample, onOpenFolder, onClone }: EmptyProjects
             style={({ pressed }) => [styles.sample, pressed && { backgroundColor: colors.secondary }, busy !== null && busy !== s.template && styles.faded]}
           >
             <View style={[styles.sampleIcon, { backgroundColor: colors.brandSoft }]}>
-              <Feather name={s.icon} size={16} color={colors.brand} />
+              <Icon name={s.icon} size={16} color={colors.brand} />
             </View>
             <View style={styles.sampleBody}>
               <Text style={styles.sampleTitle} numberOfLines={1}>
@@ -96,7 +96,7 @@ export function EmptyProjects({ onSample, onOpenFolder, onClone }: EmptyProjects
                 {s.subtitle}
               </Text>
             </View>
-            <Feather name={busy === s.template ? 'loader' : 'chevron-right'} size={16} color={colors.mutedForeground} />
+            <Icon name={busy === s.template ? 'loader' : 'chevron-right'} size={16} color={colors.mutedForeground} />
           </Pressable>
         ))}
       </View>
@@ -110,7 +110,7 @@ export function EmptyProjects({ onSample, onOpenFolder, onClone }: EmptyProjects
           accessibilityHint="Links a folder from the Files app as a project"
           style={({ pressed }) => [styles.moreButton, pressed && { backgroundColor: colors.secondary }]}
         >
-          <Feather name="folder" size={15} color={colors.foreground} />
+          <Icon name="folder" size={15} color={colors.foreground} />
           <Text style={styles.moreText}>Open from Files</Text>
         </Pressable>
         <Pressable
@@ -120,7 +120,7 @@ export function EmptyProjects({ onSample, onOpenFolder, onClone }: EmptyProjects
           accessibilityLabel="Clone repo"
           style={({ pressed }) => [styles.moreButton, pressed && { backgroundColor: colors.secondary }]}
         >
-          <Feather name="git-branch" size={15} color={colors.foreground} />
+          <Icon name="git-branch" size={15} color={colors.foreground} />
           <Text style={styles.moreText}>Clone repo</Text>
         </Pressable>
       </View>

@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from './Icon';
 import { ComponentRef, Fragment, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { AccessibilityActionEvent, GestureResponderEvent, Pressable, ScrollView, View } from 'react-native';
 
@@ -141,7 +141,7 @@ export function KeyBar({ groups, leading, onHide, onSwipe, testID }: KeyBarProps
           onPress={page}
           style={({ pressed }) => [styles.edge, styles.more, pressed && styles.pressed]}
         >
-          <Feather name={atEnd ? 'chevrons-left' : 'chevrons-right'} size={18} color={colors.mutedForeground} />
+          <Icon name={atEnd ? 'chevrons-left' : 'chevrons-right'} size={18} color={colors.mutedForeground} />
         </Pressable>
       )}
       <Pressable
@@ -150,7 +150,7 @@ export function KeyBar({ groups, leading, onHide, onSwipe, testID }: KeyBarProps
         onPress={onHide}
         style={({ pressed }) => [styles.edge, styles.hide, pressed && styles.pressed]}
       >
-        <Feather name="chevron-down" size={18} color={colors.mutedForeground} />
+        <Icon name="chevron-down" size={18} color={colors.mutedForeground} />
       </Pressable>
       {popover && (
         <View pointerEvents="none" style={[styles.popover, { left: popover.left }]}>
@@ -171,7 +171,7 @@ function KeyFace({ item }: { item: KeyItem }) {
   const styles = useStyles();
   const colors = useColors();
   return 'icon' in item ? (
-    <Feather name={item.icon} size={16} color={colors.foreground} />
+    <Icon name={item.icon} size={16} color={colors.foreground} />
   ) : (
     <Text style={[styles.label, item.tone === 'brand' && styles.brandLabel]} numberOfLines={1} maxFontSizeMultiplier={MAX_FONT_SCALE}>
       {item.label}

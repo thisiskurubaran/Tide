@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../components/Icon';
 import { useEffect, useRef, useState } from 'react';
 import { Animated, Pressable } from 'react-native';
 
@@ -60,7 +60,7 @@ export function SuggestionBanner({ project, bottom = 12 }: { project: string; bo
       accessibilityLiveRegion="polite"
       testID="extension-suggestion"
     >
-      <Feather name="package" size={16} color={colors.brand} />
+      <Icon name="package" size={16} color={colors.brand} />
       <Text style={styles.flex} numberOfLines={2}>
         {suggestion.reason}
       </Text>
@@ -77,7 +77,7 @@ export function SuggestionBanner({ project, bottom = 12 }: { project: string; bo
         <Text style={[styles.installText, { color: colors.brandForeground }]}>Install</Text>
       </Pressable>
       <Pressable onPress={() => extensionsStore.getState().dismiss(project, suggestion.id)} accessibilityRole="button" accessibilityLabel="Not now" hitSlop={8} testID="suggestion-dismiss">
-        <Feather name="x" size={16} color={colors.mutedForeground} />
+        <Icon name="x" size={16} color={colors.mutedForeground} />
       </Pressable>
     </Animated.View>
   );

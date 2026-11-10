@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../components/Icon';
 import { useMemo } from 'react';
 import { Text, View } from 'react-native';
 
@@ -36,7 +36,7 @@ export function FileIcon({ name, fallback }: { name: string; fallback: React.Rea
   const on = useExtensions((s) => isActive(s, 'themes') && s.prefs.fileIcons);
   const icon = on ? fileIconFor(name) : null;
   if (!icon) return <>{fallback}</>;
-  if (icon.kind === 'icon') return <Feather name={icon.name as IconName} size={ICON_SIZE} color={icon.color} />;
+  if (icon.kind === 'icon') return <Icon name={icon.name as IconName} size={ICON_SIZE} color={icon.color} />;
   return (
     <View style={{ width: ICON_SIZE, alignItems: 'center' }}>
       <Text

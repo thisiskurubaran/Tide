@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from './Icon';
 import { router } from 'expo-router';
 import { ReactNode } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, View } from 'react-native';
@@ -76,7 +76,7 @@ export function ListRow({ title, subtitle, detail, icon, iconColor, right, onPre
   const colors = useColors();
   return (
     <Pressable onPress={onPress} disabled={!onPress} accessibilityRole={onPress ? 'button' : undefined} style={({ pressed }) => [styles.row, pressed && styles.pressed]} testID={testID}>
-      {icon && <Feather name={icon} size={18} color={iconColor ?? colors.mutedForeground} style={styles.rowIcon} />}
+      {icon && <Icon name={icon} size={18} color={iconColor ?? colors.mutedForeground} style={styles.rowIcon} />}
       <View style={styles.rowText}>
         <Text variant="label" numberOfLines={2}>
           {title}
@@ -93,7 +93,7 @@ export function ListRow({ title, subtitle, detail, icon, iconColor, right, onPre
         ) : null}
       </View>
       {right}
-      {onPress && <Feather name="chevron-right" size={18} color={colors.mutedForeground} />}
+      {onPress && <Icon name="chevron-right" size={18} color={colors.mutedForeground} />}
     </Pressable>
   );
 }

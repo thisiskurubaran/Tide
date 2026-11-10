@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from './Icon';
 import { useEffect } from 'react';
 import { Pressable } from 'react-native';
 
@@ -48,7 +48,7 @@ export function ActionSheet({ title, actions, onClose }: ActionSheetProps) {
             }}
             style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.secondary }]}
           >
-            <Feather name={a.icon} size={18} color={color} />
+            <Icon name={a.icon} size={18} color={color} />
             <Text style={{ color }}>{a.label}</Text>
           </Pressable>
         );

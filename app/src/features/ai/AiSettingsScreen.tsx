@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../components/Icon';
 import { ReactNode, useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, Switch, TextInput, View } from 'react-native';
 
@@ -74,7 +74,7 @@ export function AiSettingsScreen() {
                   {ref.model && !ok ? ' (not connected)' : ''}
                 </Text>
               </View>
-              <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+              <Icon name="chevron-right" size={18} color={colors.mutedForeground} />
             </Pressable>
           );
         })}
@@ -361,7 +361,7 @@ function ModelPicker({ job, onClose, onAddProvider }: { job: AiJob | null; onClo
                     <Text variant="label" style={styles.flex} numberOfLines={1}>
                       {modelLabel(m)}
                     </Text>
-                    {on && <Feather name="check" size={16} color={colors.brand} />}
+                    {on && <Icon name="check" size={16} color={colors.brand} />}
                   </Pressable>
                 );
               })}

@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../components/Icon';
 import { ComponentRef, Ref } from 'react';
 import { LayoutChangeEvent, Pressable, View } from 'react-native';
 
@@ -52,7 +52,7 @@ export function ActivityBar({ items, active, onSelect, vertical, bottomInset = 0
             testID={`activity-${item.id}`}
           >
             <View>
-              <Feather name={item.icon} size={vertical ? 20 : 21} color={color} />
+              <Icon name={item.icon} size={vertical ? 20 : 21} color={color} />
               {!!item.badge && (
                 <View style={[styles.badge, { backgroundColor: item.alert ? colors.destructive : colors.brand }]}>
                   <Text style={styles.badgeText} allowFontScaling={false}>

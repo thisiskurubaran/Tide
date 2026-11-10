@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon, type IconName } from './Icon';
 import { ComponentProps, useState } from 'react';
 import { Pressable, View } from 'react-native';
 
@@ -6,7 +6,7 @@ import { borderWidth, fonts, fontSizes, radius, spacing } from '../theme/tokens'
 import { Text } from './Text';
 import { makeStyles, useColors } from '../theme/theme';
 
-export type IconName = ComponentProps<typeof Feather>['name'];
+export type { IconName } from './Icon';
 
 interface ButtonProps {
   title: string;
@@ -40,7 +40,7 @@ export function Button({ title, onPress, variant = 'primary', icon, disabled, te
         (pressed || disabled) && styles.dimmed,
       ]}
     >
-      {icon && <Feather name={icon} size={16} color={color} />}
+      {icon && <Icon name={icon} size={16} color={color} />}
       <Text style={[styles.title, { color }]}>{title}</Text>
     </Pressable>
   );
@@ -74,7 +74,7 @@ export function IconButton({ icon, label, onPress, color, disabled, testID }: Ic
       style={({ pressed }) => [styles.icon, (pressed || (hovered && !disabled)) && { backgroundColor: colors.secondary }, disabled && styles.dimmed]}
     >
       <View>
-        <Feather name={icon} size={18} color={color ?? colors.mutedForeground} />
+        <Icon name={icon} size={18} color={color ?? colors.mutedForeground} />
       </View>
     </Pressable>
   );

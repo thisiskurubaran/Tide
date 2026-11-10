@@ -1,4 +1,4 @@
-import Feather from '@expo/vector-icons/Feather';
+import { Icon } from '../../components/Icon';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, TextInput, View } from 'react-native';
@@ -99,11 +99,11 @@ export function OpenIncomingScreen() {
                     onPress={() => run(async () => ({ project: p, path: await addToProject(incoming, p) }))}
                     style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.secondary }]}
                   >
-                    <Feather name="folder" size={18} color={colors.brand} />
+                    <Icon name="folder" size={18} color={colors.brand} />
                     <Text style={styles.flex} numberOfLines={1}>
                       {p}
                     </Text>
-                    <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
+                    <Icon name="chevron-right" size={16} color={colors.mutedForeground} />
                   </Pressable>
                 ))}
               </View>
