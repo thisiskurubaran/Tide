@@ -60,6 +60,7 @@
       "appleTeamId": "9CYJBSWY2X",
       "infoPlist": {
         "CADisableMinimumFrameDurationOnPhone": true,
+        "LSApplicationCategoryType": "public.app-category.developer-tools",
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
         },

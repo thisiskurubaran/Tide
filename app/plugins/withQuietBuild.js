@@ -12,6 +12,9 @@
 //   React, Expo and Sentry header modules as separate tasks under the app target,
 //   with no way to quiet their header warnings. With implicit modules those
 //   modules come from the pods' builds, where warnings are already off.
+// - App target: the display name and app category as build settings, which is
+//   where Xcode's General tab reads them. Info.plist already has both (app.json),
+//   but without these the fields show empty after every prebuild.
 // - JS bundle: hermesc runs through plugins/quiet-build/hermesc.sh, which drops
 //   only its "the variable X was not declared" warning for runtime globals.
 const { withPodfile, withXcodeProject } = require('expo/config-plugins');
@@ -21,6 +24,7 @@ const BUNDLE_PHASE = 'Bundle React Native code and images';
 const HERMES_MARKER = 'TIDE_HERMESC';
 // 2.1.0 added this to the app target. Xcode's explicit module builds ignore it, so it
 // hid nothing, and it can split clang module variants. Removed from existing projects.
+const APP_CATEGORY = 'public.app-category.developer-tools';
 const OLD_SWIFT_FLAGS = ' -Xcc -w';
 
 const withQuietPods = (config) =>
@@ -68,6 +72,8 @@ const withQuietAppTarget = (config) =>
       const settings = configs[value]?.buildSettings;
       if (!settings) continue;
       settings.SWIFT_ENABLE_EXPLICIT_MODULES = 'NO';
+      settings.INFOPLIST_KEY_CFBundleDisplayName = JSON.stringify(cfg.name);
+      settings.INFOPLIST_KEY_LSApplicationCategoryType = `"${APP_CATEGORY}"`;
       const current = typeof settings.OTHER_SWIFT_FLAGS === 'string' ? settings.OTHER_SWIFT_FLAGS.replace(/^"|"$/g, '') : null;
       if (current?.includes(OLD_SWIFT_FLAGS)) settings.OTHER_SWIFT_FLAGS = `"${current.replace(OLD_SWIFT_FLAGS, '')}"`;
     }
