@@ -8,10 +8,10 @@
 // - Podfile post_install and post_integrate call plugins/quiet-build/quiet_build.rb:
 //   no warnings for third-party pods, script phases without outputs marked as
 //   run-every-build, and no "Update to recommended settings" prompt.
-// - App target: Swift explicit modules off. Explicit module builds compile the
-//   React, Expo and Sentry header modules as separate tasks under the app target,
-//   with no way to quiet their header warnings. With implicit modules those
-//   modules come from the pods' builds, where warnings are already off.
+// - App target: Swift explicit modules off, and -Xcc -w so Swift's clang importer
+//   doesn't report warnings in the React, Expo and Sentry headers the app imports.
+//   Explicit module builds compile those headers in separate tasks that ignore
+//   -Xcc -w, which is why both are needed. Swift warnings in Tide's files still show.
 // - App target: the display name and app category as build settings, which is
 //   where Xcode's General tab reads them. Info.plist already has both (app.json),
 //   but without these the fields show empty after every prebuild.
@@ -22,10 +22,8 @@ const { mergeContents } = require('@expo/config-plugins/build/utils/generateCode
 
 const BUNDLE_PHASE = 'Bundle React Native code and images';
 const HERMES_MARKER = 'TIDE_HERMESC';
-// 2.1.0 added this to the app target. Xcode's explicit module builds ignore it, so it
-// hid nothing, and it can split clang module variants. Removed from existing projects.
 const APP_CATEGORY = 'public.app-category.developer-tools';
-const OLD_SWIFT_FLAGS = ' -Xcc -w';
+const SWIFT_FLAGS = '-Xcc -w';
 
 const withQuietPods = (config) =>
   withPodfile(config, (cfg) => {
@@ -74,8 +72,8 @@ const withQuietAppTarget = (config) =>
       settings.SWIFT_ENABLE_EXPLICIT_MODULES = 'NO';
       settings.INFOPLIST_KEY_CFBundleDisplayName = JSON.stringify(cfg.name);
       settings.INFOPLIST_KEY_LSApplicationCategoryType = `"${APP_CATEGORY}"`;
-      const current = typeof settings.OTHER_SWIFT_FLAGS === 'string' ? settings.OTHER_SWIFT_FLAGS.replace(/^"|"$/g, '') : null;
-      if (current?.includes(OLD_SWIFT_FLAGS)) settings.OTHER_SWIFT_FLAGS = `"${current.replace(OLD_SWIFT_FLAGS, '')}"`;
+      const current = String(settings.OTHER_SWIFT_FLAGS ?? '$(inherited)').replace(/^"|"$/g, '');
+      if (!current.includes(SWIFT_FLAGS)) settings.OTHER_SWIFT_FLAGS = `"${current} ${SWIFT_FLAGS}"`;
     }
 
     const phases = project.hash.project.objects.PBXShellScriptBuildPhase ?? {};
