@@ -1,5 +1,5 @@
 // @ts-check
-// tide:ssh — SSH and SFTP for the app, on the bundled ssh2 (pure JS).
+// tide:ssh handles SSH and SFTP for the app, on the bundled ssh2 (pure JS).
 //
 //   TIDE_SSH (env, JSON) holds the connection: host, port, username, and a
 //   password or privateKey (+ passphrase), plus the known host key fingerprint.

@@ -88,7 +88,7 @@ export function createSnapshots(fs: FsAdapter, workspace: Workspace, now: () => 
       const keep = new Set(entries.map((e) => e.path));
       for (const file of await workspace.listFiles(project)) {
         if (keep.has(file) || skipped.has(file)) continue;
-        // Older snapshots have no manifest; a big file may simply have been left out.
+        // Older snapshots have no manifest; a big file may have been left out.
         if ((await workspace.fileSize(project, file).catch(() => Infinity)) > SNAPSHOT_FILE_LIMIT) continue;
         await workspace.removeIfPresent(project, file);
       }

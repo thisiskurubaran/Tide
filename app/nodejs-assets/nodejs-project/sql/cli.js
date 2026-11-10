@@ -1,5 +1,5 @@
 // @ts-check
-// tide:sql — a Postgres or MySQL connection for the app's database viewer, on
+// tide:sql opens a Postgres or MySQL connection for the app's database viewer, on
 // the bundled pg and mysql2 drivers (pure JS).
 //
 //   TIDE_SQL (env, JSON) holds the connection: kind ("postgres" | "mysql"),

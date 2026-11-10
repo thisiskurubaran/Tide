@@ -300,8 +300,8 @@ export function agentResult(session: AgentSnapshot): { status: AgentResult; step
   const turn = session.turns[session.turns.length - 1];
   const steps = turn ? turn.items.filter((i) => i.kind === 'step').length : 0;
   if (!turn || turn.status === 'stopped') return { status: 'stopped', steps, action: 'Stopped' };
-  if (turn.status === 'error') return { status: 'failed', steps, action: short(turn.message || 'Something went wrong', 80) };
-  return { status: 'done', steps, action: short(turn.message?.split('\n')[0] || 'Done — ready for review', 80) };
+  if (turn.status === 'error') return { status: 'failed', steps, action: short(turn.message || 'The agent stopped with an error', 80) };
+  return { status: 'done', steps, action: short(turn.message?.split('\n')[0] || 'Done, ready for review', 80) };
 }
 
 export interface AgentActivityNative {

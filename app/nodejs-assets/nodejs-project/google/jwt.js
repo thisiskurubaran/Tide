@@ -1,5 +1,5 @@
 // @ts-check
-// tide:google-jwt — signs the JWT a Google service account exchanges for an
+// tide:google-jwt signs the JWT a Google service account exchanges for an
 // access token (RS256). The app can't sign RSA itself; Node's crypto can.
 //
 //   TIDE_GOOGLE (env, JSON): { client_email, private_key, scope }

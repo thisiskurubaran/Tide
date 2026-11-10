@@ -1,5 +1,5 @@
 // @ts-check
-// tide:lua — Lua 5.3 on fengari (Lua written in JavaScript, no WebAssembly).
+// tide:lua runs Lua 5.3 on fengari (Lua written in JavaScript, no WebAssembly).
 //
 //   tide:lua <file.lua> [args]
 //

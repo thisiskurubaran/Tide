@@ -114,7 +114,7 @@ export function createKeepAwake(deps: KeepAwakeDeps): KeepAwakeController {
 }
 
 // expo-keep-awake, if this build has it. Required inside try so a build
-// without the module still bundles (Metro treats it as optional) and simply
+// without the module still bundles (Metro treats it as optional) and just
 // never keeps the screen on.
 function loadNative(): KeepAwakeNative | null {
   try {

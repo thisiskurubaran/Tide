@@ -269,7 +269,7 @@ export function CommandPalette({ mode, project, commands, onOpenFile, onClose, a
   }
 
   // Hardware keyboards: arrows move the selection. RN reports arrow keys on
-  // web (and iPad with some keyboards); elsewhere this is simply never called.
+  // web (and iPad with some keyboards); elsewhere this is never called.
   function onKeyPress(e: TextInputKeyPressEvent) {
     const key = e.nativeEvent.key;
     if (key === 'ArrowDown' || key === 'ArrowUp') {

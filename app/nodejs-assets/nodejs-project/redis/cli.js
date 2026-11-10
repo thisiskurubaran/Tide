@@ -1,5 +1,5 @@
 // @ts-check
-// tide:redis — a Redis connection for the app's database viewer.
+// tide:redis opens a Redis connection for the app's database viewer.
 //
 //   TIDE_REDIS (env, JSON) holds the connection: host, port, user, password,
 //   db (index) and ssl ("off" | "require" | "verify"). It's only in this

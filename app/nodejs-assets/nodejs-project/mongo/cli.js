@@ -1,5 +1,5 @@
 // @ts-check
-// tide:mongo — a MongoDB connection for the app's database viewer, on the
+// tide:mongo opens a MongoDB connection for the app's database viewer, on the
 // bundled mongodb driver (pure JS).
 //
 //   TIDE_MONGO (env, JSON) holds the connection: hosts ("host:port,..."), srv
