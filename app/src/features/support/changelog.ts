@@ -12,7 +12,25 @@ export interface Release {
 export const CHANGELOG: Release[] = [
   {
     version: '2.1.0',
+    highlights: [
+      'A new look for iOS 26: Liquid Glass bars, native sheets, SF Symbols and a layered app icon',
+      'Widgets and Live Activities follow your text size',
+      'Tapping the Lock Screen widget shows your last run instead of running it again, and a new Run Last Again action',
+      'VoiceOver can reach every button in Git Tools, list rows and terminal tabs',
+      'Swipe from the left edge to go back from a project on iPhone',
+    ],
     items: [
+      'On iOS 26, the activity bar and headers use Liquid Glass and sheets are native iOS sheets you can swipe down; earlier versions and Reduce Transparency keep the solid look',
+      'Icons are SF Symbols on iOS, and the app icon is a layered Liquid Glass icon with light, dark, tinted and clear looks',
+      'Widgets and Live Activities follow your text size',
+      'Tapping the Lock Screen widget opens the project with the last run\'s output instead of running it again',
+      'New Run Last Again action in Shortcuts and Siri, which asks before it runs',
+      'Live Activity buttons are easier to tap, and VoiceOver describes what each Dynamic Island icon shows',
+      'The Quick actions widget says "No project yet" instead of showing a Run tile that does nothing',
+      'VoiceOver can reach the buttons inside rows: Stage, Discard and the stash and branch actions in Git Tools, Re-run on GitHub, the account menu on Hosts and Close on terminal tabs',
+      'On iPhone, swiping from the left edge goes back from a project; swipe from a little further in, or tap Files, to open the file drawer',
+      'No text smaller than 11pt, and activity bar labels grow with your text size',
+      'iOS no longer offers to save tokens and API keys to Passwords, or suggests SMS codes in the remote token field',
       'Tide\'s Siri and Shortcuts actions (Run, Deploy, Send Request and Open Project) now have their own titles and icons in the Shortcuts app and Spotlight',
       'A cleaner iOS build: Tide\'s own code builds without warnings, and warnings from third-party libraries are turned off',
     ],
