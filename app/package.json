@@ -161,6 +161,9 @@
     "test-exclude": "^7.0.2",
     "@bacons/xcode": {
       "@expo/plist": "^0.10.1"
+    },
+    "@wp-playground/storage": {
+      "isomorphic-git": "$isomorphic-git"
     }
   }
 }
