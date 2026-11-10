@@ -149,6 +149,9 @@ export function DeployScreen() {
         autoCorrect={false}
         spellCheck={false}
         secureTextEntry={secure}
+        // Deploy tokens and keys aren't logins: keep iOS from offering to save them to Passwords.
+        textContentType={secure ? 'none' : undefined}
+        autoComplete={secure ? 'off' : undefined}
         multiline={multiline}
         selectionColor={colors.brand}
         style={[styles.input, multiline && styles.multiline]}

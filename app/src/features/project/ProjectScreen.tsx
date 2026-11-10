@@ -90,8 +90,12 @@ const DRAWER_MAX = 340;
 // iPad portrait and wider: the file tree stays open beside the editor.
 const WIDE = 768;
 const SIDEBAR_WIDTH = 280;
-// A swipe this far in from the left edge opens the files on phones.
+// On phones a right swipe that starts in a thin strip near the left edge opens
+// the files. The strip starts EDGE_INSET in from the edge: the outermost ~30pt
+// belong to the system back swipe (on for this screen), so the two don't clash.
+const EDGE_INSET = 30;
 const EDGE_WIDTH = 16;
+// How far the swipe must travel to open (or close) the drawer.
 const EDGE_OPEN_DX = 40;
 
 // `launch` comes from a tide:// link or quick action: a file to open, and whether to run.
@@ -781,9 +785,9 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     { label: 'Settings', icon: 'settings' as const, onPress: run('settings') },
   ];
 
-  // A swipe in from the left edge opens the files (the back swipe is off on
-  // this screen for that reason; the back button stays). Swiping the drawer
-  // left closes it.
+  // A right swipe starting EDGE_INSET in from the left edge opens the files;
+  // a swipe from the very edge is left to the system back gesture. The Files
+  // button in the activity bar opens them too. Swiping the drawer left closes it.
   const edgeSwipe = useMemo(
     () =>
       PanResponder.create({
@@ -1249,7 +1253,7 @@ const useStyles = makeStyles((colors) => ({
   stop: { backgroundColor: colors.destructiveSoft, borderWidth, borderColor: colors.destructive },
   stopText: { fontFamily: fonts.sans.semibold, fontSize: 13, color: colors.destructive },
   waveTrack: { borderBottomWidth: borderWidth, borderColor: colors.border, backgroundColor: colors.card },
-  edge: { position: 'absolute', left: 0, bottom: 0, width: EDGE_WIDTH },
+  edge: { position: 'absolute', left: EDGE_INSET, bottom: 0, width: EDGE_WIDTH },
   body: { flex: 1 },
   row: { flexDirection: 'row' },
   sidebar: { backgroundColor: colors.card },

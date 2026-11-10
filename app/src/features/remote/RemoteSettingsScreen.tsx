@@ -97,8 +97,9 @@ export function RemoteSettingsScreen() {
             }}
             placeholder="TIDE_TOKEN from the server"
             secureTextEntry
-            // Not "password": iOS would offer to save the token to Passwords on submit.
-            textContentType="oneTimeCode"
+            // Not "password" (iOS would offer to save the token to Passwords) and not
+            // "oneTimeCode" (iOS would suggest SMS codes). autoComplete is off via `input`.
+            textContentType="none"
           />
         </View>
         {error && <Text variant="error">{error}</Text>}

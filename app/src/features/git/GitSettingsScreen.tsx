@@ -81,8 +81,10 @@ export function GitSettingsScreen() {
             onChangeText={setToken}
             placeholder="github_pat_..."
             secureTextEntry
-            // Without this iOS treats the field as a password and offers to save the token to Passwords.
-            textContentType="oneTimeCode"
+            // Without these iOS treats the field as a password and offers to save the token
+            // to Passwords ("oneTimeCode" stops that but suggests SMS codes instead).
+            textContentType="none"
+            autoComplete="off"
           />
         </View>
         {error && <Text variant="error">{error}</Text>}

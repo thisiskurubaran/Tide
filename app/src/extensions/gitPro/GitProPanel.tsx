@@ -1,5 +1,5 @@
 import { Icon } from '../../components/Icon';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Modal, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -200,11 +200,20 @@ function Changes({ git, act, busy, setDetail, ctx, status }: Shared & { status: 
     );
 
   const row = (c: FileChange, side: 'staged' | 'unstaged') => (
-    <Pressable accessibilityRole="button"
+    <ActionRow
       key={`${side}-${c.path}`}
       testID={`gp-${side}-${c.path}`}
       onPress={() => (c.code === 'UU' ? ctx.openFile(c.path, 1) : setDetail({ kind: 'file', path: c.path, staged: side === 'staged' }))}
-      style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.secondary }]}
+      actions={
+        side === 'staged' ? (
+          <IconButton icon="minus" label={`Unstage ${c.path}`} onPress={() => act(() => git.unstage([c.path]))} testID={`gp-unstage-${c.path}`} />
+        ) : (
+          <>
+            {c.code !== 'UU' && <IconButton icon="rotate-ccw" label={`Discard ${c.path}`} onPress={() => confirmDiscard(c)} testID={`gp-discard-${c.path}`} />}
+            <IconButton icon="plus" label={`Stage ${c.path}`} onPress={() => act(() => git.stage([c.path]))} testID={`gp-stage-${c.path}`} />
+          </>
+        )
+      }
     >
       <Text variant="mono" numberOfLines={1} style={styles.flex}>
         {c.path}
@@ -212,15 +221,7 @@ function Changes({ git, act, busy, setDetail, ctx, status }: Shared & { status: 
       <Text variant="muted" style={{ color: c.code === 'UU' ? colors.destructive : c.code === '??' ? colors.success : colors.warning }}>
         {label(side === 'staged' ? `${c.code[0]} ` : c.code === '??' || c.code === 'UU' ? c.code : ` ${c.code[1]}`)}
       </Text>
-      {side === 'staged' ? (
-        <IconButton icon="minus" label={`Unstage ${c.path}`} onPress={() => act(() => git.unstage([c.path]))} testID={`gp-unstage-${c.path}`} />
-      ) : (
-        <>
-          {c.code !== 'UU' && <IconButton icon="rotate-ccw" label={`Discard ${c.path}`} onPress={() => confirmDiscard(c)} testID={`gp-discard-${c.path}`} />}
-          <IconButton icon="plus" label={`Stage ${c.path}`} onPress={() => act(() => git.stage([c.path]))} testID={`gp-stage-${c.path}`} />
-        </>
-      )}
-    </Pressable>
+    </ActionRow>
   );
 
   async function commit() {
@@ -378,12 +379,17 @@ function Stashes({ git, act, busy, setDetail, status, dirty }: Omit<Shared, 'set
       </View>
       {list?.length === 0 && <Text variant="muted">Stash puts your changes aside and leaves the files as they were at the last commit.</Text>}
       {list?.map((s) => (
-        <Pressable
-          accessibilityRole="button"
+        <ActionRow
           key={s.oid}
           testID={`gp-stash-${s.index}`}
           onPress={() => setDetail({ kind: 'commit', stash: true, commit: { oid: s.oid, message: s.message, author: 'stash', timestamp: s.timestamp, parents: s.parents.slice(0, 1) } })}
-          style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.secondary }]}
+          actions={
+            <>
+              <IconButton icon="corner-down-left" label={`Apply ${s.message}`} onPress={() => act(() => git.stashApply(s.index).then((r) => applied(r, false)), true)} testID={`gp-stash-apply-${s.index}`} />
+              <IconButton icon="download" label={`Pop ${s.message}`} onPress={() => act(() => git.stashPop(s.index).then((r) => applied(r, true)), true)} testID={`gp-stash-pop-${s.index}`} />
+              <IconButton icon="trash-2" label={`Drop ${s.message}`} onPress={() => drop(s)} testID={`gp-stash-drop-${s.index}`} />
+            </>
+          }
         >
           <Icon name="archive" size={16} color={colors.mutedForeground} />
           <View style={styles.flex}>
@@ -394,10 +400,7 @@ function Stashes({ git, act, busy, setDetail, status, dirty }: Omit<Shared, 'set
               {'}'} · {ago(s.timestamp)}
             </Text>
           </View>
-          <IconButton icon="corner-down-left" label={`Apply ${s.message}`} onPress={() => act(() => git.stashApply(s.index).then((r) => applied(r, false)), true)} testID={`gp-stash-apply-${s.index}`} />
-          <IconButton icon="download" label={`Pop ${s.message}`} onPress={() => act(() => git.stashPop(s.index).then((r) => applied(r, true)), true)} testID={`gp-stash-pop-${s.index}`} />
-          <IconButton icon="trash-2" label={`Drop ${s.message}`} onPress={() => drop(s)} testID={`gp-stash-drop-${s.index}`} />
-        </Pressable>
+        </ActionRow>
       ))}
       <FormSheet
         visible={saving}
@@ -542,34 +545,35 @@ function BranchList({ git, act, busy, status, setTab }: Shared & { status: Statu
       {branches.local.map((b) => {
         const current = b === branches.current;
         return (
-          <Pressable accessibilityRole="button"
+          <ActionRow
             key={b}
             testID={`gp-branch-${b}`}
             onPress={() => !current && checkout(b)}
-            style={({ pressed }) => [styles.row, pressed && !current && { backgroundColor: colors.secondary }]}
+            highlight={!current}
+            actions={
+              !current && (
+                <>
+                  <IconButton icon="git-merge" label={`Merge ${b}`} onPress={() => merge(b)} testID={`gp-merge-${b}`} />
+                  <IconButton icon="trash-2" label={`Delete ${b}`} onPress={() => remove(b)} testID={`gp-delete-${b}`} />
+                </>
+              )
+            }
           >
             <Icon name={current ? 'check' : 'git-branch'} size={16} color={current ? colors.success : colors.mutedForeground} />
             <Text style={styles.flex} numberOfLines={1}>
               {b}
             </Text>
-            {!current && (
-              <>
-                <IconButton icon="git-merge" label={`Merge ${b}`} onPress={() => merge(b)} testID={`gp-merge-${b}`} />
-                <IconButton icon="trash-2" label={`Delete ${b}`} onPress={() => remove(b)} testID={`gp-delete-${b}`} />
-              </>
-            )}
-          </Pressable>
+          </ActionRow>
         );
       })}
       {branches.remote.length > 0 && <Text variant="label">Remote</Text>}
       {branches.remote.map((b) => (
-        <Pressable accessibilityRole="button" key={b} testID={`gp-remote-${b}`} onPress={() => checkout(b)} style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.secondary }]}>
+        <ActionRow key={b} testID={`gp-remote-${b}`} onPress={() => checkout(b)} actions={<IconButton icon="git-merge" label={`Merge ${b}`} onPress={() => merge(b)} testID={`gp-merge-${b}`} />}>
           <Icon name="cloud" size={16} color={colors.mutedForeground} />
           <Text style={styles.flex} numberOfLines={1}>
             {b}
           </Text>
-          <IconButton icon="git-merge" label={`Merge ${b}`} onPress={() => merge(b)} />
-        </Pressable>
+        </ActionRow>
       ))}
       <Tags git={git} act={act} busy={busy} status={status} />
       <ActionSheet
@@ -747,6 +751,23 @@ function CommitFileDiff({ git, commit, path }: Shared & { commit: CommitInfo; pa
   return <DiffView hunks={diffText(versions.before ?? '', versions.after ?? '')} />;
 }
 
+// A tappable list row with icon buttons at the end. The buttons sit beside the
+// row's Pressable, not inside it: VoiceOver makes a button one element and can't
+// focus buttons nested in it. The pressed tint still covers the whole row.
+function ActionRow({ testID, onPress, actions, highlight = true, children }: { testID: string; onPress(): void; actions?: ReactNode; highlight?: boolean; children: ReactNode }) {
+  const styles = useStyles();
+  const colors = useColors();
+  const [pressed, setPressed] = useState(false);
+  return (
+    <View style={[styles.row, pressed && highlight && { backgroundColor: colors.secondary }]}>
+      <Pressable accessibilityRole="button" testID={testID} onPress={onPress} onPressIn={() => setPressed(true)} onPressOut={() => setPressed(false)} style={styles.rowMain}>
+        {children}
+      </Pressable>
+      {actions}
+    </View>
+  );
+}
+
 const useStyles = makeStyles((colors) => ({
   screen: { flex: 1, backgroundColor: colors.background },
   header: {
@@ -778,6 +799,7 @@ const useStyles = makeStyles((colors) => ({
   bannerHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   sectionHead: { flexDirection: 'row', alignItems: 'center', marginTop: spacing.sm },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 40, paddingHorizontal: spacing.xs, borderRadius: radius.sm },
+  rowMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, alignSelf: 'stretch' },
   input: {
     minHeight: 44,
     maxHeight: 120,

@@ -107,6 +107,9 @@ export function SignIn({ onDone }: { onDone?: () => void }) {
             autoCapitalize="none"
             autoCorrect={false}
             secureTextEntry
+            // A token, not a login: keeps iOS from offering to save it to Passwords.
+            textContentType="none"
+            autoComplete="off"
             selectionColor={colors.brand}
             style={styles.input}
           />

@@ -400,7 +400,7 @@ const useStyles = makeStyles((colors) => ({
     borderRadius: 4,
     backgroundColor: colors.brandSoft,
   },
-  badgeText: { fontSize: 10, color: colors.brand },
+  badgeText: { fontSize: fontSizes.xs, color: colors.brand },
   stat: { fontSize: fontSizes.xs },
   lines: { paddingVertical: spacing.xs, minWidth: '100%' },
   line: { flexDirection: 'row' },

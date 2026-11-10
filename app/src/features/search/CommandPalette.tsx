@@ -497,7 +497,7 @@ const useStyles = makeStyles((colors) => ({
     lineHeight: HEADER_HEIGHT,
     paddingHorizontal: spacing.md,
     fontFamily: fonts.sans.medium,
-    fontSize: fontSizes.xs - 1,
+    fontSize: fontSizes.xs,
     letterSpacing: 0.8,
   },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, height: ROW_HEIGHT, paddingHorizontal: spacing.md },

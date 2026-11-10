@@ -31,7 +31,10 @@ export function ProviderBadge({ provider, size = 28 }: { provider: ProviderId; s
         borderColor: colors.border,
       }}
     >
-      <Text style={{ color: info.color ? '#ffffff' : colors.foreground, fontFamily: fonts.heading.semibold, fontSize: size * 0.5 }}>{info.letter}</Text>
+      {/* A fixed-size mark: the letter doesn't scale with Dynamic Type, but never drops below 11pt. */}
+      <Text allowFontScaling={false} style={{ color: info.color ? '#ffffff' : colors.foreground, fontFamily: fonts.heading.semibold, fontSize: Math.max(fontSizes.xs, size * 0.5) }}>
+        {info.letter}
+      </Text>
     </View>
   );
 }
@@ -119,8 +122,13 @@ export function KeyForm({ provider, onSaved, secondary, testID = 'ai-key' }: Key
             placeholder={connected ? 'Saved in the Keychain. Paste a new one to replace it.' : info.keyPlaceholder}
             placeholderTextColor={colors.mutedForeground}
             secureTextEntry
+            // An API key, not a password: "none" + autoComplete off keeps iOS from
+            // offering to save it to Passwords or suggesting one-time codes.
+            textContentType="none"
+            autoComplete="off"
             autoCapitalize="none"
             autoCorrect={false}
+            spellCheck={false}
             style={[styles.input, styles.flex]}
             testID={testID}
           />

@@ -1,7 +1,7 @@
 // The Git Tools and Debugger screens rendered against a real git repository
 // (the built-in CLI on the host's Node) and a fake runner.
 /// <reference types="node" />
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
 import { spawnSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
@@ -89,6 +89,12 @@ describe('Git Tools panel', () => {
     expect(screen.getByTestId('gp-branch')).toHaveTextContent('main');
     expect(screen.getByTestId('gp-unstaged-a.txt')).toBeTruthy();
     expect(screen.getByTestId('gp-unstaged-b.txt')).toBeTruthy();
+    // VoiceOver: the row's Stage and Discard buttons are separate elements, beside
+    // the row's button rather than nested inside it.
+    expect(screen.getByRole('button', { name: 'Stage a.txt' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Discard a.txt' })).toBeTruthy();
+    expect(within(screen.getByTestId('gp-unstaged-a.txt')).queryByTestId('gp-stage-a.txt')).toBeNull();
+    expect(within(screen.getByTestId('gp-unstaged-a.txt')).queryByTestId('gp-discard-a.txt')).toBeNull();
 
     await fireEvent.press(screen.getByTestId('gp-unstaged-a.txt'));
     await settle();

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
 import { createRef } from 'react';
 
 jest.mock('expo-router', () => ({ router: { push: jest.fn() } }));
@@ -47,6 +47,10 @@ it('keeps every terminal running and sends input to the one showing', async () =
   await fireEvent.press(screen.getByTestId('terminal-tab-1'));
   await act(async () => ref.current!.input('first'));
   expect(Object.values(mockTyped).map((v) => v.join())).toEqual(['third', 'first']);
+
+  // VoiceOver: the close button is its own element, beside the tab rather than inside it.
+  expect(screen.getByRole('button', { name: 'Close terminal 1' })).toBeTruthy();
+  expect(within(screen.getByTestId('terminal-tab-1')).queryByTestId('terminal-close-1')).toBeNull();
 
   // Closing one only stops that shell.
   await fireEvent.press(screen.getByTestId('terminal-close-1'));

@@ -103,6 +103,9 @@ export function FormSheet({ visible, title, description, fields, confirmLabel, o
               autoCorrect={!f.mono && !f.secure}
               spellCheck={!f.mono && !f.secure}
               secureTextEntry={f.secure}
+              // Secret fields hold tokens, not logins: keep iOS from offering to save them to Passwords.
+              textContentType={f.secure ? 'none' : undefined}
+              autoComplete={f.secure ? 'off' : undefined}
               keyboardType={f.keyboardType ?? 'default'}
               multiline={f.multiline}
               selectionColor={colors.brand}

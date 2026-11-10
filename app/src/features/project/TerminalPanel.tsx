@@ -215,31 +215,37 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabs} style={styles.tabsScroll}>
           {tabs.ids.map((id, i) => {
             const on = id === tabs.active;
+            const closable = on && tabs.ids.length > 1;
+            // The close button sits beside the tab, not inside it, so VoiceOver can
+            // focus it (a nested button inside a tab is merged into the tab).
             return (
-              <Pressable
-                key={id}
-                testID={`terminal-tab-${i + 1}`}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: on }}
-                accessibilityLabel={`Terminal ${i + 1}`}
-                onPress={() => setTabs((t) => ({ ...t, active: id }))}
-                style={[styles.tab, on && styles.tabOn]}
-              >
-                <Icon name="terminal" size={12} color={on ? colors.foreground : colors.mutedForeground} />
-                <Text variant="label" style={{ color: on ? colors.foreground : colors.mutedForeground }}>
-                  {i + 1}
-                </Text>
-                {on && tabs.ids.length > 1 && (
-                  <Pressable accessibilityRole="button"
+              <View key={id} style={[styles.tab, on && styles.tabOn]}>
+                <Pressable
+                  testID={`terminal-tab-${i + 1}`}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: on }}
+                  accessibilityLabel={`Terminal ${i + 1}`}
+                  onPress={() => setTabs((t) => ({ ...t, active: id }))}
+                  style={[styles.tabMain, closable && styles.tabMainClosable]}
+                >
+                  <Icon name="terminal" size={12} color={on ? colors.foreground : colors.mutedForeground} />
+                  <Text variant="label" style={{ color: on ? colors.foreground : colors.mutedForeground }}>
+                    {i + 1}
+                  </Text>
+                </Pressable>
+                {closable && (
+                  <Pressable
+                    accessibilityRole="button"
                     hitSlop={spacing.sm}
                     accessibilityLabel={`Close terminal ${i + 1}`}
                     testID={`terminal-close-${i + 1}`}
                     onPress={() => setTabs((t) => closeTab(t, id))}
+                    style={styles.tabClose}
                   >
                     <Icon name="x" size={12} color={colors.mutedForeground} />
                   </Pressable>
                 )}
-              </Pressable>
+              </View>
             );
           })}
           {tabs.ids.length < MAX_TERMINALS && <IconButton icon="plus" label="New terminal" onPress={newTerminal} testID="terminal-new" />}
@@ -339,7 +345,11 @@ const useStyles = makeStyles((colors) => ({
   hidden: { opacity: 0, zIndex: 0 },
   tabsScroll: { flexGrow: 0, maxWidth: '50%' },
   tabs: { alignItems: 'center', gap: spacing.xs },
-  tab: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radius.sm },
+  tab: { flexDirection: 'row', alignItems: 'center', borderRadius: radius.sm },
+  tabMain: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingHorizontal: spacing.sm, paddingVertical: 3 },
+  // With a close button the tab's right padding moves after the X.
+  tabMainClosable: { paddingRight: 0 },
+  tabClose: { paddingLeft: spacing.xs, paddingRight: spacing.sm, paddingVertical: 3 },
   tabOn: { backgroundColor: colors.secondary },
   message: { flex: 1, padding: spacing.lg, gap: spacing.sm, alignItems: 'center', justifyContent: 'center' },
   center: { textAlign: 'center', maxWidth: 420 },
