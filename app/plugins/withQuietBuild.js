@@ -8,6 +8,10 @@
 // - Podfile post_install and post_integrate call plugins/quiet-build/quiet_build.rb:
 //   no warnings for third-party pods, script phases without outputs marked as
 //   run-every-build, and no "Update to recommended settings" prompt.
+// - App target: Swift explicit modules off. Explicit module builds compile the
+//   React, Expo and Sentry header modules as separate tasks under the app target,
+//   with no way to quiet their header warnings. With implicit modules those
+//   modules come from the pods' builds, where warnings are already off.
 // - JS bundle: hermesc runs through plugins/quiet-build/hermesc.sh, which drops
 //   only its "the variable X was not declared" warning for runtime globals.
 const { withPodfile, withXcodeProject } = require('expo/config-plugins');
@@ -63,6 +67,7 @@ const withQuietAppTarget = (config) =>
     for (const { value } of list?.buildConfigurations ?? []) {
       const settings = configs[value]?.buildSettings;
       if (!settings) continue;
+      settings.SWIFT_ENABLE_EXPLICIT_MODULES = 'NO';
       const current = typeof settings.OTHER_SWIFT_FLAGS === 'string' ? settings.OTHER_SWIFT_FLAGS.replace(/^"|"$/g, '') : null;
       if (current?.includes(OLD_SWIFT_FLAGS)) settings.OTHER_SWIFT_FLAGS = `"${current.replace(OLD_SWIFT_FLAGS, '')}"`;
     }
