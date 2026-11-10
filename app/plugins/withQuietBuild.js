@@ -8,10 +8,14 @@
 // - Podfile post_install and post_integrate call plugins/quiet-build/quiet_build.rb:
 //   no warnings for third-party pods, script phases without outputs marked as
 //   run-every-build, and no "Update to recommended settings" prompt.
-// - App target: Swift explicit modules off, and -Xcc -w so Swift's clang importer
-//   doesn't report warnings in the React, Expo and Sentry headers the app imports.
-//   Explicit module builds compile those headers in separate tasks that ignore
-//   -Xcc -w, which is why both are needed. Swift warnings in Tide's files still show.
+// - App target: Swift explicit modules off, -Xcc -w and SWIFT_SUPPRESS_WARNINGS.
+//   Swift reports warnings from the React, Expo and Sentry headers the app imports,
+//   and from loading Expo's prebuilt swiftmodule ("broken by a context change"),
+//   against the app target. -Xcc -w covers part of the headers; the rest only stop
+//   with SWIFT_SUPPRESS_WARNINGS. Explicit module builds would compile the headers
+//   in separate tasks that ignore both. The trade-off: warnings in the app target's
+//   own Swift files (AppDelegate, SceneDelegate, TideIntents) are hidden too. The
+//   widget target and Tide's modules (app/modules/*) still show every warning.
 // - App target: the display name and app category as build settings, which is
 //   where Xcode's General tab reads them. Info.plist already has both (app.json),
 //   but without these the fields show empty after every prebuild.
@@ -70,6 +74,7 @@ const withQuietAppTarget = (config) =>
       const settings = configs[value]?.buildSettings;
       if (!settings) continue;
       settings.SWIFT_ENABLE_EXPLICIT_MODULES = 'NO';
+      settings.SWIFT_SUPPRESS_WARNINGS = 'YES';
       settings.INFOPLIST_KEY_CFBundleDisplayName = JSON.stringify(cfg.name);
       settings.INFOPLIST_KEY_LSApplicationCategoryType = `"${APP_CATEGORY}"`;
       const current = String(settings.OTHER_SWIFT_FLAGS ?? '$(inherited)').replace(/^"|"$/g, '');
