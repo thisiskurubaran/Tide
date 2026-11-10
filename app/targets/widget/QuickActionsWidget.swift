@@ -10,10 +10,13 @@ private struct QuickTile: View {
   let symbol: String
   let tint: Color
   var enabled = true
+  var a11yLabel: String? = nil
+  var a11yHint: String? = nil
 
   var body: some View {
     let small = family == .systemSmall
     VStack(spacing: small ? 4 : 6) {
+      // Fixed size: the glyph is drawn to fit its fixed circle.
       Image(systemName: symbol)
         .font(.system(size: small ? 15 : 17, weight: .semibold))
         .foregroundStyle(enabled ? tint : TidePalette.muted)
@@ -21,10 +24,11 @@ private struct QuickTile: View {
         .background(Circle().fill((enabled ? tint : TidePalette.muted).opacity(0.15)))
         .widgetAccentable()
       Text(title)
-        .font(.system(size: small ? 10 : 11, weight: .semibold))
+        .font(.caption2.weight(.semibold))
         .foregroundStyle(enabled ? TidePalette.foreground : TidePalette.muted)
-        .lineLimit(1)
-        .minimumScaleFactor(0.8)
+        .multilineTextAlignment(.center)
+        .lineLimit(2)
+        .minimumScaleFactor(0.7)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(
@@ -37,6 +41,8 @@ private struct QuickTile: View {
     )
     .contentShape(Rectangle())
     .accessibilityElement(children: .combine)
+    .accessibilityLabel(a11yLabel ?? title)
+    .accessibilityHint(a11yHint ?? "")
   }
 }
 
@@ -46,6 +52,8 @@ struct QuickActionItem {
   let tint: Color
   let url: URL
   let enabled: Bool
+  var a11yLabel: String? = nil
+  var a11yHint: String? = nil
 
   static func all(last: SharedProject?) -> [QuickActionItem] {
     var openURL = TideLinks.home
@@ -55,8 +63,15 @@ struct QuickActionItem {
       runURL = TideLinks.run(last.name)
     }
     let newItem = QuickActionItem(title: "New", symbol: "plus", tint: TidePalette.brand, url: TideLinks.newProject, enabled: true)
-    let openItem = QuickActionItem(title: last == nil ? "Open Tide" : "Open", symbol: "folder.fill", tint: Color(tideHex: 0x6f9dff), url: openURL, enabled: true)
-    let runItem = QuickActionItem(title: "Run", symbol: "play.fill", tint: TidePalette.success, url: runURL, enabled: last != nil)
+    let openItem = QuickActionItem(title: last == nil ? "Open Tide" : "Open", symbol: "folder.fill", tint: TidePalette.info, url: openURL, enabled: true)
+    // With no project there's nothing to run: the tile says so in words and
+    // with a different symbol, not only by turning grey, and still opens Tide.
+    let runItem = last == nil
+      ? QuickActionItem(
+        title: "No project yet", symbol: "play.slash.fill", tint: TidePalette.success, url: runURL, enabled: false,
+        a11yLabel: "Run, no project yet", a11yHint: "Opens Tide. Start a project there to run it from here."
+      )
+      : QuickActionItem(title: "Run", symbol: "play.fill", tint: TidePalette.success, url: runURL, enabled: true)
     let searchItem = QuickActionItem(title: "Search", symbol: "magnifyingglass", tint: TidePalette.warning, url: TideLinks.search, enabled: true)
     return [newItem, openItem, runItem, searchItem]
   }
@@ -73,7 +88,7 @@ struct QuickActionsView: View {
       if family != .systemSmall {
         HStack(spacing: 7) {
           TideMark(size: 18)
-          Text("Tide").font(.system(size: 13, weight: .semibold)).foregroundStyle(TidePalette.foreground)
+          Text("Tide").font(.footnote.weight(.semibold)).foregroundStyle(TidePalette.foreground).lineLimit(1)
           Spacer(minLength: 4)
           if let last {
             TideMetaLine(symbol: "clock.arrow.circlepath", text: last.name)
@@ -103,7 +118,7 @@ struct QuickActionsView: View {
 
   private func tile(_ t: QuickActionItem) -> some View {
     TideAction(url: t.url) {
-      QuickTile(title: t.title, symbol: t.symbol, tint: t.tint, enabled: t.enabled)
+      QuickTile(title: t.title, symbol: t.symbol, tint: t.tint, enabled: t.enabled, a11yLabel: t.a11yLabel, a11yHint: t.a11yHint)
     }
   }
 }

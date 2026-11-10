@@ -74,17 +74,20 @@ struct DeployLiveActivity: Widget {
         }
         DynamicIslandExpandedRegion(.trailing) {
           Text(context.attributes.provider)
-            .font(.system(size: 11, weight: .semibold))
+            .font(.caption2.weight(.semibold))
             .foregroundStyle(TidePalette.Island.muted)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
             .padding(.trailing, 4)
         }
         DynamicIslandExpandedRegion(.center) {
           VStack(spacing: 1) {
             Text(deployTitle(state))
-              .font(.system(size: 15, weight: .semibold))
+              .font(.subheadline.weight(.semibold))
               .foregroundStyle(tone.isFinished ? color : TidePalette.Island.foreground)
+              .lineLimit(1)
             Text(context.attributes.project)
-              .font(.system(size: 11, weight: .medium))
+              .font(.caption2.weight(.medium))
               .foregroundStyle(TidePalette.Island.muted)
               .lineLimit(1)
           }
@@ -92,7 +95,7 @@ struct DeployLiveActivity: Widget {
         DynamicIslandExpandedRegion(.bottom) {
           VStack(alignment: .leading, spacing: 8) {
             Text(state == "done" ? (shortURL(context.state.url) ?? context.state.message) : context.state.message)
-              .font(.system(size: 12))
+              .font(.caption)
               .foregroundStyle(TidePalette.Island.muted)
               .lineLimit(1)
             if state != "deploying" { DeployActions(context: context, island: true) }
@@ -100,15 +103,23 @@ struct DeployLiveActivity: Widget {
           .padding(.horizontal, 4)
         }
       } compactLeading: {
-        Image(systemName: deploySymbol(state)).foregroundStyle(color)
+        Image(systemName: deploySymbol(state))
+          .foregroundStyle(color)
+          .accessibilityLabel("\(deployTitle(state)), \(context.attributes.project)")
       } compactTrailing: {
         if state == "deploying" {
-          Image(systemName: "ellipsis").foregroundStyle(color)
+          Image(systemName: "ellipsis")
+            .foregroundStyle(color)
+            .accessibilityLabel("In progress")
         } else {
-          Image(systemName: tone.symbol).foregroundStyle(color)
+          Image(systemName: tone.symbol)
+            .foregroundStyle(color)
+            .accessibilityLabel(deployTitle(state))
         }
       } minimal: {
-        Image(systemName: deploySymbol(state)).foregroundStyle(color)
+        Image(systemName: deploySymbol(state))
+          .foregroundStyle(color)
+          .accessibilityLabel("\(deployTitle(state)), \(context.attributes.project)")
       }
       .widgetURL(TideLinks.deploy(context.attributes.project))
       .keylineTint(color)

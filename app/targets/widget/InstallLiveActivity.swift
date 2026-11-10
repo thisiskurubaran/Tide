@@ -12,6 +12,11 @@ private func installTitle(_ attributes: TideInstallAttributes, _ state: TideInst
   }
 }
 
+// What VoiceOver says for the Dynamic Island's glyphs.
+private func installSpoken(_ attributes: TideInstallAttributes, _ state: TideInstallAttributes.ContentState) -> String {
+  state.status == "running" ? "\(attributes.tool) running, \(attributes.packages)" : installTitle(attributes, state)
+}
+
 private func installSymbol(_ state: TideInstallAttributes.ContentState) -> String {
   state.status == "running" ? "shippingbox.fill" : TideTone(status: state.status).symbol
 }
@@ -41,39 +46,45 @@ struct InstallLiveActivity: Widget {
           ActivityIcon(symbol: installSymbol(context.state), tint: color, size: 40).padding(.leading, 4)
         }
         DynamicIslandExpandedRegion(.trailing) {
-          ActivityElapsedLabel(start: context.state.startedAt, end: context.state.endedAt, tint: color, font: .system(size: 15, weight: .semibold).monospacedDigit(), width: 64)
+          ActivityElapsedLabel(start: context.state.startedAt, end: context.state.endedAt, tint: color, font: .subheadline.weight(.semibold).monospacedDigit(), width: 64)
             .padding(.trailing, 4)
         }
         DynamicIslandExpandedRegion(.center) {
           VStack(spacing: 1) {
             Text(installTitle(context.attributes, context.state))
-              .font(.system(size: 15, weight: .semibold))
+              .font(.subheadline.weight(.semibold))
               .foregroundStyle(tone.isFinished ? color : TidePalette.Island.foreground)
               .lineLimit(1)
             Text("\(context.attributes.tool) · \(context.attributes.project)")
-              .font(.system(size: 11, weight: .medium))
+              .font(.caption2.weight(.medium))
               .foregroundStyle(TidePalette.Island.muted)
               .lineLimit(1)
           }
         }
         DynamicIslandExpandedRegion(.bottom) {
           Text(context.state.detail)
-            .font(.system(size: 12, design: .monospaced))
+            .font(.system(.caption, design: .monospaced))
             .foregroundStyle(TidePalette.Island.muted)
             .lineLimit(1)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 4)
         }
       } compactLeading: {
-        Image(systemName: installSymbol(context.state)).foregroundStyle(color)
+        Image(systemName: installSymbol(context.state))
+          .foregroundStyle(color)
+          .accessibilityLabel(installSpoken(context.attributes, context.state))
       } compactTrailing: {
         if tone.isFinished {
-          Image(systemName: tone.symbol).foregroundStyle(color)
+          Image(systemName: tone.symbol)
+            .foregroundStyle(color)
+            .accessibilityLabel(installTitle(context.attributes, context.state))
         } else {
           ActivityElapsedLabel(start: context.state.startedAt, end: context.state.endedAt, tint: color, width: 44)
         }
       } minimal: {
-        Image(systemName: installSymbol(context.state)).foregroundStyle(color)
+        Image(systemName: installSymbol(context.state))
+          .foregroundStyle(color)
+          .accessibilityLabel(installSpoken(context.attributes, context.state))
       }
       .widgetURL(projectURL(context.attributes.project))
       .keylineTint(color)

@@ -36,6 +36,9 @@ enum TidePalette {
   static let success = Color("TideSuccess")
   static let warning = Color("TideWarning")
   static let danger = Color("TideDanger")
+  // The Open action's blue: deeper in light mode so it reads on the pale
+  // background, the original #6f9dff in dark.
+  static let info = Color("TideInfo")
 
   // The app icon's gradient.
   static let iconTop = Color(tideHex: 0x3b5bdb)
@@ -68,6 +71,8 @@ struct TideMark: View {
             : AnyShapeStyle(Color.white.opacity(0.25))
         )
         .widgetAccentable()
+      // Fixed sizes: the glyphs are drawn to fit the tile, which is sized by
+      // its caller, so they scale with `size` rather than Dynamic Type.
       VStack(spacing: size * 0.02) {
         Image(systemName: "chevron.right")
           .font(.system(size: size * 0.42, weight: .heavy))
@@ -96,6 +101,8 @@ struct LanguageBadge: View {
         .fill(tint.opacity(renderingMode == .fullColor ? 0.16 : 0.22))
       RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
         .strokeBorder(tint.opacity(0.35), lineWidth: 0.5)
+      // Fixed sizes: a two- or three-letter label (or the folder) drawn to fit
+      // its tile, which is sized by its caller.
       if let badge = project.badge, !badge.isEmpty {
         Text(badge)
           .font(.system(size: badge.count > 2 ? size * 0.34 : size * 0.42, weight: .bold, design: .monospaced))
@@ -147,7 +154,7 @@ extension View {
 
   // A small all-caps section label.
   func tideEyebrow() -> some View {
-    font(.system(size: 10, weight: .semibold)).textCase(.uppercase).tracking(0.6).foregroundStyle(TidePalette.muted)
+    font(.caption2.weight(.semibold)).lineLimit(1).textCase(.uppercase).tracking(0.6).foregroundStyle(TidePalette.muted)
   }
 }
 
@@ -160,8 +167,8 @@ struct TidePill: View {
 
   var body: some View {
     HStack(spacing: 4) {
-      Image(systemName: symbol).font(.system(size: 10, weight: .bold))
-      Text(title).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+      Image(systemName: symbol).font(.caption2.weight(.bold))
+      Text(title).font(.caption.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.75)
     }
     .padding(.horizontal, 10)
     .padding(.vertical, 6)

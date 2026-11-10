@@ -14,10 +14,10 @@ struct TideMetaLine: View {
 
   var body: some View {
     HStack(spacing: 3) {
-      Image(systemName: symbol).font(.system(size: 9, weight: .semibold))
+      Image(systemName: symbol).font(.caption2.weight(.semibold)).imageScale(.small)
       Text(text).lineLimit(1)
     }
-    .font(.system(size: 11, weight: .medium))
+    .font(.caption2.weight(.medium))
     .foregroundStyle(color)
   }
 }
@@ -32,20 +32,22 @@ struct ProjectRow: View {
       LanguageBadge(project: project, size: compact ? 24 : 28)
       VStack(alignment: .leading, spacing: 1) {
         Text(project.name)
-          .font(.system(size: compact ? 13 : 14, weight: .semibold))
+          .font((compact ? Font.footnote : Font.subheadline).weight(.semibold))
           .foregroundStyle(TidePalette.foreground)
           .lineLimit(1)
         if let git = gitSummary(project) {
           TideMetaLine(symbol: "arrow.triangle.branch", text: git)
         } else if let language = project.language {
-          Text(language).font(.system(size: 11, weight: .medium)).foregroundStyle(TidePalette.muted).lineLimit(1)
+          Text(language).font(.caption2.weight(.medium)).foregroundStyle(TidePalette.muted).lineLimit(1)
         }
       }
       Spacer(minLength: 4)
       if let opened = project.opened {
         Text(tideAgo(opened, now: now))
-          .font(.system(size: 11, weight: .medium).monospacedDigit())
+          .font(.caption2.weight(.medium).monospacedDigit())
           .foregroundStyle(TidePalette.muted)
+          .lineLimit(1)
+          .fixedSize()
       }
       if let changes = project.changes, changes > 0 {
         Circle().fill(TidePalette.warning).frame(width: 6, height: 6).widgetAccentable()
@@ -63,22 +65,24 @@ struct FileRow: View {
   var body: some View {
     HStack(spacing: 8) {
       Image(systemName: "doc.text")
-        .font(.system(size: 11, weight: .semibold))
+        .font(.caption2.weight(.semibold))
         .foregroundStyle(TidePalette.brand)
         .frame(width: 16)
         .widgetAccentable()
       Text(file.name)
-        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+        .font(.system(.caption, design: .monospaced, weight: .semibold))
         .foregroundStyle(TidePalette.foreground)
         .lineLimit(1)
       Text(file.project)
-        .font(.system(size: 11))
+        .font(.caption2)
         .foregroundStyle(TidePalette.muted)
         .lineLimit(1)
       Spacer(minLength: 4)
       Text(tideAgo(file.date, now: now))
-        .font(.system(size: 10, weight: .medium).monospacedDigit())
+        .font(.caption2.weight(.medium).monospacedDigit())
         .foregroundStyle(TidePalette.muted)
+        .lineLimit(1)
+        .fixedSize()
     }
     .contentShape(Rectangle())
   }
@@ -99,11 +103,13 @@ struct WidgetHeader: View {
     HStack(spacing: 7) {
       TideMark(size: 18)
       Text(title)
-        .font(.system(size: 13, weight: .semibold))
+        .font(.footnote.weight(.semibold))
         .foregroundStyle(TidePalette.foreground)
+        .lineLimit(1)
       Spacer(minLength: 0)
       if let trailing {
         TideAction(url: trailing) {
+          // Fixed size: the glyph is drawn to fit its fixed circle.
           Image(systemName: trailingSymbol)
             .font(.system(size: 11, weight: .bold))
             .foregroundStyle(TidePalette.brand)
@@ -126,10 +132,12 @@ struct ProjectsEmptyView: View {
       Spacer(minLength: 0)
       TideMark(size: family == .systemSmall ? 34 : 40)
       Text("No projects yet")
-        .font(.system(size: 14, weight: .semibold))
+        .font(.subheadline.weight(.semibold))
         .foregroundStyle(TidePalette.foreground)
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)
       Text(family == .systemSmall ? "Tap to start one" : "Start a project or clone a repository, and it shows up here.")
-        .font(.system(size: 11))
+        .font(.caption2)
         .foregroundStyle(TidePalette.muted)
         .multilineTextAlignment(.center)
         .lineLimit(2)
@@ -159,7 +167,7 @@ struct RecentProjectsSmall: View {
       Spacer(minLength: 6)
       Text("Last opened").tideEyebrow()
       Text(project.name)
-        .font(.system(size: 17, weight: .bold))
+        .font(.headline.weight(.bold))
         .foregroundStyle(TidePalette.foreground)
         .lineLimit(2)
         .minimumScaleFactor(0.75)

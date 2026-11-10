@@ -29,6 +29,7 @@ private struct StatusGlyph: View {
   var size: CGFloat = 30
 
   var body: some View {
+    // Fixed size: the glyph is drawn to fit its circle, sized by the caller.
     Image(systemName: tone.symbol)
       .font(.system(size: size * 0.55, weight: .semibold))
       .foregroundStyle(tone.color)
@@ -48,10 +49,12 @@ private struct NoRunView: View {
       }
       Spacer(minLength: 4)
       Text("No runs yet")
-        .font(.system(size: 15, weight: .bold))
+        .font(.subheadline.weight(.bold))
         .foregroundStyle(TidePalette.foreground)
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)
       Text("Run a project or its tests in Tide, and the result shows up here.")
-        .font(.system(size: 11))
+        .font(.caption2)
         .foregroundStyle(TidePalette.muted)
         .lineLimit(3)
       Spacer(minLength: 0)
@@ -70,24 +73,27 @@ private struct LastRunSmall: View {
         StatusGlyph(tone: tone)
         Spacer(minLength: 0)
         Text(tideAgo(run.ended, now: now))
-          .font(.system(size: 10, weight: .medium).monospacedDigit())
+          .font(.caption2.weight(.medium).monospacedDigit())
           .foregroundStyle(TidePalette.muted)
+          .lineLimit(1)
       }
       Spacer(minLength: 4)
       Text(runTitle(run))
-        .font(.system(size: 16, weight: .bold))
+        .font(.callout.weight(.bold))
         .foregroundStyle(tone.color)
         .lineLimit(1)
         .minimumScaleFactor(0.8)
         .widgetAccentable()
       Text(run.project)
-        .font(.system(size: 13, weight: .semibold))
+        .font(.footnote.weight(.semibold))
         .foregroundStyle(TidePalette.foreground)
         .lineLimit(1)
+        .minimumScaleFactor(0.8)
       Text(run.detail)
-        .font(.system(size: 11))
+        .font(.caption2)
         .foregroundStyle(TidePalette.muted)
         .lineLimit(1)
+        .minimumScaleFactor(0.8)
       Spacer(minLength: 4)
       if tideSmallButtonsWork {
         TideAction(url: TideLinks.rerun(run), hideInSmallOnOld: true) {
@@ -95,8 +101,10 @@ private struct LastRunSmall: View {
         }
       } else {
         Text(runMeta(run))
-          .font(.system(size: 10, weight: .medium, design: .monospaced))
+          .font(.system(.caption2, design: .monospaced, weight: .medium))
           .foregroundStyle(TidePalette.muted)
+          .lineLimit(1)
+          .minimumScaleFactor(0.8)
       }
     }
   }
@@ -113,28 +121,29 @@ private struct LastRunMedium: View {
         StatusGlyph(tone: tone, size: 40)
         Spacer(minLength: 0)
         Text(runTitle(run))
-          .font(.system(size: 17, weight: .bold))
+          .font(.headline.weight(.bold))
           .foregroundStyle(tone.color)
           .lineLimit(1)
           .minimumScaleFactor(0.8)
           .widgetAccentable()
         Text(tideAgo(run.ended, now: now))
-          .font(.system(size: 11, weight: .medium))
+          .font(.caption2.weight(.medium))
           .foregroundStyle(TidePalette.muted)
+          .lineLimit(1)
       }
       .frame(width: 112, alignment: .leading)
 
       VStack(alignment: .leading, spacing: 5) {
         HStack(spacing: 6) {
           Text(run.project)
-            .font(.system(size: 14, weight: .semibold))
+            .font(.subheadline.weight(.semibold))
             .foregroundStyle(TidePalette.foreground)
             .lineLimit(1)
           Spacer(minLength: 0)
           TideMark(size: 16)
         }
         Text(run.detail)
-          .font(.system(size: 12))
+          .font(.caption)
           .foregroundStyle(TidePalette.foreground.opacity(0.85))
           .lineLimit(2)
         HStack(spacing: 6) {
@@ -144,7 +153,7 @@ private struct LastRunMedium: View {
           Spacer(minLength: 0)
           Text(runMeta(run))
         }
-        .font(.system(size: 10, weight: .medium, design: .monospaced))
+        .font(.system(.caption2, design: .monospaced, weight: .medium))
         .foregroundStyle(TidePalette.muted)
         Spacer(minLength: 0)
         HStack(spacing: 8) {
@@ -177,7 +186,8 @@ struct LastRunView: View {
       }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    .widgetURL(entry.shared.lastRun.map { projectURL($0.project) } ?? TideLinks.home)
+    // Tapping outside the buttons shows the run's output; only Run again runs.
+    .widgetURL(entry.shared.lastRun.map { TideLinks.output($0.project) } ?? TideLinks.home)
     .tideWidgetBackground()
   }
 }

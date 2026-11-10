@@ -479,6 +479,8 @@ export function ProjectScreen({ project, launch }: { project: string; launch?: P
     }
     // From the Live Activity's Stop.
     if (launch.stop) terminal.current?.input('\x03');
+    // From the Lock Screen and Last run widgets: the last run's output.
+    if (launch.output) setTerminalHidden(false);
     // Sending, running and testing come from Shortcuts and widgets, but any
     // app or page can open the link: they wait for a yes.
     const ask = launchConfirmation(project, launch);

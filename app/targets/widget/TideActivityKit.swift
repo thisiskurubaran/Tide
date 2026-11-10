@@ -21,20 +21,24 @@ struct ActivityElapsed: View {
 }
 
 // The elapsed timer sized for a corner: monospaced digits, right-aligned, and
-// kept narrow (a timer Text otherwise takes all the width it's offered).
+// kept narrow (a timer Text otherwise takes all the width it's offered). The
+// width grows with the text size, and the digits shrink before they'd clip.
 struct ActivityElapsedLabel: View {
   let start: Date
   let end: Date?
   var tint: Color
-  var font: Font = .system(size: 13, weight: .semibold).monospacedDigit()
+  var font: Font = .footnote.weight(.semibold).monospacedDigit()
   var width: CGFloat = 56
+  @ScaledMetric(relativeTo: .footnote) private var widthScale: CGFloat = 1
 
   var body: some View {
     ActivityElapsed(start: start, end: end)
       .font(font)
       .foregroundStyle(tint)
       .multilineTextAlignment(.trailing)
-      .frame(maxWidth: width, alignment: .trailing)
+      .lineLimit(1)
+      .minimumScaleFactor(0.6)
+      .frame(maxWidth: width * widthScale, alignment: .trailing)
   }
 }
 
@@ -45,6 +49,7 @@ struct ActivityIcon: View {
   var size: CGFloat = 36
 
   var body: some View {
+    // Fixed size: the glyph is drawn to fit its tile, sized by the caller.
     Image(systemName: symbol)
       .font(.system(size: size * 0.46, weight: .semibold))
       .foregroundStyle(tint)
@@ -88,6 +93,8 @@ struct ActivityRing: View {
         .trim(from: 0, to: min(max(progress ?? 1, 0), 1))
         .stroke(tint, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
         .rotationEffect(.degrees(-90))
+      // Fixed size: the glyph has to fit inside the ring in the compact and
+      // minimal Dynamic Island, whose size the system sets.
       Image(systemName: symbol)
         .font(.system(size: size * 0.42, weight: .bold))
         .foregroundStyle(tint)
@@ -96,7 +103,10 @@ struct ActivityRing: View {
   }
 }
 
-// A capsule button that opens a tide:// link.
+// A capsule button that opens a tide:// link. The pill stays compact, but the
+// link around it is at least 44pt tall (and wide) so it's easy to hit; the
+// negative padding gives the extra height back to the layout, so the Lock
+// Screen card stays inside its height limit.
 struct ActivityButton: View {
   let title: String
   let symbol: String
@@ -104,17 +114,25 @@ struct ActivityButton: View {
   var tint: Color = TidePalette.brand
   var prominent = false
 
+  private static let minTarget: CGFloat = 44
+  // Roughly the pill's height at the default text size.
+  private static let pillHeight: CGFloat = 28
+
   var body: some View {
     Link(destination: url) {
       HStack(spacing: 4) {
-        Image(systemName: symbol).font(.system(size: 10, weight: .bold))
-        Text(title).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+        Image(systemName: symbol).font(.caption2.weight(.bold))
+        Text(title).font(.caption.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.75)
       }
       .padding(.horizontal, 12)
       .padding(.vertical, 6)
       .foregroundStyle(prominent ? Color.black : tint)
       .background(Capsule().fill(prominent ? tint : tint.opacity(0.18)))
+      .frame(minWidth: Self.minTarget, minHeight: Self.minTarget)
+      .contentShape(Rectangle())
     }
+    .padding(.vertical, -(Self.minTarget - Self.pillHeight) / 2)
+    .accessibilityLabel(title)
   }
 }
 
@@ -142,7 +160,7 @@ struct ActivityCard<Footer: View>: View {
           HStack(spacing: 6) {
             TideMark(size: 14)
             Text(eyebrow)
-              .font(.system(size: 11, weight: .semibold))
+              .font(.caption2.weight(.semibold))
               .foregroundStyle(TidePalette.muted)
               .lineLimit(1)
             Spacer(minLength: 4)
@@ -151,12 +169,13 @@ struct ActivityCard<Footer: View>: View {
             }
           }
           Text(title)
-            .font(.system(size: 16, weight: .bold))
+            .font(.callout.weight(.bold))
             .foregroundStyle(tone.isFinished ? tone.color : TidePalette.foreground)
             .lineLimit(1)
+            .minimumScaleFactor(0.8)
           if let detail, !detail.isEmpty {
             Text(detail)
-              .font(.system(size: 12))
+              .font(.caption)
               .foregroundStyle(TidePalette.muted)
               .lineLimit(2)
           }

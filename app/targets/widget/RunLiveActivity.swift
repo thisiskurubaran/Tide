@@ -34,6 +34,17 @@ private func headline(_ attributes: TideRunAttributes, _ state: TideRunAttribute
   }
 }
 
+// What VoiceOver says for the Dynamic Island's glyphs: what's happening, or
+// how it ended.
+private func runSpoken(_ attributes: TideRunAttributes, _ state: TideRunAttributes.ContentState) -> String {
+  guard state.status == "running" else { return "\(headline(attributes, state)), \(attributes.project)" }
+  switch attributes.kind {
+  case "server": return "Dev server running, \(attributes.project)"
+  case "tests": return "Running tests, \(attributes.project)"
+  default: return "Running \(attributes.command), \(attributes.project)"
+  }
+}
+
 private func runSymbol(_ attributes: TideRunAttributes, _ state: TideRunAttributes.ContentState) -> String {
   let tone = TideTone(status: state.status)
   return tone == .running ? kindSymbol(attributes.kind) : tone.symbol
@@ -89,17 +100,17 @@ struct RunLiveActivity: Widget {
             .padding(.leading, 4)
         }
         DynamicIslandExpandedRegion(.trailing) {
-          ActivityElapsedLabel(start: context.state.startedAt, end: context.state.endedAt, tint: color, font: .system(size: 15, weight: .semibold).monospacedDigit(), width: 64)
+          ActivityElapsedLabel(start: context.state.startedAt, end: context.state.endedAt, tint: color, font: .subheadline.weight(.semibold).monospacedDigit(), width: 64)
             .padding(.trailing, 4)
         }
         DynamicIslandExpandedRegion(.center) {
           VStack(spacing: 1) {
             Text(headline(context.attributes, context.state))
-              .font(.system(size: 15, weight: .semibold))
+              .font(.subheadline.weight(.semibold))
               .foregroundStyle(tone.isFinished ? color : TidePalette.Island.foreground)
               .lineLimit(1)
             Text("\(kindLabel(context.attributes.kind)) · \(context.attributes.project)")
-              .font(.system(size: 11, weight: .medium))
+              .font(.caption2.weight(.medium))
               .foregroundStyle(TidePalette.Island.muted)
               .lineLimit(1)
           }
@@ -107,7 +118,7 @@ struct RunLiveActivity: Widget {
         DynamicIslandExpandedRegion(.bottom) {
           VStack(alignment: .leading, spacing: 8) {
             Text(context.state.detail)
-              .font(.system(size: 12))
+              .font(.caption)
               .foregroundStyle(TidePalette.Island.muted)
               .lineLimit(1)
             if let progress = context.state.progress {
@@ -119,20 +130,27 @@ struct RunLiveActivity: Widget {
         }
       } compactLeading: {
         Image(systemName: runSymbol(context.attributes, context.state))
-          .font(.system(size: 13, weight: .semibold))
+          .font(.footnote.weight(.semibold))
           .foregroundStyle(color)
+          .accessibilityLabel(runSpoken(context.attributes, context.state))
       } compactTrailing: {
         if let progress = context.state.progress, !tone.isFinished {
           Text(verbatim: "\(Int(progress * 100))%")
-            .font(.system(size: 13, weight: .semibold).monospacedDigit())
+            .font(.footnote.weight(.semibold).monospacedDigit())
             .foregroundStyle(color)
+            .lineLimit(1)
+            .minimumScaleFactor(0.6)
+            .accessibilityLabel("\(Int(progress * 100)) percent")
         } else if tone.isFinished {
-          Image(systemName: tone.symbol).foregroundStyle(color)
+          Image(systemName: tone.symbol)
+            .foregroundStyle(color)
+            .accessibilityLabel(headline(context.attributes, context.state))
         } else {
           ActivityElapsedLabel(start: context.state.startedAt, end: context.state.endedAt, tint: color, width: 44)
         }
       } minimal: {
         ActivityRing(progress: tone.isFinished ? 1 : context.state.progress, symbol: tone.isFinished ? tone.symbol : kindSymbol(context.attributes.kind), tint: color)
+          .accessibilityLabel(runSpoken(context.attributes, context.state))
       }
       .widgetURL(projectURL(context.attributes.project))
       .keylineTint(color)

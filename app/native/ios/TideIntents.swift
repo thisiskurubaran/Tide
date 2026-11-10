@@ -1,5 +1,5 @@
-// Siri and Shortcuts actions: run a project, deploy it, send a
-// request from a .http file, or open a project. Each opens Tide with a
+// Siri and Shortcuts actions: run a project, run the last run again, deploy
+// it, send a request from a .http file, or open a project. Each opens Tide with a
 // tide:// link the app already handles; plugins/withAppIntents.js adds this
 // file to the app target, where iOS looks for App Intents.
 import AppIntents
@@ -10,6 +10,15 @@ private let appGroup = "group.com.thisiskurubaran.tide"
 private struct TideShared: Codable {
   var projects: [String]
   var recent: [String]
+  // The last dev server, test run or task to finish (what the Last run and
+  // Lock Screen widgets show); absent in data from older app builds.
+  var lastRun: LastRun?
+
+  struct LastRun: Codable {
+    var project: String
+    // "server", "tests" or "task"
+    var kind: String
+  }
 
   static func read() -> TideShared? {
     guard let json = UserDefaults(suiteName: appGroup)?.string(forKey: "tide.shared"), let data = json.data(using: .utf8) else { return nil }
@@ -79,6 +88,28 @@ struct RunProjectIntent: AppIntent {
   }
 }
 
+private struct NoLastRunError: Error, CustomLocalizedStringResourceConvertible {
+  var localizedStringResource: LocalizedStringResource {
+    "Nothing has run in Tide yet. Run a project or its tests first."
+  }
+}
+
+// Runs the last run again the way it ran: tests open the Tests sheet, the rest
+// run. Like Run Project, the link makes Tide ask before anything runs.
+struct RunLastAgainIntent: AppIntent {
+  static let title: LocalizedStringResource = "Run Last Again"
+  static let description = IntentDescription("Opens the project of your last run in Tide and runs it again, or runs its tests again if that was a test run.")
+  static let openAppWhenRun = true
+
+  @MainActor
+  func perform() async throws -> some IntentResult {
+    guard let last = TideShared.read()?.lastRun else { throw NoLastRunError() }
+    let again = last.kind == "tests" ? "tests=1" : "run=1"
+    try await openTide("tide://project/\(path(last.project))?\(again)")
+    return .result()
+  }
+}
+
 struct DeployProjectIntent: AppIntent {
   static let title: LocalizedStringResource = "Deploy Project"
   static let description = IntentDescription("Deploys a project with its saved Deploy settings.")
@@ -117,6 +148,12 @@ struct TideShortcuts: AppShortcutsProvider {
       phrases: ["Run a project in \(.applicationName)", "Run my code in \(.applicationName)"],
       shortTitle: "Run Project",
       systemImageName: "play.fill"
+    )
+    AppShortcut(
+      intent: RunLastAgainIntent(),
+      phrases: ["Run the last run again in \(.applicationName)", "Rerun my last run in \(.applicationName)"],
+      shortTitle: "Run Last Again",
+      systemImageName: "arrow.clockwise"
     )
     AppShortcut(
       intent: DeployProjectIntent(),

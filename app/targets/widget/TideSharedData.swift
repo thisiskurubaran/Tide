@@ -109,6 +109,9 @@ enum TideLinks {
   static func run(_ project: String) -> URL { projectURL(project, query: "run=1") }
   static func tests(_ project: String) -> URL { projectURL(project, query: "tests=1") }
   static func stop(_ project: String) -> URL { projectURL(project, query: "stop=1") }
+  // Opens the project with the terminal (the last run's output) showing,
+  // without running anything.
+  static func output(_ project: String) -> URL { projectURL(project, query: "show=output") }
   static func file(_ file: SharedFile) -> URL { projectURL(file.project, query: "file=\(tideQueryValue(file.path))") }
   static func agent(_ project: String) -> URL { URL(string: "tide://agent?project=\(tideQueryValue(project))") ?? home }
   static func deploy(_ project: String) -> URL { URL(string: "tide://deploy?project=\(tideQueryValue(project))") ?? home }

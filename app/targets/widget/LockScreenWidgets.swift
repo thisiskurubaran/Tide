@@ -1,6 +1,8 @@
 // Lock Screen (and StandBy / watch-style) accessory widgets: the last project
 // with its branch and last run (rectangular), the last run's result
-// (circular), and a one-line summary above the clock (inline).
+// (circular), and a one-line summary above the clock (inline). Tapping the
+// last run opens its project with the output showing; it never runs anything
+// (Run Last Again in Shortcuts does that, after asking).
 import SwiftUI
 import WidgetKit
 
@@ -12,7 +14,7 @@ private struct AccessoryRectangularView: View {
       VStack(alignment: .leading, spacing: 1) {
         HStack(spacing: 4) {
           Image(systemName: "chevron.left.forwardslash.chevron.right")
-            .font(.system(size: 11, weight: .bold))
+            .font(.caption2.weight(.bold))
             .widgetAccentable()
           Text(project.name)
             .font(.headline)
@@ -58,21 +60,30 @@ private struct AccessoryCircularView: View {
       AccessoryWidgetBackground()
       if let run = entry.shared.lastRun {
         VStack(spacing: 0) {
+          // Fixed size: the glyph has to share the small circle with its label
+          // at every text size.
           Image(systemName: TideTone(status: run.status).symbol)
             .font(.system(size: 20, weight: .semibold))
             .widgetAccentable()
           Text(run.kind == "tests" ? "TESTS" : run.kind == "server" ? "DEV" : "RUN")
-            .font(.system(size: 8, weight: .bold))
+            .font(.caption2.weight(.bold))
+            .lineLimit(1)
+            .minimumScaleFactor(0.5)
         }
+        .padding(.horizontal, 4)
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(runTitle(run)) in \(run.project)")
+        .accessibilityHint("Opens the project with the output showing")
       } else {
+        // Fixed size: the glyph is drawn to fill the small circle.
         Image(systemName: "chevron.left.forwardslash.chevron.right")
           .font(.system(size: 18, weight: .bold))
           .widgetAccentable()
           .accessibilityLabel("Tide")
       }
     }
-    .widgetURL(entry.shared.lastRun.map { TideLinks.rerun($0) } ?? TideLinks.home)
+    // Opens the run's output; tapping a widget shouldn't start anything.
+    .widgetURL(entry.shared.lastRun.map { TideLinks.output($0.project) } ?? TideLinks.home)
   }
 }
 
@@ -82,7 +93,7 @@ private struct AccessoryInlineView: View {
   var body: some View {
     if let run = entry.shared.lastRun {
       Label("\(run.project) · \(runTitle(run))", systemImage: TideTone(status: run.status).symbol)
-        .widgetURL(projectURL(run.project))
+        .widgetURL(TideLinks.output(run.project))
     } else if let project = entry.shared.lastProject {
       Label(gitSummary(project).map { "\(project.name) · \($0)" } ?? project.name, systemImage: "chevron.left.forwardslash.chevron.right")
         .widgetURL(projectURL(project.name))

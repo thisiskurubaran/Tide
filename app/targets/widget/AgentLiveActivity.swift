@@ -39,7 +39,7 @@ private struct CommandChip: View {
         .lineLimit(1)
         .truncationMode(.middle)
     }
-    .font(.system(size: 12, weight: .medium, design: .monospaced))
+    .font(.system(.caption, design: .monospaced, weight: .medium))
     .padding(.horizontal, 10)
     .padding(.vertical, 6)
     .frame(maxWidth: .infinity, alignment: .leading)
@@ -104,9 +104,9 @@ struct AgentLiveActivity: Widget {
         }
         DynamicIslandExpandedRegion(.trailing) {
           VStack(alignment: .trailing, spacing: 2) {
-            ActivityElapsedLabel(start: context.state.startedAt, end: context.state.endedAt, tint: color, font: .system(size: 15, weight: .semibold).monospacedDigit(), width: 64)
+            ActivityElapsedLabel(start: context.state.startedAt, end: context.state.endedAt, tint: color, font: .subheadline.weight(.semibold).monospacedDigit(), width: 64)
             Text(stepsLabel(context.state.steps))
-              .font(.system(size: 10, weight: .medium))
+              .font(.caption2.weight(.medium))
               .foregroundStyle(TidePalette.Island.muted)
           }
           .padding(.trailing, 4)
@@ -114,11 +114,11 @@ struct AgentLiveActivity: Widget {
         DynamicIslandExpandedRegion(.center) {
           VStack(spacing: 1) {
             Text(agentTitle(context.state))
-              .font(.system(size: 15, weight: .semibold))
+              .font(.subheadline.weight(.semibold))
               .foregroundStyle(tone == .running ? TidePalette.Island.foreground : color)
               .lineLimit(1)
             Text(context.attributes.project)
-              .font(.system(size: 11, weight: .medium))
+              .font(.caption2.weight(.medium))
               .foregroundStyle(TidePalette.Island.muted)
               .lineLimit(1)
           }
@@ -129,7 +129,7 @@ struct AgentLiveActivity: Widget {
               CommandChip(command: command, island: true)
             } else {
               Text(context.state.action)
-                .font(.system(size: 12))
+                .font(.caption)
                 .foregroundStyle(TidePalette.Island.muted)
                 .lineLimit(2)
             }
@@ -138,21 +138,32 @@ struct AgentLiveActivity: Widget {
           .padding(.horizontal, 4)
         }
       } compactLeading: {
-        Image(systemName: agentSymbol(context.state)).foregroundStyle(color)
+        Image(systemName: agentSymbol(context.state))
+          .foregroundStyle(color)
+          .accessibilityLabel("\(agentTitle(context.state)), \(context.attributes.project)")
       } compactTrailing: {
         if context.state.status == "approval" {
           Text("Approve?")
-            .font(.system(size: 12, weight: .semibold))
+            .font(.caption.weight(.semibold))
             .foregroundStyle(color)
+            .lineLimit(1)
+            .minimumScaleFactor(0.6)
         } else if tone.isFinished {
-          Image(systemName: tone.symbol).foregroundStyle(color)
+          Image(systemName: tone.symbol)
+            .foregroundStyle(color)
+            .accessibilityLabel(agentTitle(context.state))
         } else {
           Text("\(context.state.steps)")
-            .font(.system(size: 13, weight: .semibold).monospacedDigit())
+            .font(.footnote.weight(.semibold).monospacedDigit())
             .foregroundStyle(color)
+            .lineLimit(1)
+            .minimumScaleFactor(0.6)
+            .accessibilityLabel(stepsLabel(context.state.steps))
         }
       } minimal: {
-        Image(systemName: agentSymbol(context.state)).foregroundStyle(color)
+        Image(systemName: agentSymbol(context.state))
+          .foregroundStyle(color)
+          .accessibilityLabel("\(agentTitle(context.state)), \(context.attributes.project)")
       }
       .widgetURL(TideLinks.agent(context.attributes.project))
       .keylineTint(color)

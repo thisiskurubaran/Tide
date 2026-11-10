@@ -65,22 +65,24 @@ struct GitLiveActivity: Widget {
       let tone = TideTone(status: context.state.status)
       let color = tone.islandColor
       let symbol = gitSymbol(context.attributes.operation, context.state.status)
+      // What VoiceOver says for the compact and minimal glyphs.
+      let spoken = "\(gitVerb(context.attributes.operation, context.state.status)), \(context.attributes.project)"
       return DynamicIsland {
         DynamicIslandExpandedRegion(.leading) {
           ActivityIcon(symbol: symbol, tint: color, size: 40).padding(.leading, 4)
         }
         DynamicIslandExpandedRegion(.trailing) {
-          ActivityElapsedLabel(start: context.state.startedAt, end: context.state.endedAt, tint: color, font: .system(size: 15, weight: .semibold).monospacedDigit(), width: 64)
+          ActivityElapsedLabel(start: context.state.startedAt, end: context.state.endedAt, tint: color, font: .subheadline.weight(.semibold).monospacedDigit(), width: 64)
             .padding(.trailing, 4)
         }
         DynamicIslandExpandedRegion(.center) {
           VStack(spacing: 1) {
             Text("\(gitVerb(context.attributes.operation, context.state.status)) \(context.attributes.project)")
-              .font(.system(size: 15, weight: .semibold))
+              .font(.subheadline.weight(.semibold))
               .foregroundStyle(tone.isFinished ? color : TidePalette.Island.foreground)
               .lineLimit(1)
             Text(gitEyebrow(context.attributes))
-              .font(.system(size: 11, weight: .medium))
+              .font(.caption2.weight(.medium))
               .foregroundStyle(TidePalette.Island.muted)
               .lineLimit(1)
           }
@@ -88,7 +90,7 @@ struct GitLiveActivity: Widget {
         DynamicIslandExpandedRegion(.bottom) {
           VStack(alignment: .leading, spacing: 8) {
             Text(gitDetail(context.state))
-              .font(.system(size: 12))
+              .font(.caption)
               .foregroundStyle(TidePalette.Island.muted)
               .lineLimit(1)
             if let progress = context.state.progress {
@@ -98,19 +100,27 @@ struct GitLiveActivity: Widget {
           .padding(.horizontal, 4)
         }
       } compactLeading: {
-        Image(systemName: symbol).foregroundStyle(color)
+        Image(systemName: symbol)
+          .foregroundStyle(color)
+          .accessibilityLabel(spoken)
       } compactTrailing: {
         if let progress = context.state.progress, !tone.isFinished {
           Text(verbatim: "\(Int(progress * 100))%")
-            .font(.system(size: 13, weight: .semibold).monospacedDigit())
+            .font(.footnote.weight(.semibold).monospacedDigit())
             .foregroundStyle(color)
+            .lineLimit(1)
+            .minimumScaleFactor(0.6)
+            .accessibilityLabel("\(Int(progress * 100)) percent")
         } else if tone.isFinished {
-          Image(systemName: tone.symbol).foregroundStyle(color)
+          Image(systemName: tone.symbol)
+            .foregroundStyle(color)
+            .accessibilityLabel(gitVerb(context.attributes.operation, context.state.status))
         } else {
           ActivityElapsedLabel(start: context.state.startedAt, end: context.state.endedAt, tint: color, width: 44)
         }
       } minimal: {
         ActivityRing(progress: tone.isFinished ? 1 : context.state.progress, symbol: symbol, tint: color)
+          .accessibilityLabel(spoken)
       }
       .widgetURL(projectURL(context.attributes.project))
       .keylineTint(color)

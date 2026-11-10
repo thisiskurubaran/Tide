@@ -28,6 +28,8 @@ module.exports = (config) => ({
     TideSuccess: { light: '#15803d', dark: '#4ade80' },
     TideWarning: { light: '#b45309', dark: '#fbbf24' },
     TideDanger: { light: '#be123c', dark: '#fb7185' },
+    // The Quick actions widget's Open tile.
+    TideInfo: { light: '#2f5fd0', dark: '#6f9dff' },
   },
   entitlements: {
     'com.apple.security.application-groups': config.ios.entitlements['com.apple.security.application-groups'],

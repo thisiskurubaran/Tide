@@ -39,6 +39,17 @@ describe('tests and stop links', () => {
   });
 });
 
+describe('output links', () => {
+  it('open a project with the output showing and run nothing', () => {
+    expect(projectLink('habit tracker', { output: true })).toBe('tide://project/habit%20tracker?show=output');
+    const launch = launchParams({ show: 'output' });
+    expect(launch).toEqual({ file: undefined, line: undefined, run: false, output: true });
+    expect(launchConfirmation('habit tracker', launch)).toBeNull();
+    expect(launchParams({ show: 'something-else' })).toBeNull();
+    expect(launchParams({ run: '1' })).not.toHaveProperty('output');
+  });
+});
+
 describe('links that act ask first', () => {
   it('names the project and the action for run, tests and send', () => {
     const run = launchConfirmation('web', launchParams({ run: '1' }));
