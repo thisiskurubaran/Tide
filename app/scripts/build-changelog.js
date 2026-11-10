@@ -33,6 +33,9 @@ function renderChangelog(releases) {
       out.push('### Highlights', '', ...release.highlights.map((h) => `- ${h}`), '', '### All changes', '');
     }
     out.push(...release.items.map((item) => `- ${item}`), '');
+    if (release.developer?.length) {
+      out.push('### Build and tooling', '', ...release.developer.map((item) => `- ${item}`), '');
+    }
   }
   return out.join('\n');
 }

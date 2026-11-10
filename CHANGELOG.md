@@ -9,6 +9,19 @@ Generated from [`app/src/features/support/changelog.ts`](app/src/features/suppor
 - Tide's Siri and Shortcuts actions (Run, Deploy, Send Request and Open Project) now have their own titles and icons in the Shortcuts app and Spotlight
 - A cleaner iOS build: Tide's own code builds without warnings, and warnings from third-party libraries are turned off
 
+### Build and tooling
+
+- Fixed the Swift warnings in Tide's own code: the deprecated AppShortcut initializer in TideIntents.swift and the mismatched weak self captures in PythonRuntimeModule.swift
+- New config plugin (plugins/withQuietBuild.js) that turns off warnings for third-party pods (GCC_WARN_INHIBIT_ALL_WARNINGS, SWIFT_SUPPRESS_WARNINGS, libtool's "has no symbols"), leaving Tide's own pods untouched
+- Script phases with no outputs, including nodejs-mobile's [CP-User] phases added during pod integration, are marked to run on every build
+- hermesc runs through plugins/quiet-build/hermesc.sh, which drops only its "the variable X was not declared" warning for runtime globals
+- The app target builds with Swift explicit modules off and its warnings suppressed, which hides the React, Expo and Sentry header warnings and Expo's "broken by a context change" warnings
+- Xcode's "Update to recommended settings" prompt stays away for both projects, and user script sandboxing is turned back off if it was accepted, so [CP] Copy Pods Resources works
+- Pods-Tide no longer runs swift-stdlib-tool, since it's a static library
+- The app's display name and App Category (Developer Tools) are kept across prebuilds
+- npm audit reports 0 vulnerabilities: the PHP runtime's copy of isomorphic-git is overridden to the patched version Tide already uses
+- Tide is open source under the MIT License, with CONTRIBUTING, CODE_OF_CONDUCT, SECURITY and TRADEMARKS documents, and this CHANGELOG generated from the in-app release notes
+
 ## 2.0.1
 
 ### Highlights
