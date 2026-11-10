@@ -1,0 +1,111 @@
+# Screenshots of the 2.1.0 iOS changes (#15, #16, #17, #19, #22, #23), for review.
+# Not a test: it's tagged `screenshots`, so `npm run e2e` skips it. Run it through
+# scripts/screenshots-2.1.0.sh, which also takes a set at the largest text size.
+# Params: SIZE (a prefix for the file names: default, ax-xxxl)
+appId: com.thisiskurubaran.tide
+name: Screenshots for 2.1.0
+tags:
+  - screenshots
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../common/new-project.yaml
+    env:
+      NAME: shots
+      TEMPLATE: node-hello
+
+# #16 glass activity bar, #19 activity bar labels, #23 SF Symbols.
+- takeScreenshot: ${SIZE}-01-project-activity-bar
+
+# #15 the close X beside each terminal tab.
+- tapOn:
+    id: terminal-new
+- takeScreenshot: ${SIZE}-02-terminal-tabs
+
+# #15 Stage and Discard beside each file row in Git Tools.
+- runFlow:
+    file: ../common/run-in-terminal.yaml
+    env:
+      COMMAND: git init -q && echo notes > notes.txt
+- tapOn:
+    id: activity-git
+- runFlow:
+    when:
+      visible:
+        id: gp-unstaged-notes.txt
+    commands:
+      - takeScreenshot: ${SIZE}-03-git-tools-rows
+      - tapOn:
+          id: gp-close
+- runFlow:
+    when:
+      notVisible:
+        id: gp-unstaged-notes.txt
+    commands:
+      # Git Tools is off, so this is the built-in Source Control sheet: still a native sheet (#16).
+      - takeScreenshot: ${SIZE}-03-source-control-sheet
+
+# #19 command palette section headers.
+- launchApp
+- runFlow:
+    when:
+      visible:
+        id: back
+    commands:
+      - tapOn:
+          id: back
+- tapOn:
+    id: project-shots
+- tapOn:
+    id: open-palette
+- takeScreenshot: ${SIZE}-04-command-palette
+
+# Back to the project list.
+- launchApp
+- runFlow:
+    when:
+      visible:
+        id: back
+    commands:
+      - tapOn:
+          id: back
+
+# #19 project badges.
+- takeScreenshot: ${SIZE}-05-projects-list
+
+# #16 native action sheet, then a prompt sheet opened from it (the sheet queue).
+- longPressOn:
+    id: project-shots
+- takeScreenshot: ${SIZE}-06-action-sheet
+- tapOn: Rename
+- takeScreenshot: ${SIZE}-07-prompt-sheet-keyboard
+- swipe:
+    direction: DOWN
+- takeScreenshot: ${SIZE}-08-after-swipe-down
+
+# #16 a scrolling sheet: What's new, which also shows the 2.1.0 notes.
+- tapOn:
+    id: open-settings
+- scrollUntilVisible:
+    element:
+      id: settings-whats-new
+- tapOn:
+    id: settings-whats-new
+- takeScreenshot: ${SIZE}-09-whats-new-sheet
+- swipe:
+    direction: DOWN
+
+# #22 the AI key field: no Passwords suggestion above the keyboard.
+- scrollUntilVisible:
+    element:
+      id: settings-ai
+    direction: UP
+- tapOn:
+    id: settings-ai
+- tapOn:
+    id: ai-provider-anthropic
+- tapOn:
+    id: ai-key
+- inputText: sk-ant-screenshot-not-a-real-key
+- takeScreenshot: ${SIZE}-10-ai-key-field

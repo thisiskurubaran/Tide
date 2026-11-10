@@ -76,3 +76,6 @@ assets/mermaid/
 # KaTeX for math in previews, and Ruff's WebAssembly for Format & Lint, the same way
 assets/katex/
 assets/ruff/*.wasm
+
+# Review screenshots from npm run screenshots
+/screenshots-2.1.0/
