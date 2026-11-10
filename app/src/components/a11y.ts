@@ -9,9 +9,11 @@ interface SystemA11y {
   increaseContrast: boolean;
   // VoiceOver / TalkBack is running.
   screenReader: boolean;
+  // iOS Reduce Transparency: glass and blur give way to solid colours.
+  reduceTransparency: boolean;
 }
 
-let state: SystemA11y = { reduceMotion: false, increaseContrast: false, screenReader: false };
+let state: SystemA11y = { reduceMotion: false, increaseContrast: false, screenReader: false, reduceTransparency: false };
 const listeners = new Set<() => void>();
 let started = false;
 
@@ -34,6 +36,8 @@ function start() {
   if (Platform.OS === 'ios') {
     AccessibilityInfo.isDarkerSystemColorsEnabled?.().then((increaseContrast) => set({ increaseContrast }), () => undefined);
     AccessibilityInfo.addEventListener?.('darkerSystemColorsChanged', (increaseContrast) => set({ increaseContrast }));
+    AccessibilityInfo.isReduceTransparencyEnabled?.().then((reduceTransparency) => set({ reduceTransparency }), () => undefined);
+    AccessibilityInfo.addEventListener?.('reduceTransparencyChanged', (reduceTransparency) => set({ reduceTransparency }));
   } else if (Platform.OS === 'android') {
     AccessibilityInfo.isHighTextContrastEnabled?.().then((increaseContrast) => set({ increaseContrast }), () => undefined);
     AccessibilityInfo.addEventListener?.('highTextContrastChanged', (increaseContrast) => set({ increaseContrast }));
@@ -49,6 +53,7 @@ const subscribe = (l: () => void) => {
 export const useSystemA11y = () => useSyncExternalStore(subscribe, () => state);
 export const useReduceMotion = () => useSystemA11y().reduceMotion;
 export const useScreenReader = () => useSystemA11y().screenReader;
+export const useReduceTransparency = () => useSystemA11y().reduceTransparency;
 
 // Slide for most people, none with Reduce Motion on.
 export const useModalAnimation = (normal: 'slide' | 'fade' = 'slide') => (useReduceMotion() ? 'none' : normal);

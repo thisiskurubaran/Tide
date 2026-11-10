@@ -1,10 +1,13 @@
-import { ReactNode, useEffect, useRef } from 'react';
-import { Animated, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ReactNode, useEffect, useRef, useState } from 'react';
+import { Animated, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { FormSheet as NativeFormSheet } from 'react-native-screens/experimental';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { borderWidth, radius, spacing } from '../theme/tokens';
-import { makeStyles } from '../theme/theme';
+import { makeStyles, useColors } from '../theme/theme';
 import { useModalAnimation, useReduceMotion } from './a11y';
+import { useLiquidGlass } from './Glass';
+import { useSheetPresentation } from './sheetPresentation';
 
 interface SheetProps {
   visible: boolean;
@@ -15,8 +18,95 @@ interface SheetProps {
   scrollable?: boolean;
 }
 
-// Bottom sheet used for prompts and action menus. Tapping the backdrop closes it.
-export function Sheet({ visible, onClose, children, scrollable = false }: SheetProps) {
+// iPhone gets UIKit's own sheet (the Liquid Glass sheet on iOS 26). iPad
+// keeps the drawn sheet: in a regular-width window UIKit ignores detents and
+// shows a fixed-size form sheet, which leaves a short menu floating in a
+// mostly empty card. Android has no native equivalent.
+const nativeSheets = Platform.OS === 'ios' && !Platform.isPad;
+
+// Bottom sheet used for prompts and action menus. Swiping it down or tapping
+// outside closes it.
+export function Sheet(props: SheetProps) {
+  return nativeSheets ? <NativeSheet {...props} /> : <ModalSheet {...props} />;
+}
+
+// Room UIKit leaves above a full-height sheet, plus the grabber.
+const SHEET_TOP_GAP = 24;
+
+function useKeyboardHeight(): number {
+  const [height, setHeight] = useState(0);
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardWillShow', (e) => setHeight(e.endCoordinates.height));
+    const hide = Keyboard.addListener('keyboardWillHide', () => setHeight(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+  return height;
+}
+
+// UISheetPresentationController sized to its content. UIKit draws the
+// background, grabber, corners and dimming, moves the sheet above the
+// keyboard and adds the bottom safe area itself, so there's no backdrop,
+// spring, KeyboardAvoidingView or inset padding here.
+function NativeSheet({ visible, onClose, children, scrollable = false }: SheetProps) {
+  const styles = useStyles();
+  const colors = useColors();
+  const glass = useLiquidGlass();
+  const insets = useSafeAreaInsets();
+  const window = useWindowDimensions();
+  const keyboard = useKeyboardHeight();
+  // Swiped away while the caller still says visible (until it handles onClose).
+  const [dismissed, setDismissed] = useState(false);
+  useEffect(() => {
+    if (!visible) setDismissed(false);
+  }, [visible]);
+  const sheet = useSheetPresentation(visible && !dismissed);
+  if (!sheet.mounted) return null;
+
+  // The content view is as tall as its content, so a long form needs its own
+  // cap to scroll instead of running off the bottom of the sheet.
+  const maxHeight = window.height - insets.top - SHEET_TOP_GAP - Math.max(keyboard, insets.bottom);
+  return (
+    <NativeFormSheet
+      isOpen={sheet.isOpen}
+      detents="fitToContents"
+      prefersGrabberVisible
+      preferredCornerRadius="systemDefault"
+      prefersScrollingExpandsWhenScrolledToEdge={false}
+      // Clear lets the system's glass sheet show on iOS 26; older systems,
+      // Reduce Transparency and high contrast get the app's card colour.
+      nativeContainerStyle={{ backgroundColor: glass ? 'transparent' : colors.card }}
+      onDidAppear={sheet.onDidAppear}
+      onDidDisappear={sheet.onDidDisappear}
+      onNativeDismiss={() => {
+        sheet.onNativeDismiss();
+        setDismissed(true);
+        onClose();
+      }}
+    >
+      {/* Screen readers stay inside the sheet; the escape gesture closes it. */}
+      <View accessibilityViewIsModal onAccessibilityEscape={onClose} testID="sheet">
+        {scrollable ? (
+          <ScrollView
+            style={[styles.scroll, { maxHeight }]}
+            contentContainerStyle={[styles.content, styles.nativeContent]}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+          >
+            {children}
+          </ScrollView>
+        ) : (
+          <View style={[styles.content, styles.nativeContent]}>{children}</View>
+        )}
+      </View>
+    </NativeFormSheet>
+  );
+}
+
+// A transparent Modal with a dimmed backdrop and a card that rises on a spring.
+function ModalSheet({ visible, onClose, children, scrollable = false }: SheetProps) {
   const styles = useStyles();
   const insets = useSafeAreaInsets();
   const animation = useModalAnimation('fade');
@@ -73,4 +163,6 @@ const useStyles = makeStyles((colors) => ({
   scrollSheet: { overflow: 'hidden' },
   scroll: { flexGrow: 0 },
   content: { padding: spacing.md, gap: spacing.md },
+  // Clear of the system grabber at the top.
+  nativeContent: { paddingTop: spacing.md + spacing.sm },
 }));

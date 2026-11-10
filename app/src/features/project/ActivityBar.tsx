@@ -3,6 +3,7 @@ import { ComponentRef, Ref } from 'react';
 import { LayoutChangeEvent, Pressable, View } from 'react-native';
 
 import type { IconName } from '../../components/Button';
+import { GlassSurface } from '../../components/Glass';
 import { Text } from '../../components/Text';
 import { makeStyles, useColors } from '../../theme/theme';
 import { borderWidth, fonts } from '../../theme/tokens';
@@ -35,7 +36,12 @@ export function ActivityBar({ items, active, onSelect, vertical, bottomInset = 0
   const styles = useStyles();
   const colors = useColors();
   return (
-    <View style={vertical ? styles.rail : [styles.bar, { paddingBottom: Math.max(bottomInset, 6) }]} accessibilityRole="tablist" testID="activity-bar">
+    <GlassSurface
+      color={colors.card}
+      style={vertical ? styles.rail : [styles.bar, { paddingBottom: Math.max(bottomInset, 6) }]}
+      accessibilityRole="tablist"
+      testID="activity-bar"
+    >
       {items.map((item) => {
         const on = item.id === active;
         const color = on ? colors.brand : colors.mutedForeground;
@@ -62,14 +68,16 @@ export function ActivityBar({ items, active, onSelect, vertical, bottomInset = 0
               )}
             </View>
             {!vertical && (
-              <Text style={[styles.label, { color }]} numberOfLines={1} maxFontSizeMultiplier={1.3}>
+              // Follows Dynamic Type all the way up; at the largest sizes a long
+              // label wraps to a second line, then shrinks, instead of overflowing.
+              <Text style={[styles.label, { color }]} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.7}>
                 {item.label}
               </Text>
             )}
           </Pressable>
         );
       })}
-    </View>
+    </GlassSurface>
   );
 }
 
@@ -80,14 +88,13 @@ const useStyles = makeStyles((colors) => ({
     paddingTop: 6,
     borderTopWidth: borderWidth,
     borderColor: colors.border,
-    backgroundColor: colors.card,
   },
   item: { flex: 1, alignItems: 'center', gap: 3, minHeight: 44, justifyContent: 'center' },
-  rail: { width: 52, alignItems: 'center', paddingTop: 8, gap: 6, borderRightWidth: borderWidth, borderColor: colors.border, backgroundColor: colors.card },
+  rail: { width: 52, alignItems: 'center', paddingTop: 8, gap: 6, borderRightWidth: borderWidth, borderColor: colors.border },
   railItem: { width: 40, height: 40, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
   railOn: { backgroundColor: colors.brandSoft },
   pressed: { opacity: 0.6 },
-  label: { fontFamily: fonts.sans.medium, fontSize: 10 },
+  label: { fontFamily: fonts.sans.medium, fontSize: 11, textAlign: 'center' },
   badge: { position: 'absolute', top: -5, left: 12, minWidth: 16, height: 16, borderRadius: 8, paddingHorizontal: 4, alignItems: 'center', justifyContent: 'center' },
-  badgeText: { color: colors.brandForeground, fontFamily: fonts.sans.semibold, fontSize: 10 },
+  badgeText: { color: colors.brandForeground, fontFamily: fonts.sans.semibold, fontSize: 11 },
 }));
