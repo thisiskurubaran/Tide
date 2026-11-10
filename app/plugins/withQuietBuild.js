@@ -5,10 +5,9 @@
 // bundle. None of it can be fixed here, so this turns those off and leaves Tide's
 // own code (the app and widget targets, app/modules/*) with every warning on.
 //
-// - Podfile post_install calls plugins/quiet-build/quiet_build.rb: no warnings for
-//   third-party pods, and script phases without outputs marked as run-every-build.
-// - App target: no warnings from C/Objective-C headers that Swift imports (React,
-//   Expo, Sentry). Swift warnings in Tide's own files still show.
+// - Podfile post_install and post_integrate call plugins/quiet-build/quiet_build.rb:
+//   no warnings for third-party pods, script phases without outputs marked as
+//   run-every-build, and no "Update to recommended settings" prompt.
 // - JS bundle: hermesc runs through plugins/quiet-build/hermesc.sh, which drops
 //   only its "the variable X was not declared" warning for runtime globals.
 const { withPodfile, withXcodeProject } = require('expo/config-plugins');
@@ -16,7 +15,9 @@ const { mergeContents } = require('@expo/config-plugins/build/utils/generateCode
 
 const BUNDLE_PHASE = 'Bundle React Native code and images';
 const HERMES_MARKER = 'TIDE_HERMESC';
-const SWIFT_FLAGS = '-Xcc -w';
+// 2.1.0 added this to the app target. Xcode's explicit module builds ignore it, so it
+// hid nothing, and it can split clang module variants. Removed from existing projects.
+const OLD_SWIFT_FLAGS = ' -Xcc -w';
 
 const withQuietPods = (config) =>
   withPodfile(config, (cfg) => {
@@ -37,6 +38,14 @@ const withQuietPods = (config) =>
       offset: 1,
       comment: '#',
     }).contents;
+    podfile.contents = mergeContents({
+      tag: 'tide-quiet-build-integrate',
+      src: podfile.contents,
+      newSrc: ['  post_integrate do |installer|', '    tide_quiet_user_project(installer)', '  end', ''].join('\n'),
+      anchor: /post_install do \|installer\|/,
+      offset: 0,
+      comment: '#',
+    }).contents;
     return cfg;
   });
 
@@ -54,8 +63,8 @@ const withQuietAppTarget = (config) =>
     for (const { value } of list?.buildConfigurations ?? []) {
       const settings = configs[value]?.buildSettings;
       if (!settings) continue;
-      const current = String(settings.OTHER_SWIFT_FLAGS ?? '$(inherited)').replace(/^"|"$/g, '');
-      if (!current.includes(SWIFT_FLAGS)) settings.OTHER_SWIFT_FLAGS = `"${current} ${SWIFT_FLAGS}"`;
+      const current = typeof settings.OTHER_SWIFT_FLAGS === 'string' ? settings.OTHER_SWIFT_FLAGS.replace(/^"|"$/g, '') : null;
+      if (current?.includes(OLD_SWIFT_FLAGS)) settings.OTHER_SWIFT_FLAGS = `"${current.replace(OLD_SWIFT_FLAGS, '')}"`;
     }
 
     const phases = project.hash.project.objects.PBXShellScriptBuildPhase ?? {};
